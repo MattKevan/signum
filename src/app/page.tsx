@@ -1,102 +1,139 @@
-import Image from "next/image";
+// src/app/page.tsx
+'use client';
 
-export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+import Link from 'next/link';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { PlusCircle, Edit3, Eye, Trash2, FilePlus2, ExternalLink } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"; // Assuming shadcn/ui
+import { toast } from "sonner";
+//import { useRouter } from 'next/navigation';
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+export default function HomePageDashboard() {
+  const sites = useAppStore((state) => state.sites);
+  const deleteSiteAndState = useAppStore((state) => state.deleteSiteAndState);
+  const isInitialized = useAppStore((state) => state.isInitialized);
+  //const router = useRouter();
+
+
+  const handleDeleteSite = async (siteId: string, siteTitle: string) => {
+    try {
+      await deleteSiteAndState(siteId);
+      toast.success(`Site "${siteTitle}" has been deleted.`);
+    } catch (error) {
+      toast.error(`Failed to delete site "${siteTitle}".`);
+      console.error("Error deleting site:", error);
+    }
+  };
+
+  if (!isInitialized) {
+    // This state should ideally be handled by the RootLayout's loading indicator
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <p>Loading sites...</p>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+    );
+  }
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
+        <h1 className="text-3xl font-bold text-foreground">My Signum Sites (Local)</h1>
+        <Button asChild size="lg">
+          <Link href="/create-site">
+            <FilePlus2 className="mr-2 h-5 w-5" /> Create New Site
+          </Link>
+        </Button>
+      </div>
+
+      {sites.length === 0 ? (
+        <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
+          <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
+          <p className="text-muted-foreground mb-4">
+            You haven&apos;t created any sites. Click Create New Site to get started.
+          </p>
+          <Button asChild>
+            <Link href="/create-site">
+                <PlusCircle className="mr-2 h-4 w-4" /> Start Creating
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {sites.map((site) => (
+            <div 
+                key={site.siteId} 
+                className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-lg transition-shadow flex flex-col justify-between"
+            >
+              <div>
+                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.config.title}>
+                  {site.config.title || "Untitled Site"}
+                </h2>
+                <p className="text-sm text-muted-foreground mb-1 line-clamp-2" title={site.config.description}>
+                  {site.config.description || 'No description provided.'}
+                </p>
+                <p className="text-xs text-muted-foreground mb-4 break-all" title={site.siteId}>
+                  ID: {site.siteId}
+                </p>
+              </div>
+              <div className="mt-4 flex flex-col sm:flex-row sm:justify-start gap-2">
+                <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none">
+                  <Link href={`/${site.siteId}`} target="_blank" rel="noopener noreferrer">
+                    <Eye className="mr-2 h-4 w-4" /> View
+                  </Link>
+                </Button>
+                <Button variant="default" size="sm" asChild className="flex-1 sm:flex-none">
+                  <Link href={`/edit/${site.siteId}`}>
+                     <Edit3 className="mr-2 h-4 w-4" /> Edit
+                  </Link>
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" className="flex-1 sm:flex-none">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete the site
+                        {site.config.title || 'this site'} and all its content from your local storage.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDeleteSite(site.siteId, site.config.title || 'Untitled Site')}
+                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                      >
+                        Yes, delete site
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+       <footer className="mt-12 text-center text-sm text-muted-foreground">
+        <p>Signum Local Client v0.1.0</p>
+        <p>
+          <Link href="https://github.com/your-repo/signum-client" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+            View on GitHub <ExternalLink className="inline-block ml-1 h-3 w-3" />
+          </Link>
+        </p>
       </footer>
     </div>
   );

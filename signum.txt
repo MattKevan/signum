@@ -1,0 +1,6 @@
+FILE CONCATENATION REPORT
+Root Directory: /src
+Excluded Directories: public, ios, node_modules
+File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html
+================================================================================
+
