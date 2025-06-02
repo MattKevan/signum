@@ -91,11 +91,11 @@ Social features in Signum are managed and experienced primarily within the clien
 
 **Distributed moderation:** Moderation is primarily user-controlled via their personal blocks.yaml file. Clients use this list to filter content from their feeds. Optionally, clients may allow users to import or consult blocks.yaml files from other sites, trusted community members or designated "moderator" sites. There is no central moderation authority; indexers, if used, would focus on spam/abuse detection from a site discovery perspective to maintain the quality of their search results.
 
-2.1 Cryptographic Identity System
-User identity is based on Ed25519 elliptic curve cryptography. Each user generates a unique key pair (public and private key). The Site ID is derived by applying a SHA256 hash to the public key. Authentication into the client can be achieved via Passkeys (WebAuthn) or a BIP39-compliant seed phrase. All updates to a user's site configuration or content manifest should be cryptographically signed to ensure authenticity and integrity when fetched by other clients or indexers.
+### 2.1 Cryptographic Identity System
 
-Security features include provisions for hardware-backed key storage where available, social recovery mechanisms through trusted contacts (defined by the user), and multiple backup options such as encrypted seed phrases and passkey synchronization. The system avoids traditional passwords and centralized account databases.
+Site identity is based on Ed25519 elliptic curve cryptography. On creating a new site, a unique key pair (public and private key) is generated. The Site ID is derived by applying a SHA256 hash to the public key. Authentication into the client can be achieved via Passkeys (WebAuthn) or a BIP39-compliant seed phrase. 
 
+Security features include provisions for hardware-backed key storage where available, and multiple backup options such as encrypted seed phrases and passkey synchronization. The system avoids traditional passwords and centralized account databases. If the user decides to use the Signum hosting platform, this would manage their keys for them. Users would then be able to authenticate with their clients via their Signum hosting login details or their passkey/phrase.
 
 ## 3. Client implementation
 
@@ -115,6 +115,7 @@ The primary client application will likely be a web application, with potential 
 The client application will have a modular structure. Key architectural components include:
 
 * Content management service: Manages local creation and editing of Markdown content and YAML configuration files.
+* Auth service: Sign up and authenticate with the client via username/password or passkey/phrase.
 * Site bundle service: Assembles the site bundle, generates manifest.json and rss.xml, and optionally prepares the web-viewer/ components.
 * Publishing service: Interacts with hosting adapters to upload content bundles.
 * Content rendering engine: Parses and renders content for display within the client, applying style hints from site.yaml.
@@ -139,7 +140,8 @@ A potential first-party hosting option provided by Signum would offer:
 * Global CDN distribution, optimized for serving static content bundles efficiently with appropriate cache control headers.
 * Automatic SSL certificates.
 * A defined uptime SLA.
-* Authentication for publishing to this service would be based on Ed25519 signature verification, aligning with the platform's principles. API endpoints would exist for site registration/authentication, deployment of content bundles, site status checks, and site deletion.
+* Secure key management and authentication. API endpoints would exist for site registration/authentication, deployment of content bundles, site status checks, and site deletion.
+* Send posts as email newsletters (possibly).
 
 ### 4.2 Self-hosting options
 
