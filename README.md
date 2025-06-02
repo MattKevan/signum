@@ -1,61 +1,69 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Signum
 
-## Getting Started
+Signum is a decentralised publishing platform where users retain complete ownership of their content and identity. It's designed to be as simple as possible to get started, while providing robust curation and moderation tools.
 
-First, run the development server:
+Content is primarily structured as Markdown and YAML files. The Signum client application is responsible for fetching, rendering, and presenting this content, offering the primary rich user experience. Published "sites" (content bundles) can be viewed in a basic form in a standard web browser, potentially with client-side rendering scripts or minimal server-generated HTML for SEO and accessibility. Social graph features, such as follows and curations, are managed through user-owned static YAML files, which are processed client-side in an RSS-like fashion for updates.
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
-Signum: Complete Platform Specification and Implementation Guide
-Executive Summary
-Signum is a decentralized publishing platform where users retain complete ownership of their content and identity through cryptographic keys. Content is primarily structured as Markdown and YAML files. The Signum client application is responsible for fetching, rendering, and presenting this content, offering the primary rich user experience. Published "sites" (content bundles) can be viewed in a basic form in a standard web browser, potentially with client-side rendering scripts or minimal server-generated HTML for SEO and accessibility. Social graph features, such as follows and curations, are managed through user-owned static YAML files, which are processed client-side in an RSS-like fashion for updates.
+## Core principles:
 
-Core Principles:
+* User Ownership: Content (Markdown, YAML) and identity belong entirely to users.
+* Privacy by Design: No tracking, analytics, or surveillance in the core protocol or default published outputs.
+* Simplicity First: Content creation in Markdown; client application handles presentation complexity.
+* Content-First, Client-Rendered: Core content is structured data; the client application provides rich presentation and interactivity.
+* Open and Decentralized: No vendor lock-in, utilizing open protocols and formats.
 
-User Ownership: Content (Markdown, YAML) and identity belong entirely to users.
-Privacy by Design: No tracking, analytics, or surveillance in the core protocol or default published outputs.
-Simplicity First: Content creation in Markdown; client application handles presentation complexity.
-Content-First, Client-Rendered: Core content is structured data; the client application provides rich presentation and interactivity.
-Open and Decentralized: No vendor lock-in, utilizing open protocols and formats.
-1. Platform Architecture Overview
-1.1 System Components
-The Signum ecosystem comprises three main areas: User Clients, Hosting Infrastructure, and an optional Discovery Network.
+## 1. Platform Architecture Overview
 
-User Clients (Desktop/Web/Mobile): These applications are central to the Signum experience. They handle identity management using Ed25519 keys, content creation via a Markdown editor, management of YAML configuration files, preparation of content bundles (Markdown, YAML, manifest, RSS), publishing to hosting providers, rendering of Markdown and YAML content for display, and client-side processing of social graph data (follows, blocks, curations) with RSS-like updates for feeds.
-Hosting Infrastructure (Stores Content Bundles): This can be first-party hosting (e.g., signum.org), user self-hosting (via FTP or other static hosting methods), or third-party adapters for services like GitHub Pages, Netlify, or S3. This infrastructure stores the static content bundles published by users.
-Discovery Network (Optional): This consists of distributed indexers that users can optionally announce their sites to. Its purpose is solely for content and site discovery (e.g., search by keyword/tag, identifying trending content based on site updates), not for social graph aggregation.
-1.2 Data Flow
-Identity Creation: A user generates an Ed25519 key pair within the Signum client, which forms their cryptographic identity.
-Content Authoring: The user creates content in Markdown and manages associated YAML files (site configuration, follows, blocks, curations, likes) using the client application.
-Content Bundle Preparation: The client assembles a content bundle. This includes the Markdown files, all YAML configuration files, an rss.xml feed for content updates, and a manifest.json file detailing the bundle's structure and last update timestamps. Optionally, a minimal HTML wrapper and a client-side viewer script can be included in the bundle for basic web browser accessibility.
-Publishing: The user uploads this content bundle to their chosen hosting provider via integrated hosting adapters in the client.
-Discovery (Optional): The user can choose to announce their site's existence or updates to the distributed indexer network, making their content discoverable to a wider audience.
-Content Consumption & Social Interaction (Primarily via Signum Client):
-Signum clients periodically fetch manifest.json files and rss.xml feeds from sites the user follows or discovers.
-Based on this information, clients download relevant Markdown content files and social YAML files (e.g., follows.yaml, curations.yaml).
-The client application then renders the Markdown content for display, applying any styling hints defined in the site's site.yaml. It also processes the social YAML files to build and maintain a local, personalized social graph and aggregated content feed.
-Basic Web Viewing: If a content bundle includes the optional web-viewer components, standard web browsers can access a minimal, client-side rendered view of the content or display pre-generated HTML metadata for SEO.
-2. Technical Specifications
-2.1 Cryptographic Identity System
-User identity is based on Ed25519 elliptic curve cryptography. Each user generates a unique key pair (public and private key). The Site ID is derived by applying a SHA256 hash to the public key. Authentication into the client can be achieved via Passkeys (WebAuthn) or a BIP39-compliant seed phrase. All updates to a user's site configuration or content manifest should be cryptographically signed to ensure authenticity and integrity when fetched by other clients or indexers.
+### 1.1 System Components
 
-Security features include provisions for hardware-backed key storage where available, social recovery mechanisms through trusted contacts (defined by the user), and multiple backup options such as encrypted seed phrases and passkey synchronization. The system avoids traditional passwords and centralized account databases.
+The Signum ecosystem comprises three main areas: user clients, hosting infrastructure, and an optional discovery network.
 
-2.2 Content Format Specification
+**User clients (Desktop/Web/Mobile):**
+
+These applications are central to the Signum experience. They handle content creation via a Markdown editor, management of YAML configuration files, preparation of content bundles (Markdown, YAML, manifest, RSS), publishing to hosting providers, rendering of Markdown and YAML content for display, and client-side processing of social graph data (follows, blocks, curations) with RSS-like updates for feeds.
+
+**Hosting infrastructure (stores content bundles):** 
+
+Any basic HTTP server should be able to host a Signum site. Storage and resource usage should be minimal. This could be first-party hosting (e.g., signum.org), user self-hosting via FTP), or Git-backed hosting like GitHub Pages, Netlify, or Vercel. This infrastructure stores the static site bundles published by users.
+
+**Discovery network (optional):**
+
+This consists of distributed indexers that users can optionally announce their sites to. Its purpose is solely for content and site discovery (e.g., search by keyword/tag, identifying trending content based on site updates), not for social graph aggregation.
+
+### 1.2 Data Flow
+
+**Content Authoring:** The user creates content in Markdown and manages associated YAML files (site configuration, follows, blocks, curations, likes) using the client application.
+
+**Content bundle preparation:** The client assembles a content bundle. This includes the Markdown files, all YAML configuration files, an rss.xml feed for content updates, and a manifest.json file detailing the bundle's structure and last update timestamps. Optionally, a minimal HTML wrapper and a client-side viewer script can be included in the bundle for basic web browser accessibility.
+
+**Publishing:** The user uploads this content bundle to their chosen hosting provider. 
+
+
+**CContent consumption & social interaction (primarily via Signum client):** Users can view Signum sites in the client app. The client application then renders the Markdown content for display, applying any styling hints defined in the site's site.yaml. It also processes the social YAML files to build and maintain a local, personalized social graph and aggregated content feed.
+
+Signum clients periodically fetch manifest.json files and rss.xml feeds from sites the user follows or discovers. Based on this information, clients download relevant Markdown content files and social YAML files (e.g., follows.yaml, curations.yaml).
+
+While Signum has basic follow/block abd curation features, it's a publishing platform first and foremost, not an ActivityPub/ATProto alternative.
+
+**Basic Web Viewing:** If a content bundle includes the optional web-viewer components, standard web browsers can access a minimal, client-side rendered view of the content or display pre-generated HTML metadata for SEO.
+
+**Discovery (optional):** The user can choose to announce their site's existence or updates to the distributed indexer network, making their content discoverable to a wider audience.
+
+### 2. Technical specifications
+
+2.1 Content format specification
+
 A Signum site is published as a "Content Bundle," a structured collection of files.
 
-Directory Structure: The root directory of a content bundle typically contains the main site.yaml configuration, social interaction YAML files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml), a content/ subdirectory for Markdown articles, a manifest.json file, an rss.xml feed, an optional web-viewer/ directory for basic browser access, and a .siteid file for cryptographic identification. The content/ directory will house index.md for the homepage, about.md, and often a posts/ subdirectory for chronological entries. The web-viewer/ directory, if present, would contain a minimal index.html, a viewer.js script, and a basic style.css.
+Directory structure: The root directory of a content bundle typically contains the main site.yaml configuration, social interaction YAML files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml), a content/ subdirectory for Markdown articles, a manifest.json file, an rss.xml feed, an optional web-viewer/ directory for basic browser access, and a .siteid file for cryptographic identification. The content/ directory will house index.md for the homepage, about.md, and often a posts/ subdirectory for chronological entries. The web-viewer/ directory, if present, would contain a minimal index.html, a viewer.js script, and a basic style.css.
+
 Site Configuration (site.yaml): This YAML file contains the site's title, description, author information, a global lastUpdated timestamp for the entire bundle, and optional style_hints. Style hints might include preferences for font family (e.g., serif, sans-serif), theme (light, dark), and a primary highlight color. It also contains content_timestamps for different sections (e.g., posts, follows) which are used by manifest.json.
+
 Content Format (Markdown + YAML frontmatter): Content is written in standard Markdown. Each Markdown file can include a YAML frontmatter block for metadata such as title, publication date, update date, tags, a summary, draft status, and a boolean allow_likes (signifying author consent for their content to be publicly bookmarked by others). User-authored content within Markdown files should not contain embedded HTML or JavaScript to maintain security and simplicity.
+
 Social YAML Files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml): These are simple YAML lists. For example, follows.yaml would list Site IDs or URLs, potentially with an alias or category. These files are public if included in the published bundle and are fetched by clients to build local social graphs.
 Manifest (manifest.json): This JSON file acts as a table of contents for the content bundle. It lists all significant files (Markdown content, social YAMLs) and their last modification timestamps. This allows clients to efficiently determine what has changed since the last fetch.
+
 RSS Feed (rss.xml): A standard RSS/Atom feed generated from the site's posts or other listable content. It includes item titles, links (which could point to raw Markdown files, Signum client URIs, or web-viewer URLs), publication dates, and summaries. This is essential for client feed readers and can aid in SEO.
 2.3 Hosting Adapter Architecture
 The client application will feature a standardized interface for interacting with various hosting providers. This HostingAdapter interface will define methods for authentication, uploading a site's content bundle, retrieving site status, and deleting a site.
@@ -74,6 +82,13 @@ Following System: Users define whom they follow in their follows.yaml file. Clie
 Content Likes (Public Bookmarks): When a user "likes" a piece of content, its URL is added to their public likes.yaml file. This acts as a public bookmark. Other users' clients can discover these likes by fetching the likes.yaml file from the liker's site. There is no central aggregation of like counts. The allow_likes field in a post's frontmatter signals the author's consent for their content to be listed in this manner.
 Curation Lists: Users can create public collections of content links with optional notes in their curations.yaml file. Clients can fetch and display these lists, enabling cross-site content discovery based on user taste.
 Distributed Moderation: Moderation is primarily user-controlled via their personal blocks.yaml file. Clients use this list to filter content from their feeds. Optionally, clients may allow users to import or consult blocks.yaml files from trusted community members or designated "moderator" sites. There is no central moderation authority; indexers, if used, would focus on spam/abuse detection from a site discovery perspective to maintain the quality of their search results.
+
+2.1 Cryptographic Identity System
+User identity is based on Ed25519 elliptic curve cryptography. Each user generates a unique key pair (public and private key). The Site ID is derived by applying a SHA256 hash to the public key. Authentication into the client can be achieved via Passkeys (WebAuthn) or a BIP39-compliant seed phrase. All updates to a user's site configuration or content manifest should be cryptographically signed to ensure authenticity and integrity when fetched by other clients or indexers.
+
+Security features include provisions for hardware-backed key storage where available, social recovery mechanisms through trusted contacts (defined by the user), and multiple backup options such as encrypted seed phrases and passkey synchronization. The system avoids traditional passwords and centralized account databases.
+
+
 3. Client Implementation
 3.1 Technology Stack
 The primary client application will likely be a web application, with potential for future desktop (e.g., via Tauri) and mobile (e.g., via React Native) versions. Key technologies include:
@@ -310,4 +325,19 @@ Set up community channels (forum, chat, code repository).
 Draft initial versions of legal policies and detailed technical API specifications.
 Work towards a minimum viable product (MVP) focusing on core publishing and client-rendering.
 This specification is version 1.3 and will be updated as the project evolves. For the latest version, consult the project's official documentation repository once established.
+
+
+## Getting Started
+
+First, run the development server:
+
+```bash
+npm run dev
+# or
+yarn dev
+# or
+pnpm dev
+# or
+bun dev
+```
 
