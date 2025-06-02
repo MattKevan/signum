@@ -164,146 +164,188 @@ The discovery network is an optional layer designed to help users find Signum si
 * Search for sites/content by keywords or tags.
 * Retrieve a list of trending content (based on non-social signals).
 
-5.2 Privacy-Preserving Discovery
+### 5.2 Privacy-Preserving Discovery
 
 Data collection by indexers is designed to be privacy-preserving:
 
-Data Collection: Indexers only collect publicly available site metadata (from site.yaml or announced data) and the text of public content for search indexing purposes.
-Verification: Cryptographically signed site announcements can be used by indexers to verify the authenticity of the source.
-Anonymity: No personal user information (beyond what users voluntarily make public on their sites) is required by indexers.
-User Control: Users control their participation by choosing whether or not to announce their site to any indexers.
+* **Data collection:** Indexers only collect publicly available site metadata (from site.yaml or announced data) and the text of public content for search indexing purposes.
+* **Anonymity:** No personal user information (beyond what users voluntarily make public on their sites) is required by indexers.
+* **User control:** Users control their participation by choosing whether or not to announce their site to any indexers.
+  
 Search features provided by indexers would include full-text search of indexed public content, tag-based filtering, and author/site discovery based on public site metadata.
-6. Security Model
-6.1 Threat Model
+
+## 6. Trust and security
+
+### 6.1 Threat model
+
 Signum aims to protect against:
 
-Content tampering (via cryptographic signatures on site announcements and verification by clients).
-Identity spoofing (due to unforgeable Ed25519 keys).
-Platform lock-in (users own their keys and content bundles, which are based on open formats).
-Surveillance (no central tracking of browsing/reading habits within the core protocol; published sites are static and tracker-free by default).
-Censorship (facilitated by distributed hosting options and client-side social graph construction).
+* Platform lock-in (users own their content and can host anywhere).
+* Surveillance (no central tracking of browsing/reading habits within the core protocol; published sites are static and tracker-free by default).
+* Censorship (facilitated by distributed hosting options and client-side social graph construction).
+
 Signum does not inherently protect against:
 
-Hosting provider takedowns (though content can be re-hosted elsewhere).
-Sophisticated government-level censorship or network attacks.
-Compromise of the user's client device or private keys.
+* Hosting provider takedowns (though content can be re-hosted elsewhere).
+* Sophisticated government-level censorship or network attacks.
+* Compromise of the user's client device or hosting provider.
+* Modification of user-published content or scripts by user or other parties.
+
 A potential new vector exists if the optional web-viewer/viewer.js (if included in user-published bundles and user-modifiable) has vulnerabilities; this would affect users viewing via a standard browser. This risk is mitigated if viewer.js is a standardized, non-user-modifiable script provided by the Signum client during bundle preparation.
 
-6.2 Security Features
-Cryptographic Integrity: All significant site updates can be reflected in a signed site.yaml or manifest, allowing clients to verify the authenticity of site structure and content pointers. Clients can perform signature verification on loaded data. Hashes from the manifest can be used for tamper detection of cached content. Key derivation uses secure methods like PBKDF2.
-Privacy Protection: No JavaScript is included in user-authored published content by default. No third-party resources are embedded by default. The core platform and default published sites do not use cookies or tracking mechanisms. Users can choose to publish anonymously by managing the link between their cryptographic key and their real-world identity. Social graph data (like follows.yaml) is public if published but is processed client-side, avoiding central aggregation of social connections.
-Backup and Recovery: Multiple backup methods for cryptographic keys (encrypted seed phrase, passkey sync) are planned. Social recovery options, allowing users to designate trusted contacts to help regain access, will be explored.
-7. Development Roadmap
+### 6.2 Security features
+
+**Privacy protection:** No JavaScript is included in user-authored published content by default. No third-party resources are embedded by default. The core platform and default published sites do not use cookies or tracking mechanisms. Users can choose to publish anonymously by managing the link between their site and real-world identity. Social graph data (like follows.yaml) is public but is processed client-side, avoiding central aggregation of social connections.
+
+### 6.3 Optional content & viewer script integrity (future ideas)
+To enhance trust and verify the authenticity and integrity of published content and the basic web viewing experience, several opt-in verification mechanisms are planned for future development. These features aim to provide users and content consumers with greater confidence in the content they are interacting with.
+
+### 6.3.1 Opt-in site content signing & verification:
+
+Concept: While base Signum sites can be published as simple, unsigned text files for maximum simplicity, site owners will have the optional ability to cryptographically sign their content bundles. This feature is intended for those who wish to provide a higher assurance of authenticity and integrity for their published work.
+Mechanism:
+
+* The Signum client will allow users to sign their manifest.json file using their private Ed25519 key (associated with their Site ID).
+* This signed manifest contains checksums for all content files in the bundle.
+* Other Signum clients can then fetch the site, verify the signature on the manifest using the site owner's public key, and subsequently verify the integrity of each content file against the checksums in the trusted manifest.
+
+Benefits: Provides strong proof that the content originates from the claimed author (identified by their Site ID) and has not been tampered with since it was signed.
+Status: This is an opt-in feature for site owners and will be introduced in a later development phase. Sites will function without this signing, prioritizing ease of use for basic publishing.
+
+### 6.3.2 Optional DNS-Based domain verification:
+
+Concept: To further enhance trust for sites using custom domains, an optional verification method linking the Signum Site ID to DNS ownership is planned.
+Mechanism:
+
+* Site owners can publish their Signum public key in a specific DNS TXT record for their custom domain.
+* Signum clients can fetch this public key from DNS and use it to verify the signature on the site's manifest.json (if the site owner has opted into content signing).
+* Benefits: Provides a strong link between domain ownership and the cryptographic identity of the Signum site, offering a "verified" status.
+
+Status: This is an opt-in feature for site owners using custom domains and will be introduced in a later development phase, likely in conjunction with or after site content signing.
+
+### 6.3.3 Standardized web viewer script integrity (future idea):
+
+Concept: To ensure the integrity of the basic web viewing experience provided by the optional web-viewer/ components (specifically viewer.js and style.css), and to protect against tampering (e.g., injection of tracking code), their integrity will be verifiable.
+Mechanism:
+
+* The Signum client will generate the web-viewer/index.html with Subresource Integrity (SRI) attributes for the standardized viewer.js and style.css files.
+* The hashes for these SRI attributes will be based on official versions of viewer.js and style.css released and hashed by the Signum project/organization.
+* Browsers supporting SRI will automatically refuse to load these scripts if their content does not match the official hash, preventing execution of tampered viewer scripts.
+* The manifest.json will also include these official hashes for reference and for verification by full Signum clients.
+
+Benefits: Protects users accessing Signum sites via a standard web browser from malicious or altered viewer scripts, upholding the platform's privacy and security principles even in the basic web view.
+
+Status: This feature, ensuring the integrity of the standardized viewer scripts, will be implemented in a later development phase. Initially, the web-viewer will provide basic rendering without this specific SRI-based integrity check tied to centrally published hashes.
+
+By making these verification features opt-in and phasing their introduction, Signum aims to balance the core goal of simplicity with the provision of robust security and trust mechanisms for users who require them.
+
+## 7. Development Roadmap
+
 All features are currently in the planning stage. The development will proceed in phases:
 
-7.1 Phase 1: Core Platform (Planned)
-Identity and key management (Ed25519, seed phrases, Passkeys).
-Basic site content creation (local Markdown/YAML editing within the client).
-Markdown editor with preview.
-Content Bundle Preparation (Markdown, YAML, basic manifest.json, rss.xml).
-First-party hosting integration (for content bundles).
-Self-hosting via FTP (for content bundles).
-Basic client-side rendering of Markdown content.
-7.2 Phase 2: Social Features & Enhanced Client (Planned)
-Client-side Follow system (editing follows.yaml, client parsing of followed sites' data).
-Client-side Curation lists (editing curations.yaml, client parsing).
-Client-side Content "Like" system (public bookmarking via likes.yaml, client interpretation).
-Client-side feed aggregation and "sites+n" graph traversal logic.
-Advanced client-side rendering engine with support for site.yaml style hints.
-Implementation of optional web-viewer/ generation for basic browser accessibility.
-Basic discovery features via indexers (site announcement, simple search).
-Client-side distributed moderation tools (interpreting blocks.yaml).
-7.3 Phase 3: Advanced Features & Ecosystem (Planned)
-Mobile client application (e.g., React Native) with efficient background sync and native rendering.
-Desktop client application (e.g., Tauri) with robust background sync and high-performance rendering.
-Advanced hosting adapters (GitHub Pages, Netlify, S3, etc.).
-Import tools for migrating content from platforms like WordPress or Medium.
-Collaboration features for multi-author sites (still resulting in a single content bundle).
-Advanced theming and customization options within the client.
-Enhanced indexer capabilities (more sophisticated search, content-based trending).
-7.4 Phase 4: Long-Term Growth & Sustainability (Planned)
-Support for third-party client development.
-A plugin or extension system for clients.
-Potential for enterprise hosting solutions or features.
-A comprehensive Developer API and SDK.
-Exploration of non-intrusive monetization options for creators, aligned with platform principles.
-8. Implementation Guide
-8.1 Getting Started (Future)
-Once initial versions are available, getting started will involve:
+### 7.1 Core platform
 
-Installing Node.js (latest LTS version) and npm/yarn.
-Using a modern web browser with Web Crypto API support.
-Basic familiarity with Git for contributing or using Git-based hosting.
-Instructions would involve cloning the client repository, installing dependencies, and running development or build scripts.
-8.2 Configuration
-The client application will be configurable via environment variables and a TypeScript configuration file.
+* Basic site content creation (local Markdown/YAML editing within the client).
+* Markdown editor with preview.
+* Site Bundle Preparation (Markdown, YAML, basic manifest.json, rss.xml).
+* First-party hosting integration (for content bundles).
+* Self-hosting via FTP (for content bundles).
+* Basic client-side rendering of site content.
 
-Environment Variables: For setting URLs of first-party APIs, default indexer URLs, and upload size limits.
-Client Configuration File (e.g., signum.config.ts): For detailed settings related to API timeouts/retries, indexer preferences, default hosting adapter, editor preferences (autosave, image sizes), feed behavior (fetch interval, traversal depth), client rendering defaults, and content bundle preparation options (e.g., whether to include the web-viewer by default).
-8.3 Deployment Options (For Users Publishing Sites)
-Users will deploy their Signum content bundles using:
+### 7.2 Social features & enhanced client
 
-First-Party Hosting: Via the Signum client interface.
-Vercel/Netlify: By connecting their Git repository (where the client might push the bundle).
-Self-Hosted Docker: By building a Docker image that serves the static content bundle.
-Traditional FTP/SFTP: Uploading the bundle directory to a web server.
-9. API Reference (Conceptual)
+* Client-side Follow system (editing follows.yaml, client parsing of followed sites' data).
+* Client-side Curation lists (editing curations.yaml, client parsing).
+* Client-side Content "Like" system (public bookmarking via likes.yaml, client interpretation).
+* Client-side feed aggregation and "sites+n" graph traversal logic.
+* Advanced client-side rendering engine with support for site.yaml style hints.
+* Implementation of optional web-viewer/ generation for basic browser accessibility.
+* Basic discovery features via indexers (site announcement, simple search).
+* Client-side distributed moderation tools (interpreting blocks.yaml).
+
+### 7.3 Advanced features & ecosystem
+
+* Mobile client application (e.g., React Native) with efficient background sync and native rendering.
+* Desktop client application (e.g., Tauri) with robust background sync and high-performance rendering.
+* Advanced hosting adapters (GitHub Pages, Netlify, S3, etc.).
+* Import tools for migrating content from platforms like WordPress or Medium.
+* Collaboration features for multi-author sites (still resulting in a single content bundle).
+* Advanced theming and customization options within the client.
+* Enhanced indexer capabilities (more sophisticated search, content-based trending).
+
+### 7.4 Long-term growth & sustainability
+
+* Support for third-party client development.
+* A plugin or extension system for clients.
+* Potential for enterprise hosting solutions or features.
+* A comprehensive Developer API and SDK.
+* Exploration of non-intrusive monetization options for creators, aligned with platform principles.
+
+## 8. API reference 
+
 This section outlines the conceptual APIs. Detailed specifications will be developed.
 
-9.1 Client API (Internal Services)
+### 8.1 Client API (internal services)
+
 Internal client services will manage:
 
-Identity Management: Creating new identities, importing from seed phrases.
-Site Management: Creating new local site structures, loading existing ones, listing all managed sites.
-Content Management: Creating, updating, and listing posts/pages (Markdown files) and managing YAML files within a site's local bundle.
-Content Bundle Preparation: Triggering the generation of manifest.json, rss.xml, and the optional web-viewer/.
-Publishing: Initiating the upload of a content bundle using a selected hosting adapter.
-Social & Feed Management: Adding/removing follows/blocks (modifying local YAMLs, triggering bundle regeneration), publicly "liking" content, fetching updates from followed sites, and providing an aggregated, rendered feed to the UI.
-9.2 Hosting API (Example: First-Party Service)
+* Site Management: Creating new local site structures, loading existing ones, listing all managed sites.
+* Content Management: Creating, updating, and listing posts/pages (Markdown files) and managing YAML files within a site's local bundle.
+* Site bundle preparation: Triggering the generation of manifest.json, rss.xml, and the optional web-viewer/.
+* Publishing: Initiating the upload of a content bundle using a selected hosting adapter.
+* Social & feed management: Adding/removing follows/blocks (modifying local YAMLs, triggering bundle regeneration), publicly "liking" content, fetching updates from followed sites, and providing an aggregated, rendered feed to the UI.
+
+### 8.2 Hosting API (Example: First-Party Service)
+
 A first-party hosting service would expose RESTful endpoints for:
 
 POST /v1/auth: Site registration and authentication using cryptographic signatures.
 POST /v1/deploy: Site deployment, accepting a payload containing the site ID, content hash, timestamp, and the content bundle itself (e.g., a map of file paths to base64 encoded content). Expected response would confirm success and provide the deployment URL.
 GET /v1/sites/{id}: To retrieve site status.
 DELETE /v1/sites/{id}: For site deletion.
-9.3 Discovery API (Example: Indexer Service)
-Indexer services would expose RESTful endpoints for:
+
+### 8.3 Discovery API (Example: Indexer Service)
+
+Indexer services would expose endpoints for:
 
 POST /v1/announce: To allow clients to announce a new site or an update to an existing site. The payload would include site URL, title, description, tags, last update timestamp, RSS feed URL, and an optional cryptographic signature of the payload for verification.
 GET /v1/sites/search: To search for sites or content based on query parameters (e.g., keywords, tags, limits). The response would be a list of matching sites/content with relevant metadata.
 GET /v1/content/trending: To get a list of currently trending content, based on non-social signals processed by the indexer.
-10. Contributing and Community
+
+## 9. Contributing and community
+
 Signum aims to be an open, community-driven project.
 
-10.1 Development Guidelines (Future)
-Once development begins, guidelines will be established, covering:
+### 9.1 Development guidelines (future)
 
-Code Standards: Use of TypeScript, ESLint/Prettier for formatting, Jest (or similar) for testing.
-Error Handling: Comprehensive error handling and reporting.
-Accessibility: Adherence to WCAG 2.1 (or later) standards for the client application.
-Contribution Process: Standard fork, feature branch, test, pull request, code review, and merge workflow via a platform like GitHub.
-10.2 Community Resources (Future)
-Resources will be developed as the project matures:
+Guidelines will be established covering code standards, error handling, accessibility, contribution process and test coverage.
 
-Documentation: Developer documentation, API references, user guides at a dedicated docs site (e.g., docs.signum.org).
-Community Forum: For discussions, feature requests, and user support (e.g., community.signum.org).
-GitHub Repository: The central location for code, issue tracking, and contributions.
-Support Channels: GitHub Issues for bug reports and technical queries, a Discord server or similar for real-time chat, and a dedicated email for security-related disclosures.
-11. Legal and Compliance
-11.1 Privacy Policy
+### 9.2 Community resources (future)
+
+Resources will be developed, including documentation, issue tracking and support channels as the project matures.
+
+## 10. Legal and compliance
+    
+### 10.1 Privacy Policy
+
 A detailed privacy policy will be drafted, emphasizing:
 
-Minimal Data Collection: The platform is designed to collect minimal user data. Cryptographic identities are pseudonymous by default.
-User Control: Users control all content they publish, including their public social YAML files. Client applications manage social graph construction locally and do not send this graph to a central server for processing related to the user's direct experience.
-GDPR Compliance: The platform will aim for GDPR compliance, including rights to erasure (users can delete their sites and keys), data portability (users can export their content bundles), consent management for optional features, and transparent data practices.
-11.2 Content Policy
+* Minimal Data Collection: The platform is designed to collect minimal user data. Cryptographic identities are pseudonymous by default.
+* User Control: Users control all content they publish, including their public social YAML files. Client applications manage social graph construction locally and do not send this graph to a central server for processing related to the user's direct experience.
+* GDPR Compliance: The platform will be GDPR compliant, including rights to erasure (users can delete their sites and keys), data portability (users can export their content bundles), consent management for optional features, and transparent data practices.
+
+### 10.2 Content policy
+
 A content policy or community guidelines will be established, outlining:
 
-User Responsibility: Users are responsible for the content they publish and must comply with applicable local laws and respect intellectual property rights.
-Platform Liability: Due to its decentralized nature and focus on user ownership, the platform itself (as an entity, if one exists) will have limited liability for user-generated content. Procedures for DMCA compliance and reporting illegal content will be defined, particularly for any first-party hosting services.
-Moderation: Moderation is primarily user-driven (via blocks.yaml). Indexers or first-party services may implement policies against spam or illegal content for services they directly provide. Appeal and dispute resolution processes will be considered.
-12. Technical FAQ
-12.1 Common Questions
+* User Responsibility: Users are responsible for the content they publish and must comply with applicable local laws and respect intellectual property rights.
+* Platform Liability: Due to its decentralized nature and focus on user ownership, the platform itself (as an entity, if one exists) will have limited liability for user-generated content. Procedures for DMCA compliance and reporting illegal content will be defined, particularly for any first-party hosting services.
+* Moderation: Moderation is primarily user-driven (via blocks.yaml). Indexers or first-party services may implement policies against spam or illegal content for services they directly provide. Appeal and dispute resolution processes will be considered.
+
+## 11. Technical FAQ
+
+### 11.1 Common questions
+
 Q: How does Signum differ from traditional publishing platforms?
 A: Signum users own their content (as Markdown/YAML files) and identity via cryptographic keys. The Signum client application is the primary interface, rendering content and building social feeds by fetching data from other users' static content bundles. Indexers are optional and only for content discovery, not social graph management.
 
@@ -316,9 +358,6 @@ A: The protocol and content formats are open. Users retain their cryptographic i
 Q: Can I migrate content from platforms like WordPress or Medium?
 A: Tools for importing content from major platforms are planned for future development. Content would be converted to Markdown format, preserving metadata and structure where possible.
 
-Q: How secure is the cryptographic system?
-A: Signum will use Ed25519, a widely respected and secure elliptic curve cryptography system. All cryptographic operations will rely on well-tested, standard libraries. User keys are managed by the client and stored securely using platform capabilities (e.g., OS keychain, browser Web Crypto API).
-
 Q: What about performance and SEO for published sites?
 A: The Signum client application will be optimized for performance in fetching and rendering content. For sites viewed directly on the web (outside the Signum client), performance will depend on the efficiency of the optional web-viewer/ script and standard static file serving. SEO is addressed through rss.xml, manifest.json, site.yaml metadata, and the potential for the web-viewer/index.html to contain pre-rendered metadata or be crawlable by search engines. The best user experience and richest features are within the Signum client.
 
@@ -328,40 +367,19 @@ A: When you follow a site, its ID is added to your public follows.yaml file with
 Q: How are "likes" handled?
 A: "Liking" a post in Signum means adding its URL to your public likes.yaml file. This acts as a public bookmark or endorsement. Other users' clients can see your likes if they fetch your likes.yaml as part of their social graph traversal. There are no centrally aggregated "like counts" displayed on posts, as this would require central tracking or significantly more complex client-side aggregation. The allow_likes tag in a post's metadata simply means the author consents to their content being listed in others' likes.yaml files.
 
-12.2 Troubleshooting (Future Considerations)
+### 11.2 Troubleshooting (Future Considerations)
+
 Common issues might include:
 
-Seed phrase lost/Key compromise: Social recovery (if configured) would be the primary recourse; otherwise, identity tied to those keys may be unrecoverable.
-Publishing failures: Issues with hosting adapter configuration, network connectivity, or hosting provider limits.
+* Publishing failures: Issues with hosting adapter configuration, network connectivity, or hosting provider limits.
 Content not syncing/Feed not updating: Problems with client network connectivity, malformed manifest.json or rss.xml on target sites, client fetch intervals, or errors during client-side parsing.
-Performance issues in client: May occur if following a very large number of sites or with a deep "sites+n" traversal configuration. Client settings for fetch frequency or traversal depth might need adjustment.
+* Performance issues in client: May occur if following a very large number of sites or with a deep "sites+n" traversal configuration. Client settings for fetch frequency or traversal depth might need adjustment. Large curation lists may incur performance problems.
+
 Debug information would be available through browser console logs, network request inspection in developer tools, IndexedDB content inspection, and potentially dedicated logging within the client application.
-Conclusion
-Signum aims to offer a novel approach to online publishing, placing paramount importance on user ownership, data portability, privacy, and simplicity. By structuring content as user-owned Markdown and YAML bundles and making the client application central to rendering and social interaction, Signum provides a decentralized alternative to traditional platforms. The model is designed to be resilient, open, and adaptable, with users always in control of their cryptographic identity and their published data. Social features are emergent from the interconnected web of user-managed content bundles, processed client-side, fostering a different kind of online interaction.
+
+## Conclusion
+
+Signum aims to offer a novel approach to online publishing, placing paramount importance on user ownership, data portability, privacy, and simplicity. By structuring content as user-owned Markdown and YAML bundles and making the client application central to rendering and social interaction, Signum provides a decentralized alternative to traditional platforms. The model is designed to be resilient, open, and adaptable, with users always in control of their identity and their published data. Social features are emergent from the interconnected web of user-managed content bundles, processed client-side, fostering a different kind of online interaction.
 
 The platform's success will depend on creating intuitive and powerful client applications, fostering a community around its open protocols, and clearly communicating its unique value proposition to both creators and consumers of content.
-
-Next Steps (Upon Project Initiation):
-
-Establish core development team and infrastructure.
-Begin implementation of Phase 1 features.
-Set up community channels (forum, chat, code repository).
-Draft initial versions of legal policies and detailed technical API specifications.
-Work towards a minimum viable product (MVP) focusing on core publishing and client-rendering.
-This specification is version 1.3 and will be updated as the project evolves. For the latest version, consult the project's official documentation repository once established.
-
-
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
 
