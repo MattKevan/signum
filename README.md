@@ -2,15 +2,15 @@
 
 Signum is a decentralised publishing platform where users retain complete ownership of their content and identity. It's designed to be as simple as possible to get started, while providing robust curation and moderation tools.
 
-Content is primarily structured as Markdown and YAML files. The Signum client application is responsible for fetching, rendering, and presenting this content, offering the primary rich user experience. Published "sites" (content bundles) can be viewed in a basic form in a standard web browser, potentially with client-side rendering scripts or minimal server-generated HTML for SEO and accessibility. Social graph features, such as follows and curations, are managed through user-owned static YAML files, which are processed client-side in an RSS-like fashion for updates.
+Content is primarily structured as plain text files with minimal formatting (Markdown, YAML). The Signum client is responsible for fetching, rendering, and presenting this content, offering the primary rich user experience. Published sites can be viewed in a basic form in a standard web browser, potentially with client-side rendering scripts or minimal server-generated HTML for SEO and accessibility. Social graph features, such as follows and curations, are managed through user-owned static files, which are processed client-side in an RSS-like fashion for updates.
 
 ## Core principles:
 
-* User Ownership: Content (Markdown, YAML) and identity belong entirely to users.
-* Privacy by Design: No tracking, analytics, or surveillance in the core protocol or default published outputs.
-* Simplicity First: Content creation in Markdown; client application handles presentation complexity.
-* Content-First, Client-Rendered: Core content is structured data; the client application provides rich presentation and interactivity.
-* Open and Decentralized: No vendor lock-in, utilizing open protocols and formats.
+* User ownership: content and identity belong entirely to users.
+* Privacy by design: No tracking, analytics, or surveillance in the core protocol or default published outputs.
+* Simplicity first: Content creation in Markdown; client application handles presentation complexity.
+* Content-first, client-rendered: Core content is structured text; the client application provides rich presentation and interactivity.
+* Open and decentralized: No vendor lock-in, utilizing open protocols and formats.
 
 ## 1. Platform Architecture Overview
 
@@ -20,7 +20,7 @@ The Signum ecosystem comprises three main areas: user clients, hosting infrastru
 
 **User clients (Desktop/Web/Mobile):**
 
-These applications are central to the Signum experience. They handle content creation via a Markdown editor, management of YAML configuration files, preparation of content bundles (Markdown, YAML, manifest, RSS), publishing to hosting providers, rendering of Markdown and YAML content for display, and client-side processing of social graph data (follows, blocks, curations) with RSS-like updates for feeds.
+These applications are central to the Signum experience. They handle content creation via a text editor, configuration management, preparation of content bundles, publishing to hosting providers, content rendering, and client-side processing of social graph data (follows, blocks, curations) with RSS-like updates for feeds.
 
 **Hosting infrastructure (stores content bundles):** 
 
@@ -28,60 +28,68 @@ Any basic HTTP server should be able to host a Signum site. Storage and resource
 
 **Discovery network (optional):**
 
-This consists of distributed indexers that users can optionally announce their sites to. Its purpose is solely for content and site discovery (e.g., search by keyword/tag, identifying trending content based on site updates), not for social graph aggregation.
+These consists of distributed indexers that users can optionally announce their sites to. They are solely for content and site discovery (e.g., search by keyword/tag, identifying trending content based on site updates), not for social graph aggregation. Indexers will be an open standard, enabling anyone to host their own. Potentially indexers focusing on specific types of content (publications) could be created.
 
 ### 1.2 Data Flow
 
 **Content Authoring:** The user creates content in Markdown and manages associated YAML files (site configuration, follows, blocks, curations, likes) using the client application.
 
-**Content bundle preparation:** The client assembles a content bundle. This includes the Markdown files, all YAML configuration files, an rss.xml feed for content updates, and a manifest.json file detailing the bundle's structure and last update timestamps. Optionally, a minimal HTML wrapper and a client-side viewer script can be included in the bundle for basic web browser accessibility.
+**Content bundle preparation:** The client assembles a content bundle. This includes the Markdown files, all  configuration files, an rss.xml feed for content updates, and a manifest.json file detailing the bundle's structure and last update timestamps. Optionally, a minimal HTML wrapper and a client-side viewer script can be included in the bundle for basic web browser accessibility. 
+
+The site format should be so simple that anyone could write an entire site by hand with minimal technical knowledge. The client is just an easier interface for doing this.
 
 **Publishing:** The user uploads this content bundle to their chosen hosting provider. 
 
-
-**CContent consumption & social interaction (primarily via Signum client):** Users can view Signum sites in the client app. The client application then renders the Markdown content for display, applying any styling hints defined in the site's site.yaml. It also processes the social YAML files to build and maintain a local, personalized social graph and aggregated content feed.
-
-Signum clients periodically fetch manifest.json files and rss.xml feeds from sites the user follows or discovers. Based on this information, clients download relevant Markdown content files and social YAML files (e.g., follows.yaml, curations.yaml).
+**Content consumption & social interaction (primarily via Signum client):** Users can view Signum sites in the client app. The client application then renders the Markdown content for display, applying any styling hints defined in the site's config file. It also processes the social files to build and maintain a local, personalized social graph and aggregated content feed. Signum clients periodically fetch updates from sites the user follows.
 
 While Signum has basic follow/block abd curation features, it's a publishing platform first and foremost, not an ActivityPub/ATProto alternative.
 
-**Basic Web Viewing:** If a content bundle includes the optional web-viewer components, standard web browsers can access a minimal, client-side rendered view of the content or display pre-generated HTML metadata for SEO.
+**Basic Web viewing:** If a content bundle includes the optional web-viewer components, standard web browsers can access a minimal, client-side rendered view of the content or display pre-generated HTML metadata for SEO.
 
-**Discovery (optional):** The user can choose to announce their site's existence or updates to the distributed indexer network, making their content discoverable to a wider audience.
+**Discovery network (optional):** The user can choose to announce their site's existence or updates to one or more indexers, making their content discoverable to a wider audience.
 
 ### 2. Technical specifications
 
-2.1 Content format specification
+## 2.1 Content format specification
 
-A Signum site is published as a "Content Bundle," a structured collection of files.
+A Signum site is published as a "content bundle", a structured collection of text files.
 
-Directory structure: The root directory of a content bundle typically contains the main site.yaml configuration, social interaction YAML files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml), a content/ subdirectory for Markdown articles, a manifest.json file, an rss.xml feed, an optional web-viewer/ directory for basic browser access, and a .siteid file for cryptographic identification. The content/ directory will house index.md for the homepage, about.md, and often a posts/ subdirectory for chronological entries. The web-viewer/ directory, if present, would contain a minimal index.html, a viewer.js script, and a basic style.css.
+**Directory structure:** The root directory of a content bundle typically contains the main configuration, social interaction files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml), a content/ subdirectory for Markdown articles, a manifest.json file, an rss.xml feed, and an optional web-viewer/ directory for basic browser access. The content/ directory will house index.md for the homepage, other pages such as about.md, and collection subdirectories (often posts/) for chronological entries. The web-viewer/ directory, if present, would contain a minimal index.html, a viewer.js script, and a basic style.css. These would be generated by the client and not user-editable.
 
-Site Configuration (site.yaml): This YAML file contains the site's title, description, author information, a global lastUpdated timestamp for the entire bundle, and optional style_hints. Style hints might include preferences for font family (e.g., serif, sans-serif), theme (light, dark), and a primary highlight color. It also contains content_timestamps for different sections (e.g., posts, follows) which are used by manifest.json.
+**Site configuration (site.yaml):** This file contains the site's title, description, author information, a global lastUpdated timestamp for the entire bundle, and optional style_hints. Style hints might include preferences for font family (e.g., serif, sans-serif), theme (light, dark), and a primary highlight color. It also contains content_timestamps for different sections (e.g., posts, follows) which are used by manifest.json.
 
-Content Format (Markdown + YAML frontmatter): Content is written in standard Markdown. Each Markdown file can include a YAML frontmatter block for metadata such as title, publication date, update date, tags, a summary, draft status, and a boolean allow_likes (signifying author consent for their content to be publicly bookmarked by others). User-authored content within Markdown files should not contain embedded HTML or JavaScript to maintain security and simplicity.
+**Content format (Markdown + YAML frontmatter):** Content is written in standard Markdown. Each file can include a frontmatter block for metadata such as title, publication date, update date, tags, a summary, draft status etc. Content files can not contain embedded HTML or JavaScript to maintain security and simplicity.
 
-Social YAML Files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml): These are simple YAML lists. For example, follows.yaml would list Site IDs or URLs, potentially with an alias or category. These files are public if included in the published bundle and are fetched by clients to build local social graphs.
-Manifest (manifest.json): This JSON file acts as a table of contents for the content bundle. It lists all significant files (Markdown content, social YAMLs) and their last modification timestamps. This allows clients to efficiently determine what has changed since the last fetch.
+**Social config files (follows.yaml, blocks.yaml, curations.yaml, likes.yaml):** These are simple YAML lists. For example, follows.yaml would list Site IDs or URLs, potentially with an alias or category. These files are public and are fetched by clients to build local social graphs. (Need to check for performance when these files get very long).
 
-RSS Feed (rss.xml): A standard RSS/Atom feed generated from the site's posts or other listable content. It includes item titles, links (which could point to raw Markdown files, Signum client URIs, or web-viewer URLs), publication dates, and summaries. This is essential for client feed readers and can aid in SEO.
-2.3 Hosting Adapter Architecture
-The client application will feature a standardized interface for interacting with various hosting providers. This HostingAdapter interface will define methods for authentication, uploading a site's content bundle, retrieving site status, and deleting a site.
+**Manifest (manifest.json):** This JSON file acts as a table of contents for the content bundle. It lists all significant files (content, social configs) and their last modification timestamps. This allows clients to efficiently determine what has changed since the last fetch.
+
+**RSS Feed (rss.xml):** A standard RSS/Atom feed generated from the site's posts or other listable content. It includes item titles, links (which could point to raw Markdown files, Signum client URIs, or web-viewer URLs), publication dates, and summaries. This is essential for client feed readers and can aid in SEO.
+
+### 2.2 Hosting architecture
+
+The client application will feature a standardised interface for interacting with various hosting providers. This HostingAdapter interface will define methods for authentication, uploading a site's content bundle, retrieving site status, and deleting a site.
 
 Built-in adapters will include:
 
-First-Party Hosting: A service potentially offered by signum.org, using cryptographic authentication, offering free subdomains and premium custom domain options.
-Self-Host FTP/SFTP: For universal compatibility with traditional web hosting.
-Git-Based Hosts: Adapters for services like GitHub Pages.
-Static Hosting Platforms: Adapters for Netlify, Vercel, AWS S3, Cloudflare Pages, etc.
+* First-Party Hosting: A service potentially offered by Signum, offering free subdomains and premium custom domain options.
+* Self-Host FTP/SFTP: For universal compatibility with traditional web hosting.
+* Git-Based Hosts: Adapters for services like GitHub Pages.
+* Static Hosting Platforms: Adapters for Netlify, Vercel, AWS S3, Cloudflare Pages, etc.
+  
 It's important that hosting providers are configured to serve files with appropriate caching headers (e.g., ETag, Last-Modified) to support efficient client polling for updates.
-2.4 Social Features System (Client-Centric)
+
+### 2.3 Social Features System (Client-Centric)
+
 Social features in Signum are managed and experienced primarily within the client application.
 
-Following System: Users define whom they follow in their follows.yaml file. Client applications fetch these files from followed sites (and potentially "sites of followed sites" up to a defined depth) to construct a local social graph. Blocking a site (via blocks.yaml) filters content from that site out of the user's view.
-Content Likes (Public Bookmarks): When a user "likes" a piece of content, its URL is added to their public likes.yaml file. This acts as a public bookmark. Other users' clients can discover these likes by fetching the likes.yaml file from the liker's site. There is no central aggregation of like counts. The allow_likes field in a post's frontmatter signals the author's consent for their content to be listed in this manner.
-Curation Lists: Users can create public collections of content links with optional notes in their curations.yaml file. Clients can fetch and display these lists, enabling cross-site content discovery based on user taste.
-Distributed Moderation: Moderation is primarily user-controlled via their personal blocks.yaml file. Clients use this list to filter content from their feeds. Optionally, clients may allow users to import or consult blocks.yaml files from trusted community members or designated "moderator" sites. There is no central moderation authority; indexers, if used, would focus on spam/abuse detection from a site discovery perspective to maintain the quality of their search results.
+**Following system:** Users define sites they follow in their follows.yaml file. Client applications fetch these files from followed sites (and potentially "sites of followed sites" up to a defined depth) to construct a local social graph. Blocking a site (via blocks.yaml) filters content from that site out of the user's view.
+
+**Content likes (public bookmarks):** When a user "likes" a piece of content, its URL is added to their public likes.yaml file. This acts as a public bookmark. Other users' clients can discover these likes by fetching the likes.yaml file from the liker's site. There is no central aggregation of like counts. The allow_likes field in a post's frontmatter signals the author's consent for their content to be listed in this manner.
+
+**Curation lists:** Users can create public collections of content links with optional notes in their curations.yaml file. Clients can fetch and display these lists, enabling cross-site content discovery based on user taste.
+
+**Distributed moderation:** Moderation is primarily user-controlled via their personal blocks.yaml file. Clients use this list to filter content from their feeds. Optionally, clients may allow users to import or consult blocks.yaml files from other sites, trusted community members or designated "moderator" sites. There is no central moderation authority; indexers, if used, would focus on spam/abuse detection from a site discovery perspective to maintain the quality of their search results.
 
 2.1 Cryptographic Identity System
 User identity is based on Ed25519 elliptic curve cryptography. Each user generates a unique key pair (public and private key). The Site ID is derived by applying a SHA256 hash to the public key. Authentication into the client can be achieved via Passkeys (WebAuthn) or a BIP39-compliant seed phrase. All updates to a user's site configuration or content manifest should be cryptographically signed to ensure authenticity and integrity when fetched by other clients or indexers.
@@ -89,59 +97,75 @@ User identity is based on Ed25519 elliptic curve cryptography. Each user generat
 Security features include provisions for hardware-backed key storage where available, social recovery mechanisms through trusted contacts (defined by the user), and multiple backup options such as encrypted seed phrases and passkey synchronization. The system avoids traditional passwords and centralized account databases.
 
 
-3. Client Implementation
-3.1 Technology Stack
+## 3. Client implementation
+
+### 3.1 Technology stack
+
 The primary client application will likely be a web application, with potential for future desktop (e.g., via Tauri) and mobile (e.g., via React Native) versions. Key technologies include:
 
-Frontend Framework: A modern JavaScript framework like Next.js (with App Router) or similar.
-Programming Language: TypeScript for type safety.
-Styling: A utility-first CSS framework like Tailwind CSS or similar.
-PWA Capabilities: To enable features like offline access and background synchronization for feed updates.
-Local Storage: IndexedDB for storing user identity data, site content bundles, cached content from followed sites, and the locally constructed social graph.
-Core Libraries: Libraries for Ed25519 cryptography, Markdown processing and rendering, YAML parsing, date utilities, and state management. An RSS/Atom feed parsing library will also be necessary.
-3.2 Application Architecture
+* Frontend Framework: A modern JavaScript framework like Next.js (with App Router) or similar.
+* Programming Language: TypeScript for type safety.
+* Styling: A utility-first CSS framework like Tailwind CSS or similar.
+* PWA Capabilities: To enable features like offline access and background synchronization for feed updates.
+* Local Storage: IndexedDB for storing user identity data, site content bundles, cached content from followed sites, and the locally constructed social graph.
+* Core Libraries: Libraries for cryptography, Markdown processing and rendering, YAML parsing, date utilities, and state management. An RSS/Atom feed parsing library will also be necessary.
+
+### 3.2 Application architecture
+
 The client application will have a modular structure. Key architectural components include:
 
-Identity Management Service: Handles key generation, import, storage, and cryptographic signing.
-Content Management Service: Manages local creation and editing of Markdown content and YAML configuration files.
-Content Bundle Preparation Service: Assembles the content bundle, generates manifest.json and rss.xml, and optionally prepares the web-viewer/ components.
-Publishing Service: Interacts with hosting adapters to upload content bundles.
-Content Rendering Engine: Parses and renders Markdown content for display within the client, applying style hints from site.yaml.
-Social Graph & Feed Management Service: Periodically fetches updates (manifests, RSS feeds, raw content files, social YAMLs) from followed sites, processes this data to build/update the local social graph, and aggregates content into a personalized feed for the user.
-UI Components: A comprehensive set of React components (or equivalent) for user interface elements, layout, site management views, content editing, and social feature interactions.
-3.3 Key Components
-Markdown Editor: A user-friendly editor with live preview, syntax highlighting, image upload/management capabilities (storing images within the content bundle), a formatting toolbar, and draft auto-saving.
-Content Bundle Preparer: This component replaces a traditional "site generator." It collects all user-authored Markdown and YAML files, generates the manifest.json and rss.xml files, and, if configured, creates the minimal web-viewer/ directory with its static assets. It does not pre-render all Markdown to HTML for the main bundle; rendering is primarily a client-side concern for the Signum application.
-Hosting Management Interface: Allows users to configure and manage multiple hosting adapters, track deployment status, and monitor basic usage if the adapter provides such information.
-Feed Aggregator, Social Graph Builder, and Content Renderer: This is a core part of the client. It handles the periodic fetching of data from other Signum sites, reconstructs the social graph locally, and renders fetched Markdown content according to client capabilities and site-specific style hints.
-4. Hosting Infrastructure
-4.1 First-Party Hosting (signum.org)
-A potential first-party hosting option provided by signum.org would offer:
+* Content management service: Manages local creation and editing of Markdown content and YAML configuration files.
+* Site bundle service: Assembles the site bundle, generates manifest.json and rss.xml, and optionally prepares the web-viewer/ components.
+* Publishing service: Interacts with hosting adapters to upload content bundles.
+* Content rendering engine: Parses and renders content for display within the client, applying style hints from site.yaml.
+* Social graph & feed management service: Periodically fetches updates (manifests, RSS feeds, raw content files, social YAMLs) from followed sites, processes this data to build/update the local social graph, and aggregates content into a personalized feed for the user.
+* UI components: A comprehensive set of React components (or equivalent) for user interface elements, layout, site management views, content editing, and social feature interactions.
 
-Free subdomains (e.g., username.signum.org).
-Premium options for custom domains.
-Global CDN distribution, optimized for serving static content bundles efficiently with appropriate cache control headers.
-Automatic SSL certificates.
-A defined uptime SLA.
-Authentication for publishing to this service would be based on Ed25519 signature verification, aligning with the platform's principles. API endpoints would exist for site registration/authentication, deployment of content bundles, site status checks, and site deletion.
-4.2 Self-Hosting Options
+### 3.3 Key components
+
+* Markdown Editor: A user-friendly editor with live preview, syntax highlighting, image upload/management capabilities (storing images within the content bundle), a formatting toolbar, and draft auto-saving.
+* Bundle Preparer: This component replaces a traditional "site generator." It collects all user-authored Markdown and YAML files, generates the manifest.json and rss.xml files, and, if configured, creates the minimal web-viewer/ directory with its static assets. It does not pre-render all Markdown to HTML for the main bundle; rendering is primarily a client-side concern for the Signum application.
+* Hosting management: Allows users to configure and manage multiple hosting adapters, track deployment status, and monitor basic usage if the adapter provides such information.
+* Feed aggregator, Social Graph Builder, and Content Renderer: This is a core part of the client. It handles the periodic fetching of data from other Signum sites, reconstructs the social graph locally, and renders fetched Markdown content according to client capabilities and site-specific style hints.
+
+## 4. Hosting Infrastructure
+   
+### 4.1 First-party hosting (Signum)
+
+A potential first-party hosting option provided by Signum would offer:
+
+* Free subdomains (e.g., username.signum.org).
+* Premium options for custom domains.
+* Global CDN distribution, optimized for serving static content bundles efficiently with appropriate cache control headers.
+* Automatic SSL certificates.
+* A defined uptime SLA.
+* Authentication for publishing to this service would be based on Ed25519 signature verification, aligning with the platform's principles. API endpoints would exist for site registration/authentication, deployment of content bundles, site status checks, and site deletion.
+
+### 4.2 Self-hosting options
+
 Users have complete freedom to host their content bundles on any infrastructure that can serve static files.
 
-FTP/SFTP Deployment: The client can support direct uploads to standard web hosts.
-Static Site Hosts: Integration with platforms like GitHub Pages, Netlify, Vercel, AWS S3, Cloudflare Pages, etc., via their respective APIs or Git-based workflows.
-Docker Self-Hosting: Users can deploy a simple static file server (like Nginx) in a Docker container to serve their content bundle.
-For all self-hosting options, it is recommended that users configure their web servers to utilize HTTP caching headers effectively (e.g., ETag, Last-Modified) to enable efficient polling by Signum clients.
-5. Discovery and Indexing (Content/Site Focused)
-5.1 Indexer Network
+* FTP/SFTP Deployment: The client can support direct uploads to standard web hosts.
+* Static Site Hosts: Integration with platforms like GitHub Pages, Netlify, Vercel, AWS S3, Cloudflare Pages, etc., via their respective APIs or Git-based workflows.
+* Docker Self-Hosting: Users can deploy a simple static file server (like Nginx) in a Docker container to serve their content bundle.
+
+## 5. Discovery and indexing (Content/Site Focused)
+
+### 5.1 Indexer network
+
 The discovery network is an optional layer designed to help users find Signum sites and content.
 
-Purpose: Primarily for content and site discovery through search (keywords, tags) and identifying trending content based on site update frequency or content signals (not social metrics). Indexers may also perform basic spam and abuse detection on announced sites to maintain index quality. Indexers do not aggregate social graphs, follows, or likes.
-Architecture: The network consists of multiple independent indexers. Clients can be configured to use one or more indexers, with support for fallback and redundancy. This avoids a single point of failure for content discovery, though core publishing and client-side social features function independently of indexers.
-API Specification: Indexers will expose a simple API, likely including endpoints to:
-Announce a site or site update (providing site URL, metadata, tags, and potentially a signature for verification).
-Search for sites/content by keywords or tags.
-Retrieve a list of trending content (based on non-social signals).
+**Purpose:** Primarily for content and site discovery through search (keywords, tags) and identifying trending content based on site update frequency or content signals (not social metrics). Indexers may also perform basic spam and abuse detection on announced sites to maintain index quality. Indexers do not aggregate social graphs, follows, or likes.
+
+**Architecture:** The network consists of multiple independent indexers. Clients can be configured to use one or more indexers, with support for fallback and redundancy. This avoids a single point of failure for content discovery, though core publishing and client-side social features function independently of indexers.
+
+**API Specification:** Indexers will expose a simple API, likely including endpoints to:
+* Announce a site or site update (providing site URL, metadata, tags, and potentially a signature for verification).
+* Search for sites/content by keywords or tags.
+* Retrieve a list of trending content (based on non-social signals).
+
 5.2 Privacy-Preserving Discovery
+
 Data collection by indexers is designed to be privacy-preserving:
 
 Data Collection: Indexers only collect publicly available site metadata (from site.yaml or announced data) and the text of public content for search indexing purposes.
