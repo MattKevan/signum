@@ -9,38 +9,57 @@ export interface SiteConfigFile {
     theme?: 'light' | 'dark' | 'auto';
     primary_color?: string;
   };
-  // For now, no lastUpdated or content_timestamps as we are local-only
 }
 
 export interface MarkdownFrontmatter {
   title: string;
   date?: string; // ISO 8601
-  [key: string]: any; // Allow other custom frontmatter fields
+  summary?: string; // Added for consistency with metadata
+  // Allow other custom frontmatter fields
+  // Example: ogImage?: string;
+  // Example: tags?: string[];
+  [key: string]: any; 
 }
 
 export interface ParsedMarkdownFile {
-  slug: string; // e.g., "my-first-post" or "about"
-  path: string; // e.g., "content/posts/my-first-post.md"
+  slug: string; 
+  path: string; 
   frontmatter: MarkdownFrontmatter;
   content: string; // Raw Markdown content body
-  htmlContent?: string; // Rendered HTML (optional, can be done on-the-fly)
+  // htmlContent?: string; // Optional, rendered HTML (not currently used for primary rendering)
 }
 
-// Represents a site structure as stored/managed locally
 export interface LocalSiteData {
-  siteId: string; // For local dev, could be a simple slug or UUID
+  siteId: string; 
   config: SiteConfigFile;
-  contentFiles: ParsedMarkdownFile[]; // Array of parsed markdown files
-  // Later: follows.yaml, blocks.yaml etc. as structured objects
+  contentFiles: ParsedMarkdownFile[];
+  // Future:
+  // follows?: any[]; // Define type for follows
+  // blocks?: any[];  // Define type for blocks
+  // curations?: any[]; // Define type for curations
+  // likes?: any[]; // Define type for likes
 }
 
-// For state management
+// This is the interface for the Zustand store's state and actions
 export interface AppState {
-  sites: LocalSiteData[]; // List of locally managed sites
-  addSite: (site: LocalSiteData) => void;
-  updateSiteConfig: (siteId: string, config: SiteConfigFile) => void;
-  addContentFile: (siteId: string, file: ParsedMarkdownFile) => void;
-  updateContentFile: (siteId: string, filePath: string, newContent: string, newFrontmatter: MarkdownFrontmatter) => void;
+  sites: LocalSiteData[];
+  addSite: (site: LocalSiteData) => Promise<void>; // Keep as Promise if it involves async FS operations
+  updateSiteConfig: (siteId: string, config: SiteConfigFile) => Promise<void>;
+  
+  // REMOVE old methods:
+  // addContentFile: (siteId: string, file: ParsedMarkdownFile) => void; 
+  // updateContentFile: (siteId: string, filePath: string, newContent: string, newFrontmatter: MarkdownFrontmatter) => void;
+  
+  // ADD the new combined method signature that store will implement
+  // The store itself might have an implementation for addOrUpdateContentFile,
+  // but this AppState interface is what components would expect if they directly
+  // consumed a more generic "app state" object.
+  // For now, let's keep AppState lean and AppStore (in useAppStore.ts) will define its specific extended methods.
+  // OR, we make AppState match what AppStore provides:
+
+  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
+  deleteSiteAndState: (siteId: string) => Promise<void>;
+  deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
+
   getSiteById: (siteId: string) => LocalSiteData | undefined;
-  // Later, methods for active editing site, etc.
 }

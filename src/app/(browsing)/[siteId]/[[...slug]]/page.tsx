@@ -1,131 +1,133 @@
 // src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
-'use client'; // <<< MAKE IT A CLIENT COMPONENT
+'use client';
 
-import { useParams, notFound, useRouter } from 'next/navigation'; // Import useParams and useRouter
+import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
 import MarkdownRenderer from '@/components/browsing/MarkdownRenderer';
-import { ParsedMarkdownFile, LocalSiteData } from '@/types'; // LocalSiteData needed for siteData state
+import { ParsedMarkdownFile, LocalSiteData } from '@/types';
 import { Button } from '@/components/ui/button';
-// Metadata function is removed as it runs on server; page is now client.
-// If you need dynamic metadata with a client page, you'd update document <head> via useEffect or a library.
+import { AlertTriangle } from 'lucide-react';
 
-// No SitePageProps interface needed as params are fetched via hook
+const REMOTE_SITE_ID_PREFIX_PAGE = "remote@"; // Use a distinct constant name if preferred
+
+function checkIsRemotePage(id: string): boolean { // Renamed for clarity within this file
+  console.log(`[Page] checkIsRemotePage called with ID: "${id}", prefix: "${REMOTE_SITE_ID_PREFIX_PAGE}"`);
+  const result = id && id.startsWith(REMOTE_SITE_ID_PREFIX_PAGE);
+  console.log(`[Page] checkIsRemotePage result: ${result}`);
+  return !!result;
+}
+
+function decodeRemoteUrlFromSiteIdPage(siteIdFromUrl: string): string | null { // Renamed
+  if (checkIsRemotePage(siteIdFromUrl)) {
+    try {
+      const encodedUrlPart = siteIdFromUrl.substring(REMOTE_SITE_ID_PREFIX_PAGE.length);
+      const decoded = decodeURIComponent(encodedUrlPart);
+      console.log(`[Page] Successfully decoded "${encodedUrlPart}" to "${decoded}"`);
+      return decoded;
+    } catch (e) {
+      console.error("[Page] Failed to decode remote URL from siteId:", siteIdFromUrl, e);
+      return null;
+    }
+  }
+  console.log(`[Page] decodeRemoteUrlFromSiteIdPage: ID "${siteIdFromUrl}" is not a remote pattern.`);
+  return null;
+}
 
 export default function SitePage() {
-  const params = useParams(); // Use client-side hook
-  const router = useRouter(); // For potential programmatic navigation if needed
+  const paramsHook = useParams();
+  const router = useRouter();
 
-  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined); // undefined: loading, null: not found
-  const [contentFile, setContentFile] = useState<ParsedMarkdownFile | null | undefined>(undefined); // undefined: loading, null: not found
-  const [isLoading, setIsLoading] = useState(true);
+  const [siteDataForPage, setSiteDataForPage] = useState<LocalSiteData | null | undefined>(undefined);
+  const [contentFile, setContentFile] = useState<ParsedMarkdownFile | null | undefined>(undefined);
+  const [isLoadingPage, setIsLoadingPage] = useState(true);
+  const [pageSpecificErrorMessage, setPageSpecificErrorMessage] = useState<string | null>(null);
+  const [displayTitle, setDisplayTitle] = useState<string>("Loading Page...");
+
 
   useEffect(() => {
-    // Log params when they are available client-side
-    console.log("Client-side SitePage received params:", params);
+    const siteIdFromParams = paramsHook.siteId as string;
+    const slugArray = paramsHook.slug as string[] | undefined;
 
-    const siteId = params.siteId as string;
-    const slugArray = params.slug as string[] | undefined; // slug can be undefined if not present
-
-    if (!siteId || typeof siteId !== 'string') {
-      console.error("Client-side SitePage: Invalid or missing siteId in params", params);
-      setContentFile(null); // Mark as not found
-      setSiteData(null);
-      setIsLoading(false);
-      // notFound() from next/navigation doesn't work directly in client components to render the Next.js 404 page.
-      // You might need to redirect or show a custom "Not Found" UI.
-      // For now, we'll let the conditional rendering handle it.
+    if (!siteIdFromParams) {
+      console.log("[Page] useEffect: No siteIdFromParams.");
+      setIsLoadingPage(false); setSiteDataForPage(null); setContentFile(null);
+      setPageSpecificErrorMessage("Site identifier missing."); setDisplayTitle("Error");
       return;
     }
+    
+    console.log("[Page] useEffect triggered. siteIdFromParams to process:", `"${siteIdFromParams}"`, "slugArray:", slugArray);
 
     let mounted = true;
-    setIsLoading(true);
+    setIsLoadingPage(true);
+    setSiteDataForPage(undefined); 
+    setContentFile(undefined);
+    setPageSpecificErrorMessage(null);
 
-    async function fetchData() {
-      try {
-        const fetchedSiteData = await localSiteFs.getSiteById(siteId);
-        if (!mounted) return;
-
-        if (!fetchedSiteData) {
-          setSiteData(null);
-          setContentFile(null);
-          return;
-        }
-        setSiteData(fetchedSiteData);
-
-        const pageFilePath = `content/${slugArray && slugArray.length > 0 ? slugArray.join('/') : 'index'}.md`;
-        const fetchedContentFile = fetchedSiteData.contentFiles.find(file => file.path === pageFilePath);
-
-        if (!fetchedContentFile) {
-          setContentFile(null);
+    async function fetchDataForPage() {
+      let fetchedSiteData: LocalSiteData | null = null;
+      const isRemoteCheckResult = checkIsRemotePage(siteIdFromParams); // Call refined checker
+      
+      if (isRemoteCheckResult) {
+        console.log("[Page] fetchDataForPage: Path taken for REMOTE site.");
+        const decodedUrl = decodeRemoteUrlFromSiteIdPage(siteIdFromParams);
+        console.log("[Page] fetchDataForPage: Decoded URL for remote fetch:", `"${decodedUrl}"`);
+        if (decodedUrl) {
+          fetchedSiteData = await fetchRemoteSiteData(decodedUrl);
+          if (!fetchedSiteData) {
+            setPageSpecificErrorMessage(`Failed to fetch remote site data from ${decodedUrl}. Check layout console for [RFS] details.`);
+          }
         } else {
-          setContentFile(fetchedContentFile);
+          setPageSpecificErrorMessage(`Invalid remote site URL could not be decoded from ID: ${siteIdFromParams}`);
         }
-      } catch (error) {
-        console.error("Error fetching site data client-side:", error);
-        setSiteData(null); // Indicate error/not found
-        setContentFile(null);
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
+      } else {
+        console.log("[Page] fetchDataForPage: Path taken for LOCAL site.");
+        fetchedSiteData = await localSiteFs.getSiteById(siteIdFromParams);
+        if (!fetchedSiteData) {
+            setPageSpecificErrorMessage(`Local site with ID "${siteIdFromParams}" not found.`);
         }
       }
+
+      if (!mounted) return;
+
+      if (!fetchedSiteData) {
+        console.log("[Page] Site data ultimately not found for page.");
+        setSiteDataForPage(null); setContentFile(null); setIsLoadingPage(false);
+        setDisplayTitle("Site Not Found");
+        // Error message should have been set above
+        return;
+      }
+      console.log("[Page] Site data fetched for page:", fetchedSiteData.siteId);
+      setSiteDataForPage(fetchedSiteData);
+
+      const pageFilePath = `content/${slugArray && slugArray.length > 0 ? slugArray.join('/') : 'index'}.md`;
+      console.log("[Page] Looking for page file path:", pageFilePath);
+      const foundContentFile = fetchedSiteData.contentFiles.find(file => file.path === pageFilePath);
+
+      if (!foundContentFile) {
+        console.log("[Page] Specific content file not found:", pageFilePath);
+        setContentFile(null);
+        setPageSpecificErrorMessage(`Page "${slugArray ? slugArray.join('/') : 'index'}" not found within this site.`);
+        setDisplayTitle("Page Not Found");
+      } else {
+        console.log("[Page] Content file found:", foundContentFile.path);
+        setContentFile(foundContentFile);
+        setDisplayTitle(foundContentFile.frontmatter.title || "Untitled Page");
+      }
+      setIsLoadingPage(false);
     }
 
-    fetchData();
+    fetchDataForPage();
 
     return () => {
-      mounted = false; // Cleanup to prevent state updates on unmounted component
+      mounted = false;
     };
-  }, [params]); // Re-fetch if params change
+  }, [paramsHook]);
 
-  // --- Conditional Rendering based on state ---
-
-  if (isLoading) {
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex justify-center items-center min-h-[300px]">
-        <p>Loading content...</p> {/* Replace with a spinner */}
-      </div>
-    );
-  }
-
-  if (!siteData || !contentFile) {
-    // This will render if siteData or contentFile is explicitly null (not found)
-    // You could redirect to a custom /404 page here using router.replace('/404')
-    // or show an inline "Not Found" message.
-    // For now, showing an inline message:
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center">
-        <h1 className="text-2xl font-bold mb-4">Page Not Found</h1>
-        <p className="text-muted-foreground">
-          The content you are looking for does not exist or could not be loaded.
-        </p>
-        {/* Optionally, a button to go back or to the homepage */}
-        <Button onClick={() => router.push('/')} variant="outline" className="mt-6">
-            Go to Dashboard
-        </Button>
-      </div>
-    );
-  }
-
-  // --- Render actual content ---
-  return (
-    <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
-      <article className="prose dark:prose-invert lg:prose-xl max-w-none">
-        <h1 className="mb-4 text-4xl font-extrabold leading-tight tracking-tight text-gray-900 dark:text-white lg:text-5xl">
-          {contentFile.frontmatter.title || "Untitled Page"}
-        </h1>
-        
-        {contentFile.frontmatter.date && (
-          <p className="text-base font-medium text-gray-500 dark:text-gray-400 mb-6">
-            Published on: {new Date(contentFile.frontmatter.date).toLocaleDateString('en-US', { 
-              year: 'numeric', month: 'long', day: 'numeric' 
-            })}
-          </p>
-        )}
-        
-        <MarkdownRenderer markdown={contentFile.content} />
-      </article>
-    </div>
-  );
+  // ... (useEffect for document.title and render logic remains unchanged) ...
+  useEffect(() => { if (!isLoadingPage && displayTitle && siteDataForPage?.config.title) { document.title = `${displayTitle} | ${siteDataForPage.config.title}`; } else if (!isLoadingPage && displayTitle) { document.title = displayTitle; } else if (!isLoadingPage && siteDataForPage?.config.title) { document.title = siteDataForPage.config.title; } else if (!isLoadingPage && !siteDataForPage) { document.title = "Site Not Found | Signum"; } else { document.title = "Signum"; } }, [isLoadingPage, displayTitle, siteDataForPage]);
+  if (isLoadingPage) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex justify-center items-center min-h-[300px]"> <p>Loading page content...</p> </div> ); }
+  if (!siteDataForPage || !contentFile) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-orange-500 mb-4" /> <h1 className="text-2xl font-bold mb-2">{displayTitle}</h1> <p className="text-muted-foreground max-w-md"> {pageSpecificErrorMessage || "The page you are looking for could not be loaded."} </p> <Button onClick={() => router.push(siteDataForPage ? `/${siteDataForPage.siteId}` : '/')} variant="outline" className="mt-6"> {siteDataForPage ? 'Go to Site Home' : 'Go to Dashboard'} </Button> </div> </div> ); }
+  return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8"> <article className="prose dark:prose-invert lg:prose-xl max-w-none"> <h1 className="mb-4 text-4xl font-extrabold leading-tight tracking-tight text-gray-900 dark:text-white lg:text-5xl"> {contentFile.frontmatter.title || "Untitled Page"} </h1> {contentFile.frontmatter.date && ( <p className="text-base font-medium text-gray-500 dark:text-gray-400 mb-6"> Published on: {new Date(contentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} </p> )} <MarkdownRenderer markdown={contentFile.content} /> </article> </div> );
 }

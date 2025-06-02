@@ -147,10 +147,10 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         <div className="mb-2 flex justify-between items-center">
             <h3 className="text-sm font-semibold px-1">Content Files</h3>
             <div className="flex gap-1">
-                <Button variant="ghost" size="iconSm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
                     <FileText className="h-4 w-4" />
                 </Button>
-                <Button variant="ghost" size="iconSm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
                     <FolderPlus className="h-4 w-4" />
                 </Button>
             </div>

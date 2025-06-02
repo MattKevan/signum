@@ -1,6 +1,3904 @@
 FILE CONCATENATION REPORT
-Root Directory: /src
-Excluded Directories: public, ios, node_modules
+Root Directory: ./src
+Excluded Directories: public, node_modules, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html
+================================================================================
+
+File: types/index.ts
+// src/types/index.ts
+
+export interface SiteConfigFile {
+  title: string;
+  description: string;
+  author?: string;
+  style_hints?: {
+    font_family?: 'serif' | 'sans-serif' | 'monospace';
+    theme?: 'light' | 'dark' | 'auto';
+    primary_color?: string;
+  };
+}
+
+export interface MarkdownFrontmatter {
+  title: string;
+  date?: string; // ISO 8601
+  summary?: string; // Added for consistency with metadata
+  // Allow other custom frontmatter fields
+  // Example: ogImage?: string;
+  // Example: tags?: string[];
+  [key: string]: any; 
+}
+
+export interface ParsedMarkdownFile {
+  slug: string; 
+  path: string; 
+  frontmatter: MarkdownFrontmatter;
+  content: string; // Raw Markdown content body
+  // htmlContent?: string; // Optional, rendered HTML (not currently used for primary rendering)
+}
+
+export interface LocalSiteData {
+  siteId: string; 
+  config: SiteConfigFile;
+  contentFiles: ParsedMarkdownFile[];
+  // Future:
+  // follows?: any[]; // Define type for follows
+  // blocks?: any[];  // Define type for blocks
+  // curations?: any[]; // Define type for curations
+  // likes?: any[]; // Define type for likes
+}
+
+// This is the interface for the Zustand store's state and actions
+export interface AppState {
+  sites: LocalSiteData[];
+  addSite: (site: LocalSiteData) => Promise<void>; // Keep as Promise if it involves async FS operations
+  updateSiteConfig: (siteId: string, config: SiteConfigFile) => Promise<void>;
+  
+  // REMOVE old methods:
+  // addContentFile: (siteId: string, file: ParsedMarkdownFile) => void; 
+  // updateContentFile: (siteId: string, filePath: string, newContent: string, newFrontmatter: MarkdownFrontmatter) => void;
+  
+  // ADD the new combined method signature that store will implement
+  // The store itself might have an implementation for addOrUpdateContentFile,
+  // but this AppState interface is what components would expect if they directly
+  // consumed a more generic "app state" object.
+  // For now, let's keep AppState lean and AppStore (in useAppStore.ts) will define its specific extended methods.
+  // OR, we make AppState match what AppStore provides:
+
+  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
+  deleteSiteAndState: (siteId: string) => Promise<void>;
+  deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
+
+  getSiteById: (siteId: string) => LocalSiteData | undefined;
+}
+
+================================================================================
+
+File: app/layout.tsx
+// src/app/layout.tsx
+'use client'; 
+
+import { useEffect, useState, Suspense } from 'react';
+import { useAppStore } from '@/stores/useAppStore';
+import Navbar from '@/components/core/Navbar'; 
+import Footer from '@/components/core/Footer';   
+import './globals.css'; 
+import { Toaster } from "@/components/ui/sonner"; 
+import { ThemeProvider } from "@/components/core/ThemeProvider"; 
+
+// Loading component to show during initialization or suspense
+function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
+  return (
+    <div className="flex items-center justify-center h-screen bg-background text-foreground">
+      <div className="flex flex-col items-center">
+        <svg className="animate-spin h-8 w-8 text-primary mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+        </svg>
+        <p className="text-lg">Loading Signum...</p>
+      </div>
+    </div>
+  ); // <<< MISSING RETURN WAS HERE
+}
+
+
+export default function RootLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const initialize = useAppStore(state => state.initialize);
+  const isInitialized = useAppStore(state => state.isInitialized);
+  const [clientMounted, setClientMounted] = useState(false);
+
+  useEffect(() => {
+    setClientMounted(true); 
+    if (!isInitialized) {
+      initialize();
+    }
+  }, [initialize, isInitialized]); 
+
+  const showLoading = clientMounted && !isInitialized;
+
+  return (
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <meta charSet="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>Signum - Decentralized Publishing</title>
+        {/* Ensure no stray characters or whitespace directly in <head> */}
+      </head>
+      <body>
+        <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+        >
+          <div className="flex flex-col min-h-screen bg-background text-foreground">
+            {showLoading ? (
+              <AppLoadingIndicator /> // Now correctly used
+            ) : (
+              <>
+                <Navbar />
+                <main className="flex-grow container mx-auto px-4 py-8 sm:px-6 lg:px-8"> 
+                  <Suspense fallback={<AppLoadingIndicator />}>
+                    {children}
+                  </Suspense>
+                </main>
+                <Footer />
+              </>
+            )}
+          </div>
+          <Toaster richColors position="top-right" />
+        </ThemeProvider>
+      </body>
+    </html>
+  );
+}
+
+================================================================================
+
+File: app/page.tsx
+// src/app/page.tsx
+'use client';
+
+import Link from 'next/link';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { PlusCircle, Edit3, Eye, Trash2, FilePlus2, ExternalLink } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"; // Assuming shadcn/ui
+import { toast } from "sonner";
+//import { useRouter } from 'next/navigation';
+
+export default function HomePageDashboard() {
+  const sites = useAppStore((state) => state.sites);
+  const deleteSiteAndState = useAppStore((state) => state.deleteSiteAndState);
+  const isInitialized = useAppStore((state) => state.isInitialized);
+  //const router = useRouter();
+
+
+  const handleDeleteSite = async (siteId: string, siteTitle: string) => {
+    try {
+      await deleteSiteAndState(siteId);
+      toast.success(`Site "${siteTitle}" has been deleted.`);
+    } catch (error) {
+      toast.error(`Failed to delete site "${siteTitle}".`);
+      console.error("Error deleting site:", error);
+    }
+  };
+
+  if (!isInitialized) {
+    // This state should ideally be handled by the RootLayout's loading indicator
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <p>Loading sites...</p>
+        </div>
+    );
+  }
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
+        <h1 className="text-3xl font-bold text-foreground">My Signum Sites (Local)</h1>
+        <Button asChild size="lg">
+          <Link href="/create-site">
+            <FilePlus2 className="mr-2 h-5 w-5" /> Create New Site
+          </Link>
+        </Button>
+      </div>
+
+      {sites.length === 0 ? (
+        <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
+          <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
+          <p className="text-muted-foreground mb-4">
+            You haven&apos;t created any sites. Click Create New Site to get started.
+          </p>
+          <Button asChild>
+            <Link href="/create-site">
+                <PlusCircle className="mr-2 h-4 w-4" /> Start Creating
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {sites.map((site) => (
+            <div 
+                key={site.siteId} 
+                className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-lg transition-shadow flex flex-col justify-between"
+            >
+              <div>
+                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.config.title}>
+                  {site.config.title || "Untitled Site"}
+                </h2>
+                <p className="text-sm text-muted-foreground mb-1 line-clamp-2" title={site.config.description}>
+                  {site.config.description || 'No description provided.'}
+                </p>
+                <p className="text-xs text-muted-foreground mb-4 break-all" title={site.siteId}>
+                  ID: {site.siteId}
+                </p>
+              </div>
+              <div className="mt-4 flex flex-col sm:flex-row sm:justify-start gap-2">
+                <Button variant="outline" size="sm" asChild className="flex-1 sm:flex-none">
+                  <Link href={`/${site.siteId}`} target="_blank" rel="noopener noreferrer">
+                    <Eye className="mr-2 h-4 w-4" /> View
+                  </Link>
+                </Button>
+                <Button variant="default" size="sm" asChild className="flex-1 sm:flex-none">
+                  <Link href={`/edit/${site.siteId}`}>
+                     <Edit3 className="mr-2 h-4 w-4" /> Edit
+                  </Link>
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm" className="flex-1 sm:flex-none">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action cannot be undone. This will permanently delete the site
+                        {site.config.title || 'this site'} and all its content from your local storage.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={() => handleDeleteSite(site.siteId, site.config.title || 'Untitled Site')}
+                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                      >
+                        Yes, delete site
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+       <footer className="mt-12 text-center text-sm text-muted-foreground">
+        <p>Signum Local Client v0.1.0</p>
+        <p>
+          <Link href="https://github.com/your-repo/signum-client" target="_blank" rel="noopener noreferrer" className="hover:text-primary transition-colors">
+            View on GitHub <ExternalLink className="inline-block ml-1 h-3 w-3" />
+          </Link>
+        </p>
+      </footer>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/globals.css
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+  --radius: 0.625rem;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.145 0 0);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.145 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --accent-foreground: oklch(0.205 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --chart-1: oklch(0.646 0.222 41.116);
+  --chart-2: oklch(0.6 0.118 184.704);
+  --chart-3: oklch(0.398 0.07 227.392);
+  --chart-4: oklch(0.828 0.189 84.429);
+  --chart-5: oklch(0.769 0.188 70.08);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-foreground: oklch(0.145 0 0);
+  --sidebar-primary: oklch(0.205 0 0);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --sidebar-accent-foreground: oklch(0.205 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-ring: oklch(0.708 0 0);
+}
+
+.dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --card-foreground: oklch(0.985 0 0);
+  --popover: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.985 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --accent-foreground: oklch(0.985 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-foreground: oklch(0.985 0 0);
+  --sidebar-primary: oklch(0.488 0.243 264.376);
+  --sidebar-primary-foreground: oklch(0.985 0 0);
+  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-ring: oklch(0.556 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+
+================================================================================
+
+File: app/sites/[siteId]/layout.tsx
+// src/app/(publishing)/edit/[siteId]/layout.tsx
+'use client';
+
+import Link from 'next/link';
+import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
+import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
+import FileTree from '@/components/publishing/FileTree';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
+import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+
+export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const siteId = params.siteId as string;
+
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
+
+  const fileTreeNodes = useMemo(() => {
+    if (site?.contentFiles) {
+      return buildFileTree(site.contentFiles);
+    }
+    return [];
+  }, [site?.contentFiles]);
+
+  const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
+
+  useEffect(() => {
+    // Determine current open file from pathname
+    // Pathname: /edit/siteId/content/path/to/file
+    const pathSegments = pathname.split('/content/');
+    if (pathSegments.length > 1) {
+        const filePath = pathSegments[1];
+        if (filePath) {
+            setCurrentOpenFile(`content/${filePath}.md`);
+        } else {
+            // It might be the index file at a folder level, or site config page
+            // Check if it's the site config page
+            if (pathname === `/edit/${siteId}`) {
+                 setCurrentOpenFile(undefined); // No file selected for site config
+            } else {
+                // It's likely content/index.md or content/folder/index.md
+                const basePath = pathSegments[0] + '/content/';
+                const potentialIndexPath = pathname.substring(basePath.length);
+                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
+                    setCurrentOpenFile('content/index.md');
+                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
+                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
+                } else {
+                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
+                }
+            }
+        }
+    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
+        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
+    } else {
+        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
+    }
+  }, [pathname, siteId]);
+
+
+  const handleCreateNewFile = async (parentPath: string = 'content') => {
+    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
+    if (!rawFileName || !isValidName(rawFileName)) {
+      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
+      return;
+    }
+    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
+    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
+
+    // Check if file already exists
+    if (site?.contentFiles.some(f => f.path === newFilePath)) {
+        toast.error(`File "${newFilePath}" already exists.`);
+        return;
+    }
+
+    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
+    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
+    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
+
+    try {
+        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
+        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
+        // Navigate to the new file for editing
+        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
+        router.push(`/edit/${siteId}/content/${editSlug}`);
+    } catch (error) {
+        toast.error("Failed to create file.");
+        console.error("Error creating file:", error);
+    }
+  };
+  
+  const handleCreateNewFolder = async (parentPath: string = 'content') => {
+    const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
+    if (!folderName || !isValidName(folderName)) {
+        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
+        return;
+    }
+    
+    // To "create" a folder, we'll create a placeholder .keep file in it,
+    // then immediately prompt to create a real file inside it.
+    // This is a common pattern if the system doesn't explicitly store empty folders.
+    // OR, simply adjust the UI to allow creating files under this new conceptual path.
+    // For now, let's make folder creation mean "create a new file inside this new folder path".
+    
+    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
+    
+    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
+    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
+  };
+
+
+  if (!site) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <p>Loading site editor or site not found...</p>
+            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
+        </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-background">
+      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
+        <div className="mb-4">
+            <h2 className="text-xl font-semibold truncate" title={site.config.title}>
+                {site.config.title || 'Site Editor'}
+            </h2>
+            <p className="text-xs text-muted-foreground truncate" title={siteId}>ID: {siteId}</p>
+        </div>
+
+        <nav className="flex flex-col space-y-1 mb-4">
+          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}`}>
+              <Settings className="mr-2 h-4 w-4" /> Site Config
+            </Link>
+          </Button>
+        </nav>
+
+        <div className="mb-2 flex justify-between items-center">
+            <h3 className="text-sm font-semibold px-1">Content Files</h3>
+            <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
+                    <FileText className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
+                    <FolderPlus className="h-4 w-4" />
+                </Button>
+            </div>
+        </div>
+        
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
+          <FileTree 
+            nodes={fileTreeNodes} 
+            baseEditPath={`/edit/${siteId}/content`}
+            currentOpenFile={currentOpenFile}
+            onFileCreate={handleCreateNewFile} // Pass handler down
+            onFolderCreate={handleCreateNewFolder} // Pass handler down
+          />
+        </div>
+
+        <div className="mt-auto space-y-2 pt-4 border-t">
+            <Button variant="outline" asChild className="w-full justify-start">
+                <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
+                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
+                </Link>
+            </Button>
+            <Button variant="ghost" asChild className="w-full justify-start">
+              <Link href="/">
+                <Home className="mr-2 h-4 w-4" /> App Dashboard
+              </Link>
+            </Button>
+        </div>
+      </aside>
+      <main className="flex-1 p-6 overflow-y-auto">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/sites/[siteId]/page.tsx
+// src/app/sites/[siteId]/posts/new/page.tsx
+'use client';
+
+import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
+import { usePosts } from '@/hooks/use-posts';
+import { useSites } from '@/hooks/use-sites';
+import { Button } from '@/components/ui/button';
+import { MarkdownEditor } from '@/components/content/markdown-editor';
+import { 
+  ArrowLeftIcon, 
+  EyeIcon, 
+  BookmarkIcon,
+  RocketLaunchIcon,
+  ClockIcon,
+  TagIcon,
+  
+} from '@heroicons/react/24/outline';
+import Link from 'next/link';
+
+interface PageProps {
+  params: { siteId: string };
+}
+
+export default function NewPostPage({ params }: PageProps) {
+  const router = useRouter();
+  const { createPost } = usePosts();
+  const { sites } = useSites();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [isDraft, setIsDraft] = useState(true);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<'saved' | 'saving' | 'unsaved'>('saved');
+  
+  const [formData, setFormData] = useState({
+    title: '',
+    content: '',
+    summary: '',
+    tags: '',
+    allow_likes: true,
+    slug: '',
+  });
+
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  
+  // Get current site info
+  const currentSite = sites.find(s => s.id === params.siteId);
+
+  // Auto-generate slug from title
+  useEffect(() => {
+    if (formData.title && !formData.slug) {
+      const generatedSlug = formData.title
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .trim();
+      setFormData(prev => ({ ...prev, slug: generatedSlug }));
+    }
+  }, [formData.title, formData.slug]);
+
+  // Auto-save functionality
+  useEffect(() => {
+    if (!formData.title && !formData.content) return;
+
+    setAutoSaveStatus('saving');
+    const timeoutId = setTimeout(() => {
+      // In a real app, this would save to IndexedDB or localStorage
+      localStorage.setItem(`draft-${params.siteId}`, JSON.stringify(formData));
+      setAutoSaveStatus('saved');
+    }, 2000);
+
+    return () => clearTimeout(timeoutId);
+  }, [formData, params.siteId]);
+
+  // Load draft from localStorage on mount
+  useEffect(() => {
+    const savedDraft = localStorage.getItem(`draft-${params.siteId}`);
+    if (savedDraft) {
+      try {
+        const draftData = JSON.parse(savedDraft);
+        setFormData(draftData);
+        setAutoSaveStatus('unsaved');
+      } catch (error) {
+        console.error('Failed to load draft:', error);
+      }
+    }
+  }, [params.siteId]);
+
+  const validateForm = () => {
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.title.trim()) {
+      newErrors.title = 'Title is required';
+    }
+
+    if (!formData.content.trim()) {
+      newErrors.content = 'Content is required';
+    }
+
+    if (formData.slug && !/^[a-z0-9-]+$/.test(formData.slug)) {
+      newErrors.slug = 'Slug can only contain lowercase letters, numbers, and hyphens';
+    }
+
+    setErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
+
+  const handleSubmit = async (saveAsDraft = true) => {
+    if (!validateForm()) return;
+    if (isSubmitting) return;
+
+    setIsSubmitting(true);
+    try {
+      const postData = {
+        title: formData.title.trim(),
+        content: formData.content.trim(),
+        summary: formData.summary.trim() || generateSummary(formData.content),
+        tags: formData.tags.split(',').map(tag => tag.trim()).filter(Boolean),
+        allow_likes: formData.allow_likes,
+        slug: formData.slug || generateSlugFromTitle(formData.title),
+        draft: saveAsDraft,
+      };
+
+      const newPost = await createPost(params.siteId, postData);
+      
+      // Clear the draft from localStorage
+      localStorage.removeItem(`draft-${params.siteId}`);
+      
+      // Redirect to the new post
+      router.push(`/sites/${params.siteId}/posts/${newPost.id}`);
+    } catch (error) {
+      console.error('Failed to create post:', error);
+      alert('Failed to create post. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const generateSummary = (content: string): string => {
+    // Remove markdown syntax and get first 150 characters
+    const plainText = content
+      .replace(/#{1,6}\s+/g, '') // Remove headers
+      .replace(/\*\*(.*?)\*\*/g, '$1') // Remove bold
+      .replace(/\*(.*?)\*/g, '$1') // Remove italic
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // Remove links, keep text
+      .replace(/`([^`]+)`/g, '$1') // Remove inline code
+      .replace(/\n+/g, ' ') // Replace newlines with spaces
+      .trim();
+
+    return plainText.length > 150 
+      ? plainText.substring(0, 150) + '...'
+      : plainText;
+  };
+
+  const generateSlugFromTitle = (title: string): string => {
+    return title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+  };
+
+  const handleInputChange = (field: string, value: any) => {
+    setFormData(prev => ({ ...prev, [field]: value }));
+    setAutoSaveStatus('unsaved');
+    
+    // Clear error when user starts typing
+    if (errors[field]) {
+      setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const isValid = formData.title.trim() && formData.content.trim();
+
+  if (!currentSite) {
+    return (
+      <div className="p-6">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-2">Site Not Found</h1>
+          <p className="text-gray-600 mb-4">The site you&apos;re looking for doesn&apos;t exist.</p>
+          <Link href="/sites">
+            <Button>Back to Sites</Button>
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto p-6">
+      {/* Header */}
+      <div className="mb-8">
+        <Link 
+          href={`/sites/${params.siteId}`}
+          className="inline-flex items-center text-sm text-gray-600 hover:text-gray-900 mb-4"
+        >
+          <ArrowLeftIcon className="h-4 w-4 mr-1" />
+          Back to {currentSite.config.title}
+        </Link>
+        
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">New Post</h1>
+            <p className="text-gray-600 mt-2">
+              Create a new post for your site.
+            </p>
+          </div>
+          
+          <div className="flex items-center space-x-3">
+            {/* Auto-save status */}
+            <div className="flex items-center space-x-2 text-sm text-gray-500">
+              <ClockIcon className="h-4 w-4" />
+              <span>
+                {autoSaveStatus === 'saved' && 'Draft saved'}
+                {autoSaveStatus === 'saving' && 'Saving...'}
+                {autoSaveStatus === 'unsaved' && 'Unsaved changes'}
+              </span>
+            </div>
+            
+            <Button
+              variant="outline"
+              onClick={() => setShowPreview(!showPreview)}
+              className="flex items-center space-x-2"
+            >
+              <EyeIcon className="h-4 w-4" />
+              <span>{showPreview ? 'Hide Preview' : 'Preview'}</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Main content */}
+        <div className={`${showPreview ? 'lg:col-span-2' : 'lg:col-span-3'}`}>
+          <div className="space-y-6">
+            {/* Post metadata */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <div className="space-y-4">
+                <div>
+                  <label htmlFor="title" className="block text-sm font-medium text-gray-700 mb-1">
+                    Title *
+                  </label>
+                  <input
+                    type="text"
+                    id="title"
+                    value={formData.title}
+                    onChange={(e) => handleInputChange('title', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                      errors.title ? 'border-red-300' : 'border-gray-300'
+                    }`}
+                    placeholder="Enter your post title"
+                  />
+                  {errors.title && (
+                    <p className="mt-1 text-sm text-red-600">{errors.title}</p>
+                  )}
+                </div>
+                
+                <div>
+                  <label htmlFor="slug" className="block text-sm font-medium text-gray-700 mb-1">
+                    URL Slug
+                  </label>
+                  <div className="flex items-center">
+                    <span className="text-sm text-gray-500 mr-2">
+                      {currentSite.config.hosting.canonical_url}/posts/
+                    </span>
+                    <input
+                      type="text"
+                      id="slug"
+                      value={formData.slug}
+                      onChange={(e) => handleInputChange('slug', e.target.value)}
+                      className={`flex-1 px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                        errors.slug ? 'border-red-300' : 'border-gray-300'
+                      }`}
+                      placeholder="auto-generated-from-title"
+                    />
+                  </div>
+                  {errors.slug && (
+                    <p className="mt-1 text-sm text-red-600">{errors.slug}</p>
+                  )}
+                  <p className="text-sm text-gray-500 mt-1">
+                    Leave empty to auto-generate from title
+                  </p>
+                </div>
+                
+                <div>
+                  <label htmlFor="summary" className="block text-sm font-medium text-gray-700 mb-1">
+                    Summary
+                  </label>
+                  <textarea
+                    id="summary"
+                    rows={2}
+                    value={formData.summary}
+                    onChange={(e) => handleInputChange('summary', e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Brief summary of your post (optional)"
+                  />
+                  <p className="text-sm text-gray-500 mt-1">
+                    If left empty, a summary will be generated from your content.
+                  </p>
+                </div>
+                
+                <div>
+                  <label htmlFor="tags" className="block text-sm font-medium text-gray-700 mb-1">
+                    Tags
+                  </label>
+                  <div className="flex items-center space-x-2">
+                    <TagIcon className="h-5 w-5 text-gray-400" />
+                    <input
+                      type="text"
+                      id="tags"
+                      value={formData.tags}
+                      onChange={(e) => handleInputChange('tags', e.target.value)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="technology, tutorial, opinion"
+                    />
+                  </div>
+                  <p className="text-sm text-gray-500 mt-1">
+                    Separate tags with commas
+                  </p>
+                </div>
+                
+                <div className="flex items-center">
+                  <input
+                    type="checkbox"
+                    id="allow_likes"
+                    checked={formData.allow_likes}
+                    onChange={(e) => handleInputChange('allow_likes', e.target.checked)}
+                    className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  />
+                  <label htmlFor="allow_likes" className="ml-2 text-sm text-gray-700">
+                    Allow likes on this post
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            {/* Content editor */}
+            <div className="bg-white rounded-lg border border-gray-200 p-6">
+              <label className="block text-sm font-medium text-gray-700 mb-4">
+                Content *
+              </label>
+              <MarkdownEditor
+                value={formData.content}
+                onChange={(value) => handleInputChange('content', value)}
+                height="500px"
+                className={errors.content ? 'border-red-300' : ''}
+              />
+              {errors.content && (
+                <p className="mt-2 text-sm text-red-600">{errors.content}</p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Preview sidebar */}
+        {showPreview && (
+          <div className="lg:col-span-1">
+            <div className="sticky top-6">
+              <div className="bg-white rounded-lg border border-gray-200 p-6">
+                <h3 className="text-lg font-semibold text-gray-900 mb-4">Preview</h3>
+                
+                <div className="space-y-4">
+                  {formData.title && (
+                    <div>
+                      <h1 className="text-xl font-bold text-gray-900">
+                        {formData.title}
+                      </h1>
+                      <p className="text-sm text-gray-500 mt-1">
+                        {new Date().toLocaleDateString()}
+                      </p>
+                    </div>
+                  )}
+                  
+                  {formData.tags && (
+                    <div className="flex flex-wrap gap-1">
+                      {formData.tags.split(',').map(tag => tag.trim()).filter(Boolean).map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {formData.summary && (
+                    <p className="text-sm text-gray-600 italic">
+                      {formData.summary}
+                    </p>
+                  )}
+                  
+                  {formData.content && (
+                    <div className="prose prose-sm max-w-none">
+                      <div dangerouslySetInnerHTML={{ 
+                        __html: formData.content.substring(0, 500) + (formData.content.length > 500 ? '...' : '')
+                      }} />
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Action bar */}
+      <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 p-4 md:pl-64">
+        <div className="max-w-4xl mx-auto flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="publish_status"
+                checked={isDraft}
+                onChange={() => setIsDraft(true)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+              />
+              <span className="ml-2 text-sm text-gray-700 flex items-center">
+                <BookmarkIcon className="h-4 w-4 mr-1" />
+                Save as Draft
+              </span>
+            </label>
+            
+            <label className="flex items-center">
+              <input
+                type="radio"
+                name="publish_status"
+                checked={!isDraft}
+                onChange={() => setIsDraft(false)}
+                className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+              />
+              <span className="ml-2 text-sm text-gray-700 flex items-center">
+                <RocketLaunchIcon className="h-4 w-4 mr-1" />
+                Publish Now
+              </span>
+            </label>
+          </div>
+          
+          <div className="flex space-x-3">
+            <Link href={`/sites/${params.siteId}`}>
+              <Button variant="outline">Cancel</Button>
+            </Link>
+            
+            <Button 
+              onClick={() => handleSubmit(isDraft)}
+              disabled={isSubmitting || !isValid}
+              className="flex items-center space-x-2"
+            >
+              {isSubmitting ? (
+                <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : isDraft ? (
+                <BookmarkIcon className="h-4 w-4" />
+              ) : (
+                <RocketLaunchIcon className="h-4 w-4" />
+              )}
+              <span>
+                {isSubmitting 
+                  ? (isDraft ? 'Saving...' : 'Publishing...') 
+                  : (isDraft ? 'Save Draft' : 'Publish Post')
+                }
+              </span>
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Spacer for fixed action bar */}
+      <div className="h-20" />
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/page.tsx
+// src/app/(publishing)/edit/[siteId]/page.tsx
+'use client';
+
+import { useParams, useRouter } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import SiteConfigForm from '@/components/publishing/SiteConfigForm';
+import { Button } from '@/components/ui/button';
+import { SiteConfigFile } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+
+export default function EditSiteConfigPage() {
+  const router = useRouter(); // Not used in this version, but good to have if needed
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  // Selectors for store state and actions
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateSiteConfigAction = useAppStore(state => state.updateSiteConfig);
+
+  const [currentConfig, setCurrentConfig] = useState<SiteConfigFile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+
+  useEffect(() => {
+    if (site?.config) {
+      // Deep copy to avoid direct mutation of store state if form changes object references
+      setCurrentConfig(JSON.parse(JSON.stringify(site.config)));
+      setHasChanges(false); // Reset changes when site data reloads
+    }
+  }, [site]); // Re-run if the site object from the store changes
+
+  const handleConfigChange = useCallback((newConfig: SiteConfigFile) => {
+    setCurrentConfig(newConfig);
+    setHasChanges(true);
+  }, []);
+
+  const handleSaveConfig = async () => {
+    if (currentConfig && siteId) {
+      if (!currentConfig.title.trim()) {
+        toast.error("Site title cannot be empty.");
+        return;
+      }
+      setIsLoading(true);
+      try {
+        await updateSiteConfigAction(siteId, currentConfig);
+        toast.success('Site configuration saved successfully!');
+        setHasChanges(false); // Reset changes after successful save
+      } catch (error) {
+        console.error("Error saving site configuration:", error);
+        toast.error("Failed to save configuration. Please try again.");
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
+
+  if (!site) {
+    // This case should ideally be handled by the layout or a loading state from the store
+    return <p className="p-4">Loading site data or site not found...</p>;
+  }
+  if (!currentConfig) {
+     return <p className="p-4">Loading configuration...</p>;
+  }
+
+
+  return (
+    <div>
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Edit Site Configuration</h1>
+        {/* Optional: Add a "Discard Changes" button */}
+      </div>
+      <SiteConfigForm initialConfig={currentConfig} onConfigChange={handleConfigChange} />
+      <Button 
+        onClick={handleSaveConfig} 
+        disabled={isLoading || !hasChanges} 
+        className="mt-6"
+      >
+        {isLoading ? 'Saving...' : 'Save Configuration'}
+      </Button>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/layout.tsx
+// src/app/(publishing)/edit/[siteId]/layout.tsx
+'use client';
+
+import Link from 'next/link';
+import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
+import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
+import FileTree from '@/components/publishing/FileTree';
+import { useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
+import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+
+export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const siteId = params.siteId as string;
+
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
+
+  const fileTreeNodes = useMemo(() => {
+    if (site?.contentFiles) {
+      return buildFileTree(site.contentFiles);
+    }
+    return [];
+  }, [site?.contentFiles]);
+
+  const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
+
+  useEffect(() => {
+    // Determine current open file from pathname
+    // Pathname: /edit/siteId/content/path/to/file
+    const pathSegments = pathname.split('/content/');
+    if (pathSegments.length > 1) {
+        const filePath = pathSegments[1];
+        if (filePath) {
+            setCurrentOpenFile(`content/${filePath}.md`);
+        } else {
+            // It might be the index file at a folder level, or site config page
+            // Check if it's the site config page
+            if (pathname === `/edit/${siteId}`) {
+                 setCurrentOpenFile(undefined); // No file selected for site config
+            } else {
+                // It's likely content/index.md or content/folder/index.md
+                const basePath = pathSegments[0] + '/content/';
+                const potentialIndexPath = pathname.substring(basePath.length);
+                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
+                    setCurrentOpenFile('content/index.md');
+                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
+                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
+                } else {
+                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
+                }
+            }
+        }
+    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
+        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
+    } else {
+        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
+    }
+  }, [pathname, siteId]);
+
+
+  const handleCreateNewFile = async (parentPath: string = 'content') => {
+    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
+    if (!rawFileName || !isValidName(rawFileName)) {
+      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
+      return;
+    }
+    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
+    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
+
+    // Check if file already exists
+    if (site?.contentFiles.some(f => f.path === newFilePath)) {
+        toast.error(`File "${newFilePath}" already exists.`);
+        return;
+    }
+
+    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
+    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
+    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
+
+    try {
+        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
+        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
+        // Navigate to the new file for editing
+        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
+        router.push(`/edit/${siteId}/content/${editSlug}`);
+    } catch (error) {
+        toast.error("Failed to create file.");
+        console.error("Error creating file:", error);
+    }
+  };
+  
+  const handleCreateNewFolder = async (parentPath: string = 'content') => {
+    const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
+    if (!folderName || !isValidName(folderName)) {
+        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
+        return;
+    }
+    
+    // To "create" a folder, we'll create a placeholder .keep file in it,
+    // then immediately prompt to create a real file inside it.
+    // This is a common pattern if the system doesn't explicitly store empty folders.
+    // OR, simply adjust the UI to allow creating files under this new conceptual path.
+    // For now, let's make folder creation mean "create a new file inside this new folder path".
+    
+    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
+    
+    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
+    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
+  };
+
+
+  if (!site) {
+    return (
+        <div className="flex items-center justify-center h-screen">
+            <p>Loading site editor or site not found...</p>
+            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
+        </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen bg-background">
+      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
+        <div className="mb-4">
+            <h2 className="text-xl font-semibold truncate" title={site.config.title}>
+                {site.config.title || 'Site Editor'}
+            </h2>
+            <p className="text-xs text-muted-foreground truncate" title={siteId}>ID: {siteId}</p>
+        </div>
+
+        <nav className="flex flex-col space-y-1 mb-4">
+          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}`}>
+              <Settings className="mr-2 h-4 w-4" /> Site Config
+            </Link>
+          </Button>
+        </nav>
+
+        <div className="mb-2 flex justify-between items-center">
+            <h3 className="text-sm font-semibold px-1">Content Files</h3>
+            <div className="flex gap-1">
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
+                    <FileText className="h-4 w-4" />
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
+                    <FolderPlus className="h-4 w-4" />
+                </Button>
+            </div>
+        </div>
+        
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
+          <FileTree 
+            nodes={fileTreeNodes} 
+            baseEditPath={`/edit/${siteId}/content`}
+            currentOpenFile={currentOpenFile}
+            onFileCreate={handleCreateNewFile} // Pass handler down
+            onFolderCreate={handleCreateNewFolder} // Pass handler down
+          />
+        </div>
+
+        <div className="mt-auto space-y-2 pt-4 border-t">
+            <Button variant="outline" asChild className="w-full justify-start">
+                <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
+                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
+                </Link>
+            </Button>
+            <Button variant="ghost" asChild className="w-full justify-start">
+              <Link href="/">
+                <Home className="mr-2 h-4 w-4" /> App Dashboard
+              </Link>
+            </Button>
+        </div>
+      </aside>
+      <main className="flex-1 p-6 overflow-y-auto">
+        {children}
+      </main>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/page.tsx
+// src/app/(publishing)/edit/[siteId]/page.tsx
+'use client';
+
+import { useParams, useRouter } from 'next/navigation'; // useRouter might be useful later
+import { useAppStore } from '@/stores/useAppStore';
+import SiteConfigForm from '@/components/publishing/SiteConfigForm';
+import { Button } from '@/components/ui/button';
+import { SiteConfigFile } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+import Link from 'next/link'; // For linking back if site not found
+
+export default function EditSiteConfigPage() {
+  const params = useParams();
+  const siteId = params.siteId as string; // Get siteId from URL parameters
+
+  // Selectors for store state and actions.
+  // Using useCallback for the selector function passed to useAppStore can sometimes
+  // help with memoization if the selector itself is complex, but for simple getters,
+  // it's often not strictly necessary if the dependencies are handled correctly.
+  // Here, siteId is a dependency for the selector.
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateSiteConfigAction = useAppStore(state => state.updateSiteConfig);
+  const isStoreInitialized = useAppStore(state => state.isInitialized);
+
+  // State for the form's current configuration data
+  const [currentConfig, setCurrentConfig] = useState<SiteConfigFile | null>(null);
+  // State to manage loading status during save operations
+  const [isLoading, setIsLoading] = useState(false);
+  // State to track if there are unsaved changes in the form
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // Effect to initialize or update the form's currentConfig when the site data from the store changes
+  // or when the component first mounts with a valid siteId.
+  useEffect(() => {
+    if (site?.config) {
+      // Deep copy the site's config to local state to avoid direct mutation of the store's state.
+      // This is crucial if SiteConfigForm or other interactions might modify nested objects.
+      setCurrentConfig(JSON.parse(JSON.stringify(site.config)));
+      setHasChanges(false); // Reset unsaved changes flag when site data reloads or component mounts
+    } else if (isStoreInitialized && !site) {
+      // If store is initialized but site not found, setCurrentConfig to null
+      // to trigger the "Site not found" message.
+      setCurrentConfig(null); 
+    }
+    // Dependency array: re-run this effect if 'site' object changes or 'isStoreInitialized' changes.
+  }, [site, isStoreInitialized]); 
+
+  // Callback to handle changes from the SiteConfigForm component
+  const handleConfigChange = useCallback((newConfig: SiteConfigFile) => {
+    setCurrentConfig(newConfig);
+    setHasChanges(true); // Mark that there are unsaved changes
+  }, []); // No dependencies needed if it only sets local state
+
+  // Callback to handle saving the configuration
+  const handleSaveConfig = async () => {
+    if (currentConfig && siteId) { // Ensure currentConfig and siteId are available
+      if (!currentConfig.title || currentConfig.title.trim() === "") {
+        toast.error("Site title cannot be empty.");
+        return;
+      }
+      setIsLoading(true); // Set loading state
+      try {
+        // Call the store action to update the site configuration
+        await updateSiteConfigAction(siteId, currentConfig);
+        toast.success('Site configuration saved successfully!');
+        setHasChanges(false); // Reset unsaved changes flag after successful save
+      } catch (error) {
+        console.error("Error saving site configuration:", error);
+        toast.error("Failed to save configuration. Please try again.");
+      } finally {
+        setIsLoading(false); // Reset loading state
+      }
+    } else {
+      toast.error("Cannot save: Configuration data is missing.");
+    }
+  };
+
+  // Render loading state if the store is not yet initialized
+  if (!isStoreInitialized) {
+    return (
+        <div className="p-6 flex justify-center items-center min-h-[calc(100vh-var(--header-height))]">
+            <p>Loading site editor...</p> {/* Replace with a spinner */}
+        </div>
+    );
+  }
+
+  // Render "Site not found" if the store is initialized but the site doesn't exist
+  // or if currentConfig couldn't be set (e.g., site was deleted).
+  if (!site || !currentConfig) {
+    return (
+      <div className="p-6 text-center">
+        <h2 className="text-xl font-semibold mb-4">Site Not Found</h2>
+        <p className="text-muted-foreground mb-4">
+          The site with ID "{siteId}" could not be found or is no longer available.
+        </p>
+        <Button asChild variant="outline">
+          <Link href="/">Go to Dashboard</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  // Render the main form if site and config are loaded
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+        <h1 className="text-2xl font-bold">Edit Site Configuration</h1>
+        {/* You could add a "Last saved" timestamp here if desired */}
+      </div>
+      
+      <SiteConfigForm 
+        initialConfig={currentConfig} 
+        onConfigChange={handleConfigChange} 
+      />
+      
+      <div className="flex justify-end pt-4">
+        <Button 
+          onClick={handleSaveConfig} 
+          disabled={isLoading || !hasChanges} 
+          size="lg"
+        >
+          {isLoading ? 'Saving...' : 'Save Configuration'}
+          {hasChanges && !isLoading && <span className="ml-2 text-xs opacity-70">*</span>}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
+// src/app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
+'use client';
+
+import { useParams, useRouter } from 'next/navigation'; // useRouter might be useful later
+import { useAppStore } from '@/stores/useAppStore';
+import MarkdownEditor from '@/components/publishing/MarkdownEditor';
+import { Button } from '@/components/ui/button';
+import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { stringifyToMarkdown, parseMarkdownString } from '@/lib/markdownParser';
+import { toast } from "sonner";
+
+export default function EditContentPage() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+  const slugArray = (params.slug as string[]) || []; // Ensure slugArray is always an array
+
+  // Memoized selectors for store state and actions
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const addOrUpdateContentFileAction = useAppStore(state => state.addOrUpdateContentFile);
+
+  // State for the currently edited file's data (parsed structure)
+  const [currentFile, setCurrentFile] = useState<ParsedMarkdownFile | null>(null);
+  // State for the raw markdown content in the editor (includes frontmatter + body)
+  const [editorContent, setEditorContent] = useState<string>('');
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [isNewFileMode, setIsNewFileMode] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // Determine the target path from URL slugs
+  const targetPath = `content/${slugArray.join('/')}${slugArray.length > 0 ? '.md' : 'index.md'}`;
+
+
+  useEffect(() => {
+    if (site) {
+      const existingFile = site.contentFiles.find(f => f.path === targetPath);
+      if (existingFile) {
+        setCurrentFile(existingFile);
+        setEditorContent(stringifyToMarkdown(existingFile.frontmatter, existingFile.content));
+        setIsNewFileMode(false);
+      } else {
+        // Setup for a new file if no existing file matches the path
+        const newSlug = slugArray.length > 0 ? slugArray[slugArray.length - 1] : 'index';
+        const defaultFrontmatter: MarkdownFrontmatter = { title: newSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'New Page' };
+        const defaultBody = `# ${defaultFrontmatter.title}\n\nStart writing your content here.`;
+        
+        const newFilePlaceholder: ParsedMarkdownFile = {
+            slug: newSlug,
+            path: targetPath,
+            frontmatter: defaultFrontmatter,
+            content: defaultBody, // body content only
+        };
+        setCurrentFile(newFilePlaceholder);
+        setEditorContent(stringifyToMarkdown(newFilePlaceholder.frontmatter, newFilePlaceholder.content));
+        setIsNewFileMode(true);
+      }
+      setHasUnsavedChanges(false); // Reset unsaved changes flag when file loads/changes
+    }
+  }, [site, targetPath]); // Re-run when site data or targetPath changes
+
+  const handleEditorChange = useCallback((newRawMarkdown: string) => {
+    setEditorContent(newRawMarkdown);
+    setHasUnsavedChanges(true);
+  }, []);
+
+  const handleSaveContent = async () => {
+    if (!currentFile || !siteId) {
+        toast.error("Cannot save: File or site data is missing.");
+        return;
+    }
+    setIsLoading(true);
+    try {
+      // The editorContent (rawMarkdown) is passed to the store action
+      // The store action calls localSiteFs.saveContentFile, which handles parsing
+      await addOrUpdateContentFileAction(siteId, currentFile.path, editorContent);
+      
+      // After successful save, update currentFile state with potentially parsed data
+      // This is important if frontmatter was malformed and fixed by parser, or for new files.
+      const { frontmatter, content: bodyContent } = parseMarkdownString(editorContent);
+      setCurrentFile(prev => prev ? {...prev, frontmatter, content: bodyContent} : null);
+
+      toast.success(`Content for "${currentFile.frontmatter.title || currentFile.slug}" saved successfully!`);
+      setIsNewFileMode(false); // If it was a new file, it's now an existing file
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      // The parseMarkdownString can throw if frontmatter is invalid.
+      // The store action might also throw if localSiteFs fails.
+      console.error("Error saving content:", error);
+      toast.error(`Failed to save content: ${(error as Error).message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!site) {
+    return <p className="p-4">Loading site data or site not found...</p>;
+  }
+  if (!currentFile) {
+     // This state occurs while useEffect is setting up currentFile
+     return <p className="p-4">Loading file data for {targetPath}...</p>;
+  }
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2">
+        <h1 className="text-2xl font-bold truncate" title={currentFile.frontmatter.title || currentFile.slug}>
+          {isNewFileMode ? 'Create: ' : 'Edit: '}
+          {currentFile.frontmatter.title || currentFile.slug}
+          {hasUnsavedChanges && <span className="text-destructive text-sm ml-2">*</span>}
+        </h1>
+        <Button onClick={handleSaveContent} disabled={isLoading || !hasUnsavedChanges}>
+          {isLoading ? 'Saving...' : 'Save Content'}
+        </Button>
+      </div>
+      <MarkdownEditor
+        key={currentFile.path} // Force re-mount if path changes, ensuring editor gets new initialValue
+        initialValue={editorContent}
+        onChange={handleEditorChange}
+      />
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/create-site/page.tsx
+// src/app/(publishing)/create-site/page.tsx
+'use client';
+
+import { useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import { SiteConfigFile, LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter } from '@/types';
+import SiteConfigForm from '@/components/publishing/SiteConfigForm';
+import { Button } from '@/components/ui/button';
+import { generateSiteId } from '@/lib/utils';
+import { toast } from "sonner"; // For notifications
+
+export default function CreateSitePage() {
+  const router = useRouter();
+  const addSite = useAppStore((state) => state.addSite); // Get specific action
+
+  const [siteConfig, setSiteConfig] = useState<SiteConfigFile>({
+    title: '',
+    description: '',
+    // Initialize other optional fields if necessary
+    // style_hints: { font_family: 'sans-serif', theme: 'light' },
+  });
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleConfigChange = (newConfig: SiteConfigFile) => {
+    setSiteConfig(newConfig);
+  };
+
+  const handleSubmit = async () => {
+    if (!siteConfig.title.trim()) {
+      toast.error('Site title is required.');
+      return;
+    }
+    setIsLoading(true);
+
+    const newSiteId = generateSiteId(siteConfig.title);
+
+    // Create a default index.md
+    const defaultIndexFrontmatter: MarkdownFrontmatter = { title: 'Welcome' };
+    const defaultIndexBody = `# Welcome to ${siteConfig.title}\n\nThis is your new site's homepage. Start editing!`;
+    
+    const defaultIndexFile: ParsedMarkdownFile = {
+        slug: 'index', // slug derived from filename (index.md)
+        path: 'content/index.md',
+        frontmatter: defaultIndexFrontmatter,
+        content: defaultIndexBody,
+    };
+
+    const newSiteData: LocalSiteData = {
+      siteId: newSiteId,
+      config: { // Ensure all required fields from SiteConfigFile are present
+        title: siteConfig.title.trim(),
+        description: siteConfig.description.trim(),
+        author: siteConfig.author?.trim() || '', // Handle optional author
+        style_hints: siteConfig.style_hints || {}, // Ensure style_hints is an object
+      },
+      contentFiles: [defaultIndexFile],
+    };
+
+    try {
+      await addSite(newSiteData); // This action in store now calls localSiteFs.saveSite
+      toast.success(`Site "${siteConfig.title}" created locally!`);
+      router.push(`/edit/${newSiteId}`); // Navigate to the editor for the new site
+    } catch (error) {
+      console.error("Error creating site:", error);
+      toast.error("Failed to create site. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="container mx-auto p-4 max-w-2xl">
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-3xl font-bold">Create New Site</h1>
+        <Button onClick={() => router.push('/')} variant="outline">
+          Back to Dashboard
+        </Button>
+      </div>
+      <SiteConfigForm initialConfig={siteConfig} onConfigChange={handleConfigChange} />
+      <Button onClick={handleSubmit} disabled={isLoading} className="mt-6 w-full sm:w-auto">
+        {isLoading ? 'Creating...' : 'Create Site Locally'}
+      </Button>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(browsing)/[siteId]/layout.tsx
+// src/app/(browsing)/[siteId]/layout.tsx
+'use client';
+
+import Link from 'next/link';
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react'; 
+import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
+import { LocalSiteData } from '@/types';
+import { Home, ArrowLeft, Leaf, Settings, ExternalLink, AlertTriangle } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+
+const REMOTE_SITE_ID_PREFIX = "remote@";
+
+function cleanAndGetSiteId(rawParamValue: string | string[] | undefined): string {
+    let idCandidate = '';
+    if (Array.isArray(rawParamValue)) {
+        idCandidate = rawParamValue[0] || ''; 
+    } else if (typeof rawParamValue === 'string') {
+        idCandidate = rawParamValue;
+    }
+
+    console.log(`[Layout] cleanAndGetSiteId - initial rawParamValue: "${idCandidate}"`);
+
+    // Attempt to URL decode first, in case it's double-encoded or params hook didn't fully decode
+    try {
+        let decodedOnce = decodeURIComponent(idCandidate);
+        console.log(`[Layout] cleanAndGetSiteId - after first decodeURIComponent: "${decodedOnce}"`);
+        // If it still looks like it has quotes AND percent encoding, try decoding again
+        // This is unusual, but let's try to be robust if quotes themselves were encoded
+        if ((decodedOnce.startsWith('"') || decodedOnce.startsWith('%22')) && 
+            (decodedOnce.endsWith('"') || decodedOnce.endsWith('%22')) &&
+            decodedOnce.includes('%')) {
+            
+            let tempId = decodedOnce;
+            if (tempId.startsWith('%22')) tempId = tempId.substring(3);
+            if (tempId.endsWith('%22')) tempId = tempId.substring(0, tempId.length - 3);
+            
+            // Or simply, if it starts with " and ends with " after one decode, remove them
+            if (tempId.startsWith('"') && tempId.endsWith('"')) {
+                 tempId = tempId.substring(1, tempId.length - 1);
+            }
+            // Then decode again
+            decodedOnce = decodeURIComponent(tempId);
+            console.log(`[Layout] cleanAndGetSiteId - after second decodeURIComponent (if applicable): "${decodedOnce}"`);
+        }
+        idCandidate = decodedOnce;
+    } catch (e) {
+        console.warn(`[Layout] cleanAndGetSiteId - decodeURIComponent failed for "${idCandidate}", using as is. Error:`, e);
+        // If decoding fails, use the idCandidate as is, it might already be decoded.
+    }
+    
+    // Now, definitively remove leading/trailing quotes from the (potentially) decoded string
+    if (typeof idCandidate === 'string' && idCandidate.startsWith('"') && idCandidate.endsWith('"')) {
+        idCandidate = idCandidate.substring(1, idCandidate.length - 1);
+        console.log(`[Layout] cleanAndGetSiteId - successfully removed quotes: "${idCandidate}"`);
+    } else {
+        console.log(`[Layout] cleanAndGetSiteId - no quotes to remove or not a string: "${idCandidate}"`);
+    }
+    
+    return idCandidate;
+}
+
+
+function checkIsRemote(id: string): boolean {
+  // This function now expects an ID that has had quotes and URL encoding dealt with
+  console.log(`[Layout] checkIsRemote called with ID: "${id}", prefix: "${REMOTE_SITE_ID_PREFIX}"`);
+  const result = id && id.startsWith(REMOTE_SITE_ID_PREFIX); 
+  console.log(`[Layout] checkIsRemote result: ${result}`);
+  return !!result; 
+}
+
+function decodeRemoteUrlFromCleanedSiteId(cleanedSiteId: string): string | null {
+  // This function expects cleanedSiteId to be like "remote@http://127.0.0.1:8080"
+  // The "http://..." part should NOT be URL encoded anymore.
+  if (checkIsRemote(cleanedSiteId)) { // checkIsRemote needs the "remote@" prefix
+    try {
+      // The part after "remote@" is the actual URL, which should already be decoded.
+      const actualUrl = cleanedSiteId.substring(REMOTE_SITE_ID_PREFIX.length);
+      console.log(`[Layout] Extracted actual URL for remote site: "${actualUrl}"`);
+      // Validate if it's a proper URL structure
+      new URL(actualUrl); // This will throw if actualUrl is not a valid URL
+      return actualUrl;
+    } catch (e) {
+      console.error("[Layout] Failed to parse or validate decoded remote URL:", cleanedSiteId, e);
+      return null;
+    }
+  }
+  console.log(`[Layout] decodeRemoteUrlFromCleanedSiteId: Cleaned ID "${cleanedSiteId}" is not a remote pattern.`);
+  return null;
+}
+
+export default function SiteBrowsingLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const params = useParams(); // params.siteId might be "remote%40http%253A%252F%252F127.0.0.1%253A8080"
+                              // or "\"remote@http%3A%2F%2F127.0.0.1%3A8080\""
+
+  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isActuallyRemote, setIsActuallyRemote] = useState(false);
+  const [actualRemoteBaseUrl, setActualRemoteBaseUrl] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const siteIdFromParamsRaw = params.siteId as string; // Keep the raw one for display in errors/links
+  const cleanedSiteId = useMemo(() => cleanAndGetSiteId(siteIdFromParamsRaw), [siteIdFromParamsRaw]);
+
+
+  useEffect(() => {
+    if (!cleanedSiteId) {
+      // ... (same as before)
+      console.log("[Layout] useEffect: No cleanedSiteId, setting not found.");
+      setIsLoading(false);
+      setSiteData(null);
+      setErrorMessage("Site identifier is missing or invalid in the URL.");
+      return;
+    }
+    
+    console.log("[Layout] useEffect triggered. CLEANED siteId to process:", `"${cleanedSiteId}"`);
+
+    let mounted = true;
+    setIsLoading(true);
+    setSiteData(undefined); 
+    setErrorMessage(null);
+
+    async function fetchLayoutData() {
+      let fetchedSiteData: LocalSiteData | null = null;
+      const isRemoteCheckResult = checkIsRemote(cleanedSiteId);
+      console.log(`[Layout] Based on cleaned ID, isRemoteCheckResult for "${cleanedSiteId}": ${isRemoteCheckResult}`);
+
+      if (isRemoteCheckResult) {
+        console.log("[Layout] fetchLayoutData: Path taken for REMOTE site.");
+        setIsActuallyRemote(true);
+        // decodeRemoteUrlFromCleanedSiteId now expects a cleanedId like "remote@http://127.0.0.1:8080"
+        const decodedAndValidatedUrl = decodeRemoteUrlFromCleanedSiteId(cleanedSiteId); 
+        console.log("[Layout] fetchLayoutData: Decoded & Validated URL for remote fetch:", `"${decodedAndValidatedUrl}"`);
+        setActualRemoteBaseUrl(decodedAndValidatedUrl); 
+        
+        if (decodedAndValidatedUrl) {
+          fetchedSiteData = await fetchRemoteSiteData(decodedAndValidatedUrl);
+          if (!fetchedSiteData) {
+            setErrorMessage(`Failed to fetch remote site data from ${decodedAndValidatedUrl}. Check [RFS] logs.`);
+          }
+        } else {
+          fetchedSiteData = null; 
+          setErrorMessage(`Invalid remote site URL structure after cleaning ID: ${cleanedSiteId}`);
+        }
+      } else {
+        // ... (local site logic remains the same, using cleanedSiteId)
+        console.log("[Layout] fetchLayoutData: Path taken for LOCAL site.");
+        setIsActuallyRemote(false);
+        setActualRemoteBaseUrl(null);
+        fetchedSiteData = await localSiteFs.getSiteById(cleanedSiteId);
+        if (!fetchedSiteData) {
+            setErrorMessage(`Local site with ID "${cleanedSiteId}" not found.`);
+        }
+      }
+
+      if (!mounted) return;
+
+      setSiteData(fetchedSiteData);
+      setIsLoading(false);
+      console.log("[Layout] fetchLayoutData finished. isLoading:", false, "siteData:", fetchedSiteData ? `Loaded (${fetchedSiteData.siteId})` : "Null");
+    }
+
+    fetchLayoutData();
+
+    return () => {
+      mounted = false;
+    };
+  }, [cleanedSiteId]); 
+
+
+  // --- Render blocks (isLoading, !siteData, main layout) ---
+  // The JSX for these blocks can remain the same, using `siteIdFromParamsRaw` for user-facing display of the ID
+  // and `cleanedSiteId` or `siteConfig.title` for other internal display logic.
+  // Example for error message:
+  // {errorMessage || `The site (ID/URL: ${siteIdFromParamsRaw}) could not be loaded...`}
+
+  if (isLoading) {
+    return ( <div className="flex flex-col min-h-screen"> <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur"> <div className="container flex h-16 items-center justify-between"> <div className="flex items-center space-x-2"> <Leaf className="h-6 w-6 text-primary animate-pulse" /> <span className="text-xl font-semibold text-muted-foreground">Loading Site...</span> </div> <Button variant="outline" size="sm" asChild> <Link href="/" title="Back to Signum Dashboard"> <span className="flex items-center"> <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard </span> </Link> </Button> </div> </header> <main className="flex-grow w-full flex justify-center items-center"> <p>Loading layout...</p> </main> <footer className="border-t bg-muted/50 text-center py-4"> <p className="text-xs text-muted-foreground">Signum</p> </footer> </div> );
+  }
+
+  if (!siteData) { 
+    return ( <div className="flex flex-col min-h-screen"> <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur"> <div className="container flex h-16 items-center justify-between"> <Link href="/" className="flex items-center space-x-2"> <Leaf className="h-7 w-7 text-primary" /> <span className="text-2xl font-bold text-foreground">Signum</span> </Link> <Button variant="outline" size="sm" asChild> <Link href="/"> <span className="flex items-center"> <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard </span> </Link> </Button> </div> </header> <main className="flex-grow container mx-auto px-4 py-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-destructive mb-4" /> <h1 className="text-2xl font-bold mb-2">Site Not Found</h1> <p className="text-muted-foreground max-w-md"> {errorMessage || `The site (ID/URL: ${siteIdFromParamsRaw /* Use raw param for display */}) could not be loaded. Please check the URL or try again later.`} </p> <Button variant="default" asChild className="mt-6"> <Link href="/">Go to Dashboard</Link> </Button> </div> </main> <footer className="border-t bg-muted/50 text-center py-4"> <p className="text-xs text-muted-foreground">Signum</p> </footer> </div> );
+  }
+
+  const siteConfig = siteData.config;
+  const currentDisplaySiteId = siteIdFromParamsRaw || cleanedSiteId; 
+
+  const navLinks = siteData.contentFiles
+    .filter(file => file.path !== 'content/index.md')
+    .map(file => {
+      const slug = file.path.startsWith('content/') 
+                   ? file.path.substring('content/'.length).replace(/\.md$/, '')
+                   : file.path.replace(/\.md$/, '');
+      return {
+        href: `/${currentDisplaySiteId}/${slug}`,
+        label: file.frontmatter.title || file.slug,
+      };
+    })
+    .sort((a,b) => a.label.localeCompare(b.label));
+
+  return (
+    <div className="flex flex-col min-h-screen bg-background text-foreground">
+      <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/50">
+        <div className="container flex h-16 items-center justify-between">
+          <Link href={`/${currentDisplaySiteId}`} className="flex items-center space-x-2">
+            <Leaf className="h-6 w-6 text-primary" />
+            <span className="text-xl font-semibold text-foreground">
+              {siteConfig?.title || cleanedSiteId}
+            </span>
+            {isActuallyRemote && actualRemoteBaseUrl && (
+                <a href={actualRemoteBaseUrl} target="_blank" rel="noopener noreferrer" title={`Open original remote site: ${actualRemoteBaseUrl}`} className="ml-2">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                </a>
+            )}
+          </Link>
+          
+          <nav className="hidden md:flex items-center space-x-1">
+            <Button variant="ghost" size="sm" asChild>
+                <Link href={`/${currentDisplaySiteId}`} title="Site Home">
+                    <span className="flex items-center">
+                        <Home className="h-4 w-4 mr-1" /> Home
+                    </span>
+                </Link>
+            </Button>
+            {navLinks.map(link => (
+              <Button variant="ghost" size="sm" asChild key={link.href}>
+                <Link href={link.href} title={link.label}>
+                  {link.label}
+                </Link>
+              </Button>
+            ))}
+          </nav>
+
+          <div className="flex items-center">
+            <Button variant="outline" size="sm" asChild className="ml-2">
+                <Link href="/" title="Back to Signum Dashboard">
+                    <span className="flex items-center">
+                        <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard
+                    </span>
+                </Link>
+            </Button>
+            <div className="md:hidden ml-2"> 
+              <Button variant="ghost" size="icon">
+                <Settings className="h-5 w-5" />
+                <span className="sr-only">Toggle menu</span>
+              </Button>
+            </div>
+          </div>
+        </div>
+      </header>
+      
+      <main className="flex-grow w-full">
+        {children}
+      </main>
+      
+      <footer className="border-t bg-muted/50 text-center py-4">
+        <p className="text-xs text-muted-foreground">
+          Viewing site: {siteConfig?.title || cleanedSiteId} ({isActuallyRemote ? "Remote" : "Local"})
+        </p>
+      </footer>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(browsing)/[siteId]/[[...slug]]/page.tsx
+// src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
+'use client';
+
+import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
+import MarkdownRenderer from '@/components/browsing/MarkdownRenderer';
+import { ParsedMarkdownFile, LocalSiteData } from '@/types';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle } from 'lucide-react';
+
+const REMOTE_SITE_ID_PREFIX_PAGE = "remote@"; // Use a distinct constant name if preferred
+
+function checkIsRemotePage(id: string): boolean { // Renamed for clarity within this file
+  console.log(`[Page] checkIsRemotePage called with ID: "${id}", prefix: "${REMOTE_SITE_ID_PREFIX_PAGE}"`);
+  const result = id && id.startsWith(REMOTE_SITE_ID_PREFIX_PAGE);
+  console.log(`[Page] checkIsRemotePage result: ${result}`);
+  return !!result;
+}
+
+function decodeRemoteUrlFromSiteIdPage(siteIdFromUrl: string): string | null { // Renamed
+  if (checkIsRemotePage(siteIdFromUrl)) {
+    try {
+      const encodedUrlPart = siteIdFromUrl.substring(REMOTE_SITE_ID_PREFIX_PAGE.length);
+      const decoded = decodeURIComponent(encodedUrlPart);
+      console.log(`[Page] Successfully decoded "${encodedUrlPart}" to "${decoded}"`);
+      return decoded;
+    } catch (e) {
+      console.error("[Page] Failed to decode remote URL from siteId:", siteIdFromUrl, e);
+      return null;
+    }
+  }
+  console.log(`[Page] decodeRemoteUrlFromSiteIdPage: ID "${siteIdFromUrl}" is not a remote pattern.`);
+  return null;
+}
+
+export default function SitePage() {
+  const paramsHook = useParams();
+  const router = useRouter();
+
+  const [siteDataForPage, setSiteDataForPage] = useState<LocalSiteData | null | undefined>(undefined);
+  const [contentFile, setContentFile] = useState<ParsedMarkdownFile | null | undefined>(undefined);
+  const [isLoadingPage, setIsLoadingPage] = useState(true);
+  const [pageSpecificErrorMessage, setPageSpecificErrorMessage] = useState<string | null>(null);
+  const [displayTitle, setDisplayTitle] = useState<string>("Loading Page...");
+
+
+  useEffect(() => {
+    const siteIdFromParams = paramsHook.siteId as string;
+    const slugArray = paramsHook.slug as string[] | undefined;
+
+    if (!siteIdFromParams) {
+      console.log("[Page] useEffect: No siteIdFromParams.");
+      setIsLoadingPage(false); setSiteDataForPage(null); setContentFile(null);
+      setPageSpecificErrorMessage("Site identifier missing."); setDisplayTitle("Error");
+      return;
+    }
+    
+    console.log("[Page] useEffect triggered. siteIdFromParams to process:", `"${siteIdFromParams}"`, "slugArray:", slugArray);
+
+    let mounted = true;
+    setIsLoadingPage(true);
+    setSiteDataForPage(undefined); 
+    setContentFile(undefined);
+    setPageSpecificErrorMessage(null);
+
+    async function fetchDataForPage() {
+      let fetchedSiteData: LocalSiteData | null = null;
+      const isRemoteCheckResult = checkIsRemotePage(siteIdFromParams); // Call refined checker
+      
+      if (isRemoteCheckResult) {
+        console.log("[Page] fetchDataForPage: Path taken for REMOTE site.");
+        const decodedUrl = decodeRemoteUrlFromSiteIdPage(siteIdFromParams);
+        console.log("[Page] fetchDataForPage: Decoded URL for remote fetch:", `"${decodedUrl}"`);
+        if (decodedUrl) {
+          fetchedSiteData = await fetchRemoteSiteData(decodedUrl);
+          if (!fetchedSiteData) {
+            setPageSpecificErrorMessage(`Failed to fetch remote site data from ${decodedUrl}. Check layout console for [RFS] details.`);
+          }
+        } else {
+          setPageSpecificErrorMessage(`Invalid remote site URL could not be decoded from ID: ${siteIdFromParams}`);
+        }
+      } else {
+        console.log("[Page] fetchDataForPage: Path taken for LOCAL site.");
+        fetchedSiteData = await localSiteFs.getSiteById(siteIdFromParams);
+        if (!fetchedSiteData) {
+            setPageSpecificErrorMessage(`Local site with ID "${siteIdFromParams}" not found.`);
+        }
+      }
+
+      if (!mounted) return;
+
+      if (!fetchedSiteData) {
+        console.log("[Page] Site data ultimately not found for page.");
+        setSiteDataForPage(null); setContentFile(null); setIsLoadingPage(false);
+        setDisplayTitle("Site Not Found");
+        // Error message should have been set above
+        return;
+      }
+      console.log("[Page] Site data fetched for page:", fetchedSiteData.siteId);
+      setSiteDataForPage(fetchedSiteData);
+
+      const pageFilePath = `content/${slugArray && slugArray.length > 0 ? slugArray.join('/') : 'index'}.md`;
+      console.log("[Page] Looking for page file path:", pageFilePath);
+      const foundContentFile = fetchedSiteData.contentFiles.find(file => file.path === pageFilePath);
+
+      if (!foundContentFile) {
+        console.log("[Page] Specific content file not found:", pageFilePath);
+        setContentFile(null);
+        setPageSpecificErrorMessage(`Page "${slugArray ? slugArray.join('/') : 'index'}" not found within this site.`);
+        setDisplayTitle("Page Not Found");
+      } else {
+        console.log("[Page] Content file found:", foundContentFile.path);
+        setContentFile(foundContentFile);
+        setDisplayTitle(foundContentFile.frontmatter.title || "Untitled Page");
+      }
+      setIsLoadingPage(false);
+    }
+
+    fetchDataForPage();
+
+    return () => {
+      mounted = false;
+    };
+  }, [paramsHook]);
+
+  // ... (useEffect for document.title and render logic remains unchanged) ...
+  useEffect(() => { if (!isLoadingPage && displayTitle && siteDataForPage?.config.title) { document.title = `${displayTitle} | ${siteDataForPage.config.title}`; } else if (!isLoadingPage && displayTitle) { document.title = displayTitle; } else if (!isLoadingPage && siteDataForPage?.config.title) { document.title = siteDataForPage.config.title; } else if (!isLoadingPage && !siteDataForPage) { document.title = "Site Not Found | Signum"; } else { document.title = "Signum"; } }, [isLoadingPage, displayTitle, siteDataForPage]);
+  if (isLoadingPage) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex justify-center items-center min-h-[300px]"> <p>Loading page content...</p> </div> ); }
+  if (!siteDataForPage || !contentFile) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-orange-500 mb-4" /> <h1 className="text-2xl font-bold mb-2">{displayTitle}</h1> <p className="text-muted-foreground max-w-md"> {pageSpecificErrorMessage || "The page you are looking for could not be loaded."} </p> <Button onClick={() => router.push(siteDataForPage ? `/${siteDataForPage.siteId}` : '/')} variant="outline" className="mt-6"> {siteDataForPage ? 'Go to Site Home' : 'Go to Dashboard'} </Button> </div> </div> ); }
+  return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8"> <article className="prose dark:prose-invert lg:prose-xl max-w-none"> <h1 className="mb-4 text-4xl font-extrabold leading-tight tracking-tight text-gray-900 dark:text-white lg:text-5xl"> {contentFile.frontmatter.title || "Untitled Page"} </h1> {contentFile.frontmatter.date && ( <p className="text-base font-medium text-gray-500 dark:text-gray-400 mb-6"> Published on: {new Date(contentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} </p> )} <MarkdownRenderer markdown={contentFile.content} /> </article> </div> );
+}
+
+================================================================================
+
+File: stores/useAppStore.ts
+// src/stores/useAppStore.ts
+import { create } from 'zustand';
+// AppState is now updated in src/types/index.ts
+import { AppState, LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types'; 
+import * as localSiteFs from '@/lib/localSiteFs';
+
+// The AppStore interface now correctly extends the modified AppState
+// and adds its own specific properties like isInitialized and initialize.
+interface AppStore extends AppState { // AppState already includes the new methods
+  isInitialized: boolean;
+  initialize: () => Promise<void>;
+  // No need to re-declare methods already in AppState if their signatures match
+}
+
+export const useAppStore = create<AppStore>()( // This should now satisfy the AppStore type
+  (set, get) => ({
+    // State properties
+    sites: [], 
+    isInitialized: false,
+
+    // Actions from AppState and specific to AppStore
+    initialize: async () => {
+      if (get().isInitialized) return;
+      try {
+        const sites = await localSiteFs.loadAllSites();
+        set({ sites, isInitialized: true });
+      } catch (error) {
+        console.error("Failed to initialize app store from localSiteFs:", error);
+        set({ sites: [], isInitialized: true });
+      }
+    },
+
+    addSite: async (newSiteData: LocalSiteData) => {
+      try {
+        await localSiteFs.saveSite(newSiteData);
+        set((state) => ({ sites: [...state.sites, newSiteData] }));
+      } catch (error) {
+        console.error("Failed to add site:", error);
+        throw error;
+      }
+    },
+
+    updateSiteConfig: async (siteId: string, config: SiteConfigFile) => {
+      try {
+        await localSiteFs.saveSiteConfig(siteId, config);
+        set((state) => ({
+          sites: state.sites.map((s) => (s.siteId === siteId ? { ...s, config } : s)),
+        }));
+      } catch (error) {
+        console.error(`Failed to update site config for ${siteId}:`, error);
+        throw error;
+      }
+    },
+
+    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string): Promise<boolean> => {
+      try {
+        const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
+        
+        if (savedFile) {
+          set((state) => ({
+            sites: state.sites.map((s) => {
+              if (s.siteId === siteId) {
+                const contentFiles = [...s.contentFiles];
+                const existingFileIndex = contentFiles.findIndex(f => f.path === filePath);
+                if (existingFileIndex > -1) {
+                  contentFiles[existingFileIndex] = savedFile;
+                } else {
+                  contentFiles.push(savedFile);
+                }
+                return { ...s, contentFiles };
+              }
+              return s;
+            }),
+          }));
+          return true;
+        } else {
+            console.warn(`Content file was not saved (likely parse error) for site ${siteId}, path ${filePath}`);
+            return false;
+        }
+      } catch (error) {
+        console.error(`Failed to add or update content file ${filePath} for site ${siteId}:`, error);
+        throw error;
+      }
+    },
+    
+    deleteSiteAndState: async (siteId: string) => {
+        try {
+            await localSiteFs.deleteSite(siteId);
+            set(state => ({
+                sites: state.sites.filter(s => s.siteId !== siteId),
+            }));
+        } catch (error) {
+            console.error(`Failed to delete site ${siteId}:`, error);
+            throw error;
+        }
+    },
+
+    deleteContentFileAndState: async (siteId: string, filePath: string) => {
+        try {
+            await localSiteFs.deleteContentFile(siteId, filePath);
+            set(state => ({
+                sites: state.sites.map(s => {
+                    if (s.siteId === siteId) {
+                        return { ...s, contentFiles: s.contentFiles.filter(f => f.path !== filePath) };
+                    }
+                    return s;
+                }),
+            }));
+        } catch (error) {
+            console.error(`Failed to delete content file ${filePath} from site ${siteId}:`, error);
+            throw error;
+        }
+    },
+
+    getSiteById: (siteId: string): LocalSiteData | undefined => {
+      return get().sites.find((s) => s.siteId === siteId);
+    },
+  })
+);
+
+================================================================================
+
+File: components/publishing/MarkdownEditor.tsx
+// src/components/publishing/MarkdownEditor.tsx
+'use client';
+
+import React, { useEffect, useRef, useState } from 'react';
+import { Textarea } from '@/components/ui/textarea'; // Assuming shadcn/ui Textarea
+
+interface MarkdownEditorProps {
+  initialValue: string; // The full raw markdown string (frontmatter + body)
+  onChange: (value: string) => void;
+  // Add other props like onSave, etc., if needed later
+}
+
+export default function MarkdownEditor({ initialValue, onChange }: MarkdownEditorProps) {
+  // Use local state to manage the editor's content to avoid re-rendering
+  // the entire page on every keystroke if onChange prop causes parent re-renders.
+  // However, for controlled components, passing value directly from parent state is also common.
+  // Let's keep it simple for now and assume parent handles debouncing or performance if needed.
+  const [currentValue, setCurrentValue] = useState(initialValue);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Update local state if initialValue prop changes (e.g., when a different file is loaded)
+  useEffect(() => {
+    setCurrentValue(initialValue);
+  }, [initialValue]);
+
+  const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newValue = event.target.value;
+    setCurrentValue(newValue);
+    onChange(newValue); // Propagate change to parent immediately
+  };
+
+  // Optional: Add keyboard shortcuts like Tab for indentation
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const target = event.target as HTMLTextAreaElement;
+      const start = target.selectionStart;
+      const end = target.selectionEnd;
+
+      // Insert tab character (or spaces)
+      const tab = '  '; // Use 2 spaces for a tab, adjust as needed
+      const newValue = currentValue.substring(0, start) + tab + currentValue.substring(end);
+      
+      setCurrentValue(newValue);
+      onChange(newValue); // Propagate change
+
+      // Move cursor after inserted tab
+      // Needs a slight delay for the state update to reflect in the DOM
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + tab.length;
+        }
+      }, 0);
+    }
+  };
+
+  return (
+    <Textarea
+      ref={textareaRef}
+      value={currentValue}
+      onChange={handleChange}
+      onKeyDown={handleKeyDown} // Add tab support
+      placeholder={
+`---
+title: Your Post Title
+date: YYYY-MM-DD 
+# Add other frontmatter fields here, e.g.:
+# tags: ["tag1", "tag2"]
+# summary: "A brief summary of your post."
+# draft: false
+---
+
+# Your Main Heading
+
+Start writing your Markdown content here. 
+Use standard Markdown syntax.
+
+- Create lists
+- **Bold text**
+- *Italic text*
+- [Links](https://example.com)
+- \`Inline code\`
+
+\`\`\`javascript
+// Code blocks
+function hello() {
+  console.log("Hello, Signum!");
+}
+\`\`\`
+`}
+      className="w-full flex-1 font-mono text-sm min-h-[calc(100vh-250px)] 
+                 p-4 border rounded-md shadow-sm 
+                 focus-visible:ring-1 focus-visible:ring-ring" 
+      // Adjust min-h as needed based on your layout's header/footer/button heights
+      // Added some basic styling matching typical input fields
+    />
+  );
+}
+
+================================================================================
+
+File: components/publishing/FileTree.tsx
+// src/components/publishing/FileTree.tsx
+'use client';
+
+import React, { useState } from 'react';
+import Link from 'next/link';
+import { TreeNode } from '@/lib/fileTreeUtils';
+import { ChevronRight, Folder, FileText, FolderOpen } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils'; // For conditional class names (from shadcn/ui setup)
+
+interface FileTreeProps {
+  nodes: TreeNode[];
+  baseEditPath: string; // e.g., /edit/siteId/content
+  currentOpenFile?: string; // Full path of the currently open file, e.g., "content/posts/my-post.md"
+  onNodeClick?: (node: TreeNode) => void; // For handling clicks if not navigation
+  onFileCreate?: (parentPath: string) => void; // Callback to create file in parentPath
+  onFolderCreate?: (parentPath: string) => void; // Callback to create folder in parentPath
+}
+
+interface FileTreeNodeProps {
+  node: TreeNode;
+  baseEditPath: string;
+  currentOpenFile?: string;
+  onNodeClick?: (node: TreeNode) => void;
+  onFileCreate?: (parentPath: string) => void;
+  onFolderCreate?: (parentPath: string) => void;
+  level: number;
+}
+
+const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({ 
+    node, baseEditPath, currentOpenFile, onNodeClick, onFileCreate, onFolderCreate, level 
+}) => {
+  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); // Folders default open for now
+
+  const handleToggle = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation if clicking on chevron
+    if (node.type === 'folder') {
+      setIsOpen(!isOpen);
+    }
+  };
+
+  const Icon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileText;
+  const indent = level * 16; // 16px per level
+
+  // Path for editing: remove 'content/' prefix and '.md' suffix for files
+  const editSlug = node.path.startsWith('content/') ? node.path.substring('content/'.length) : node.path;
+  const finalEditSlug = node.type === 'file' ? editSlug.replace(/\.md$/, '') : editSlug;
+  const editHref = node.type === 'file' ? `${baseEditPath}/${finalEditSlug}` : '#'; // Folders are not directly editable via link for now
+
+  const isSelected = node.type === 'file' && node.path === currentOpenFile;
+
+  const handleNodeClick = () => {
+    if (onNodeClick) {
+      onNodeClick(node);
+    }
+    if (node.type === 'folder' && !onNodeClick) { // Default behavior if no onNodeClick for folder
+        setIsOpen(!isOpen);
+    }
+  };
+
+  return (
+    <div className="text-sm">
+      <div
+        onClick={handleNodeClick}
+        className={cn(
+            "flex items-center py-1.5 pr-2 rounded-md hover:bg-muted cursor-pointer group",
+            isSelected && "bg-accent text-accent-foreground hover:bg-accent/90"
+        )}
+        style={{ paddingLeft: `${indent}px` }}
+      >
+        {node.type === 'folder' && (
+          <ChevronRight
+            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", isOpen && "rotate-90")}
+            onClick={handleToggle} // Allow toggling by clicking chevron
+          />
+        )}
+        <Icon className={cn("h-4 w-4 mr-2 shrink-0", node.type === 'folder' ? 'text-blue-500' : 'text-gray-500')} />
+        {node.type === 'file' ? (
+            <Link href={editHref} className="truncate flex-grow" title={node.name}>
+                {node.name.replace(/\.md$/, '')}
+            </Link>
+        ) : (
+            <span className="truncate flex-grow font-medium" title={node.name}>{node.name}</span>
+        )}
+
+        {/* Action buttons (visible on hover over the node's div) - Basic Example */}
+        {node.type === 'folder' && (
+            <div className="ml-auto hidden group-hover:flex items-center gap-1">
+                {onFileCreate && (
+                    <Button variant="ghost" size="sm" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
+                        <FileText className="h-3 w-3" />
+                    </Button>
+                )}
+                {onFolderCreate && (
+                     <Button variant="ghost" size="sm" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
+                        <Folder className="h-3 w-3" />
+                    </Button>
+                )}
+            </div>
+        )}
+      </div>
+      {node.type === 'folder' && isOpen && node.children && node.children.length > 0 && (
+        <div className="pl-0"> {/* No extra padding here, handled by node's style */}
+          {node.children.map(childNode => (
+            <FileOrFolderNode 
+                key={childNode.id} 
+                node={childNode} 
+                baseEditPath={baseEditPath}
+                currentOpenFile={currentOpenFile}
+                onNodeClick={onNodeClick}
+                onFileCreate={onFileCreate}
+                onFolderCreate={onFolderCreate}
+                level={level + 1}
+            />
+          ))}
+        </div>
+      )}
+      {node.type === 'folder' && isOpen && (!node.children || node.children.length === 0) && (
+        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16}px` }}>
+            (empty)
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default function FileTree({ nodes, baseEditPath, currentOpenFile, onFileCreate, onFolderCreate, onNodeClick }: FileTreeProps) {
+  if (!nodes || nodes.length === 0) {
+    return <p className="p-2 text-sm text-muted-foreground">(No content files yet)</p>;
+  }
+
+  return (
+    <div className="space-y-0.5">
+      {nodes.map(node => (
+        <FileOrFolderNode 
+            key={node.id} 
+            node={node} 
+            baseEditPath={baseEditPath}
+            currentOpenFile={currentOpenFile}
+            onNodeClick={onNodeClick}
+            onFileCreate={onFileCreate}
+            onFolderCreate={onFolderCreate}
+            level={0} 
+        />
+      ))}
+    </div>
+  );
+}
+
+================================================================================
+
+File: components/publishing/SiteConfigForm.tsx
+// src/components/publishing/SiteConfigForm.tsx
+'use client';
+
+import React, { useCallback } from 'react';
+import { SiteConfigFile } from '@/types';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"; // Assuming shadcn/ui Select
+
+interface SiteConfigFormProps {
+  initialConfig: SiteConfigFile;
+  onConfigChange: (config: SiteConfigFile) => void;
+}
+
+export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteConfigFormProps) {
+  
+  // Generic handler for top-level config fields
+  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    onConfigChange({ 
+      ...initialConfig, 
+      [name]: value 
+    });
+  }, [initialConfig, onConfigChange]);
+
+  // Specific handler for style_hints (which are nested)
+  const handleStyleHintChange = useCallback((e: React.ChangeEvent<HTMLInputElement> | string, name: keyof NonNullable<SiteConfigFile['style_hints']>) => {
+    let value: string;
+    if (typeof e === 'string') {
+        value = e; // For Select components that return string value directly
+    } else {
+        value = e.target.value;
+    }
+
+    onConfigChange({
+      ...initialConfig,
+      style_hints: {
+        ...initialConfig.style_hints, // Spread existing style_hints
+        [name]: value,
+      },
+    });
+  }, [initialConfig, onConfigChange]);
+
+  const currentConfig = initialConfig; // Use initialConfig directly as it's updated by parent
+
+  return (
+    <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+      {/* General Site Information */}
+      <fieldset className="space-y-4 border p-4 rounded-md">
+        <legend className="text-lg font-semibold px-1">General Information</legend>
+        <div>
+          <Label htmlFor="title" className="block text-sm font-medium text-foreground mb-1">Site Title *</Label>
+          <Input
+            id="title"
+            name="title"
+            value={currentConfig.title || ''}
+            onChange={handleChange}
+            placeholder="My Awesome Signum Blog"
+            required
+            className="mt-1 block w-full"
+          />
+          <p className="text-xs text-muted-foreground mt-1">The main title of your site.</p>
+        </div>
+
+        <div>
+          <Label htmlFor="description" className="block text-sm font-medium text-foreground mb-1">Site Description</Label>
+          <Textarea
+            id="description"
+            name="description"
+            value={currentConfig.description || ''}
+            onChange={handleChange}
+            placeholder="A short and catchy description of what your site is about."
+            rows={3}
+            className="mt-1 block w-full"
+          />
+           <p className="text-xs text-muted-foreground mt-1">Used for summaries and search engine metadata.</p>
+        </div>
+
+        <div>
+          <Label htmlFor="author" className="block text-sm font-medium text-foreground mb-1">Author Name</Label>
+          <Input
+            id="author"
+            name="author"
+            value={currentConfig.author || ''}
+            onChange={handleChange}
+            placeholder="John Doe"
+            className="mt-1 block w-full"
+          />
+          <p className="text-xs text-muted-foreground mt-1">The name of the site author (optional).</p>
+        </div>
+      </fieldset>
+
+      {/* Style Hints */}
+      <fieldset className="space-y-4 border p-4 rounded-md">
+        <legend className="text-lg font-semibold px-1">Appearance</legend>
+        <div>
+          <Label htmlFor="style_font_family" className="block text-sm font-medium text-foreground mb-1">Font Family</Label>
+          <Select
+            value={currentConfig.style_hints?.font_family || 'sans-serif'}
+            onValueChange={(value) => handleStyleHintChange(value, 'font_family')}
+          >
+            <SelectTrigger id="style_font_family" className="w-full mt-1">
+              <SelectValue placeholder="Select font family" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="sans-serif">Sans Serif (Default)</SelectItem>
+              <SelectItem value="serif">Serif</SelectItem>
+              <SelectItem value="monospace">Monospace</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">Choose the base font style for your site content.</p>
+        </div>
+
+        <div>
+          <Label htmlFor="style_theme" className="block text-sm font-medium text-foreground mb-1">Color Theme</Label>
+          <Select
+            value={currentConfig.style_hints?.theme || 'light'}
+            onValueChange={(value) => handleStyleHintChange(value, 'theme')}
+          >
+            <SelectTrigger id="style_theme" className="w-full mt-1">
+              <SelectValue placeholder="Select color theme" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="light">Light (Default)</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
+              <SelectItem value="auto">System Preference</SelectItem>
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground mt-1">Select the preferred color scheme. 'System' will adapt to user's OS settings.</p>
+        </div>
+        
+        <div>
+          <Label htmlFor="style_primary_color" className="block text-sm font-medium text-foreground mb-1">Primary Accent Color</Label>
+          <div className="flex items-center space-x-2 mt-1">
+            <Input
+              id="style_primary_color_text"
+              name="primary_color_text" // Different name to avoid conflict if used elsewhere
+              type="text"
+              value={currentConfig.style_hints?.primary_color || '#007AFF'}
+              onChange={(e) => handleStyleHintChange(e, 'primary_color')}
+              placeholder="#007AFF"
+              className="block w-full"
+              pattern="^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$" // Basic hex color pattern
+            />
+            <Input
+              id="style_primary_color_picker"
+              name="primary_color_picker"
+              type="color"
+              value={currentConfig.style_hints?.primary_color || '#007AFF'}
+              onChange={(e) => handleStyleHintChange(e, 'primary_color')}
+              className="h-10 w-12 p-1 cursor-pointer border-input" // Match height of text input
+            />
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">Choose an accent color (e.g., for links). Use a hex value like #RRGGBB.</p>
+        </div>
+      </fieldset>
+
+      {/* Add more fieldsets for other configuration sections as needed */}
+      {/* For example:
+      <fieldset className="space-y-4 border p-4 rounded-md">
+        <legend className="text-lg font-semibold px-1">Advanced Settings</legend>
+        <p className="text-sm text-muted-foreground">Future advanced settings will go here.</p>
+      </fieldset>
+      */}
+    </form>
+  );
+}
+
+================================================================================
+
+File: components/ui/alert-dialog.tsx
+"use client"
+
+import * as React from "react"
+import * as AlertDialogPrimitive from "@radix-ui/react-alert-dialog"
+
+import { cn } from "@/lib/utils"
+import { buttonVariants } from "@/components/ui/button"
+
+function AlertDialog({
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Root>) {
+  return <AlertDialogPrimitive.Root data-slot="alert-dialog" {...props} />
+}
+
+function AlertDialogTrigger({
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Trigger>) {
+  return (
+    <AlertDialogPrimitive.Trigger data-slot="alert-dialog-trigger" {...props} />
+  )
+}
+
+function AlertDialogPortal({
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Portal>) {
+  return (
+    <AlertDialogPrimitive.Portal data-slot="alert-dialog-portal" {...props} />
+  )
+}
+
+function AlertDialogOverlay({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Overlay>) {
+  return (
+    <AlertDialogPrimitive.Overlay
+      data-slot="alert-dialog-overlay"
+      className={cn(
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogContent({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Content>) {
+  return (
+    <AlertDialogPortal>
+      <AlertDialogOverlay />
+      <AlertDialogPrimitive.Content
+        data-slot="alert-dialog-content"
+        className={cn(
+          "bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-lg border p-6 shadow-lg duration-200 sm:max-w-lg",
+          className
+        )}
+        {...props}
+      />
+    </AlertDialogPortal>
+  )
+}
+
+function AlertDialogHeader({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-header"
+      className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogFooter({
+  className,
+  ...props
+}: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="alert-dialog-footer"
+      className={cn(
+        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogTitle({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Title>) {
+  return (
+    <AlertDialogPrimitive.Title
+      data-slot="alert-dialog-title"
+      className={cn("text-lg font-semibold", className)}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogDescription({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Description>) {
+  return (
+    <AlertDialogPrimitive.Description
+      data-slot="alert-dialog-description"
+      className={cn("text-muted-foreground text-sm", className)}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogAction({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) {
+  return (
+    <AlertDialogPrimitive.Action
+      className={cn(buttonVariants(), className)}
+      {...props}
+    />
+  )
+}
+
+function AlertDialogCancel({
+  className,
+  ...props
+}: React.ComponentProps<typeof AlertDialogPrimitive.Cancel>) {
+  return (
+    <AlertDialogPrimitive.Cancel
+      className={cn(buttonVariants({ variant: "outline" }), className)}
+      {...props}
+    />
+  )
+}
+
+export {
+  AlertDialog,
+  AlertDialogPortal,
+  AlertDialogOverlay,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel,
+}
+
+
+================================================================================
+
+File: components/ui/label.tsx
+"use client"
+
+import * as React from "react"
+import * as LabelPrimitive from "@radix-ui/react-label"
+
+import { cn } from "@/lib/utils"
+
+function Label({
+  className,
+  ...props
+}: React.ComponentProps<typeof LabelPrimitive.Root>) {
+  return (
+    <LabelPrimitive.Root
+      data-slot="label"
+      className={cn(
+        "flex items-center gap-2 text-sm leading-none font-medium select-none group-data-[disabled=true]:pointer-events-none group-data-[disabled=true]:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Label }
+
+
+================================================================================
+
+File: components/ui/sonner.tsx
+"use client"
+
+import { useTheme } from "next-themes"
+import { Toaster as Sonner, ToasterProps } from "sonner"
+
+const Toaster = ({ ...props }: ToasterProps) => {
+  const { theme = "system" } = useTheme()
+
+  return (
+    <Sonner
+      theme={theme as ToasterProps["theme"]}
+      className="toaster group"
+      style={
+        {
+          "--normal-bg": "var(--popover)",
+          "--normal-text": "var(--popover-foreground)",
+          "--normal-border": "var(--border)",
+        } as React.CSSProperties
+      }
+      {...props}
+    />
+  )
+}
+
+export { Toaster }
+
+
+================================================================================
+
+File: components/ui/button.tsx
+import * as React from "react"
+import { Slot } from "@radix-ui/react-slot"
+import { cva, type VariantProps } from "class-variance-authority"
+
+import { cn } from "@/lib/utils"
+
+const buttonVariants = cva(
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+  {
+    variants: {
+      variant: {
+        default:
+          "bg-primary text-primary-foreground shadow-xs hover:bg-primary/90",
+        destructive:
+          "bg-destructive text-white shadow-xs hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
+        outline:
+          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+        secondary:
+          "bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80",
+        ghost:
+          "hover:bg-accent hover:text-accent-foreground dark:hover:bg-accent/50",
+        link: "text-primary underline-offset-4 hover:underline",
+      },
+      size: {
+        default: "h-9 px-4 py-2 has-[>svg]:px-3",
+        sm: "h-8 rounded-md gap-1.5 px-3 has-[>svg]:px-2.5",
+        lg: "h-10 rounded-md px-6 has-[>svg]:px-4",
+        icon: "size-9",
+      },
+    },
+    defaultVariants: {
+      variant: "default",
+      size: "default",
+    },
+  }
+)
+
+function Button({
+  className,
+  variant,
+  size,
+  asChild = false,
+  ...props
+}: React.ComponentProps<"button"> &
+  VariantProps<typeof buttonVariants> & {
+    asChild?: boolean
+  }) {
+  const Comp = asChild ? Slot : "button"
+
+  return (
+    <Comp
+      data-slot="button"
+      className={cn(buttonVariants({ variant, size, className }))}
+      {...props}
+    />
+  )
+}
+
+export { Button, buttonVariants }
+
+
+================================================================================
+
+File: components/ui/select.tsx
+"use client"
+
+import * as React from "react"
+import * as SelectPrimitive from "@radix-ui/react-select"
+import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react"
+
+import { cn } from "@/lib/utils"
+
+function Select({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Root>) {
+  return <SelectPrimitive.Root data-slot="select" {...props} />
+}
+
+function SelectGroup({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Group>) {
+  return <SelectPrimitive.Group data-slot="select-group" {...props} />
+}
+
+function SelectValue({
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Value>) {
+  return <SelectPrimitive.Value data-slot="select-value" {...props} />
+}
+
+function SelectTrigger({
+  className,
+  size = "default",
+  children,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
+  size?: "sm" | "default"
+}) {
+  return (
+    <SelectPrimitive.Trigger
+      data-slot="select-trigger"
+      data-size={size}
+      className={cn(
+        "border-input data-[placeholder]:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex w-fit items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 data-[size=default]:h-9 data-[size=sm]:h-8 *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-2 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <SelectPrimitive.Icon asChild>
+        <ChevronDownIcon className="size-4 opacity-50" />
+      </SelectPrimitive.Icon>
+    </SelectPrimitive.Trigger>
+  )
+}
+
+function SelectContent({
+  className,
+  children,
+  position = "popper",
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Content>) {
+  return (
+    <SelectPrimitive.Portal>
+      <SelectPrimitive.Content
+        data-slot="select-content"
+        className={cn(
+          "bg-popover text-popover-foreground data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 relative z-50 max-h-(--radix-select-content-available-height) min-w-[8rem] origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-md border shadow-md",
+          position === "popper" &&
+            "data-[side=bottom]:translate-y-1 data-[side=left]:-translate-x-1 data-[side=right]:translate-x-1 data-[side=top]:-translate-y-1",
+          className
+        )}
+        position={position}
+        {...props}
+      >
+        <SelectScrollUpButton />
+        <SelectPrimitive.Viewport
+          className={cn(
+            "p-1",
+            position === "popper" &&
+              "h-[var(--radix-select-trigger-height)] w-full min-w-[var(--radix-select-trigger-width)] scroll-my-1"
+          )}
+        >
+          {children}
+        </SelectPrimitive.Viewport>
+        <SelectScrollDownButton />
+      </SelectPrimitive.Content>
+    </SelectPrimitive.Portal>
+  )
+}
+
+function SelectLabel({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Label>) {
+  return (
+    <SelectPrimitive.Label
+      data-slot="select-label"
+      className={cn("text-muted-foreground px-2 py-1.5 text-xs", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectItem({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Item>) {
+  return (
+    <SelectPrimitive.Item
+      data-slot="select-item"
+      className={cn(
+        "focus:bg-accent focus:text-accent-foreground [&_svg:not([class*='text-'])]:text-muted-foreground relative flex w-full cursor-default items-center gap-2 rounded-sm py-1.5 pr-8 pl-2 text-sm outline-hidden select-none data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2",
+        className
+      )}
+      {...props}
+    >
+      <span className="absolute right-2 flex size-3.5 items-center justify-center">
+        <SelectPrimitive.ItemIndicator>
+          <CheckIcon className="size-4" />
+        </SelectPrimitive.ItemIndicator>
+      </span>
+      <SelectPrimitive.ItemText>{children}</SelectPrimitive.ItemText>
+    </SelectPrimitive.Item>
+  )
+}
+
+function SelectSeparator({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.Separator>) {
+  return (
+    <SelectPrimitive.Separator
+      data-slot="select-separator"
+      className={cn("bg-border pointer-events-none -mx-1 my-1 h-px", className)}
+      {...props}
+    />
+  )
+}
+
+function SelectScrollUpButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollUpButton>) {
+  return (
+    <SelectPrimitive.ScrollUpButton
+      data-slot="select-scroll-up-button"
+      className={cn(
+        "flex cursor-default items-center justify-center py-1",
+        className
+      )}
+      {...props}
+    >
+      <ChevronUpIcon className="size-4" />
+    </SelectPrimitive.ScrollUpButton>
+  )
+}
+
+function SelectScrollDownButton({
+  className,
+  ...props
+}: React.ComponentProps<typeof SelectPrimitive.ScrollDownButton>) {
+  return (
+    <SelectPrimitive.ScrollDownButton
+      data-slot="select-scroll-down-button"
+      className={cn(
+        "flex cursor-default items-center justify-center py-1",
+        className
+      )}
+      {...props}
+    >
+      <ChevronDownIcon className="size-4" />
+    </SelectPrimitive.ScrollDownButton>
+  )
+}
+
+export {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectScrollDownButton,
+  SelectScrollUpButton,
+  SelectSeparator,
+  SelectTrigger,
+  SelectValue,
+}
+
+
+================================================================================
+
+File: components/ui/textarea.tsx
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
+  return (
+    <textarea
+      data-slot="textarea"
+      className={cn(
+        "border-input placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 flex field-sizing-content min-h-16 w-full rounded-md border bg-transparent px-3 py-2 text-base shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Textarea }
+
+
+================================================================================
+
+File: components/ui/input.tsx
+import * as React from "react"
+
+import { cn } from "@/lib/utils"
+
+function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+  return (
+    <input
+      type={type}
+      data-slot="input"
+      className={cn(
+        "file:text-foreground placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground dark:bg-input/30 border-input flex h-9 w-full min-w-0 rounded-md border bg-transparent px-3 py-1 text-base shadow-xs transition-[color,box-shadow] outline-none file:inline-flex file:h-7 file:border-0 file:bg-transparent file:text-sm file:font-medium disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+        "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+        "aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Input }
+
+
+================================================================================
+
+File: components/core/Navbar.tsx
+// src/components/core/Navbar.tsx
+'use client';
+
+import Link from 'next/link';
+import { usePathname, useRouter } from 'next/navigation'; // Import useRouter
+import { Leaf, Home, Settings, HelpCircle, Search, Globe } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input'; // Import Input
+import React, { useState } from 'react';
+
+// ... (NavLink component remains the same) ...
+const NavLink: React.FC<{ href: string; label: string; icon?: React.ReactNode; }> = ({ href, label, icon }) => {
+  const pathname = usePathname();
+  const isActive = pathname === href || (href !== '/' && pathname.startsWith(href));
+  return (
+    <Button variant="ghost" asChild className={`justify-start ${isActive ? 'bg-accent text-accent-foreground' : ''}`}>
+      <Link href={href} className="flex items-center space-x-2">
+        {icon}
+        <span>{label}</span>
+      </Link>
+    </Button>
+  );
+};
+
+
+export default function Navbar() {
+  const router = useRouter();
+  const [remoteUrl, setRemoteUrl] = useState('');
+
+  const handleBrowseRemoteSite = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (remoteUrl.trim()) {
+      try {
+        const url = new URL(remoteUrl.trim()); // Basic URL validation
+        // We need a way to signify this is a remote URL to our browsing pages.
+        // Option 1: Special prefix for siteId, e.g., "remote::http://localhost:8080"
+        // Option 2: A different route, e.g., /browse/remote?url=...
+        // Option 3: Pass state via router.push (can be complex with SSR/layouts)
+
+        // Let's use Option 1: Prefix the siteId with "remote@" or similar marker
+        // and encode the URL. The browsing page will then decode it.
+        const encodedUrl = encodeURIComponent(url.origin); // Use origin (scheme + hostname + port)
+        router.push(`/remote@${encodedUrl}`); // Navigate to /remote@http%3A%2F%2Flocalhost%3A8080
+        setRemoteUrl(''); // Clear input
+      } catch (error) {
+        alert("Invalid URL entered.");
+        console.error("Invalid URL:", error);
+      }
+    }
+  };
+
+  return (
+    <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="container flex h-16 items-center justify-between gap-4">
+        <Link href="/" className="flex items-center space-x-2">
+          <Leaf className="h-7 w-7 text-primary" />
+          <span className="text-2xl font-bold text-foreground hidden sm:inline">Signum</span>
+        </Link>
+        
+        {/* Remote Site URL Input */}
+        <form onSubmit={handleBrowseRemoteSite} className="flex-grow max-w-xl flex items-center gap-2">
+          <div className="relative w-full">
+            <Globe className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              type="url"
+              value={remoteUrl}
+              onChange={(e) => setRemoteUrl(e.target.value)}
+              placeholder="Enter remote Signum site URL (e.g., http://localhost:8080)"
+              className="pl-9" // Padding for the icon
+            />
+          </div>
+          <Button type="submit" size="sm">Browse</Button>
+        </form>
+        
+        <nav className="hidden md:flex items-center space-x-1">
+          <NavLink href="/" label="Dashboard" icon={<Home className="h-4 w-4" />} />
+          {/* ... other links ... */}
+        </nav>
+
+        <div className="md:hidden">
+          <Button variant="ghost" size="icon">
+            <Settings className="h-5 w-5" />
+            <span className="sr-only">Toggle menu</span>
+          </Button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+================================================================================
+
+File: components/core/Footer.tsx
+// src/components/core/Footer.tsx
+import Link from 'next/link';
+import { ExternalLink } from 'lucide-react';
+
+export default function Footer() {
+  const currentYear = new Date().getFullYear();
+
+  return (
+    <footer className="border-t bg-muted/50">
+      <div className="container mx-auto py-8 text-center text-sm text-muted-foreground">
+        <p>© {currentYear} Signum Project. All Rights Reserved (Placeholder).</p>
+        <p className="mt-1">
+          <Link 
+            href="https://github.com/your-repo/signum-client" // Replace with your actual repo URL
+            target="_blank" 
+            rel="noopener noreferrer" 
+            className="hover:text-primary transition-colors font-medium"
+          >
+            View on GitHub <ExternalLink className="inline-block ml-1 h-3 w-3" />
+          </Link>
+        </p>
+        {/* You can add more links here, like Privacy Policy, Terms of Service, etc. */}
+      </div>
+    </footer>
+  );
+}
+
+================================================================================
+
+File: components/core/ThemeProvider.tsx
+// src/components/core/ThemeProvider.tsx
+"use client"
+
+import * as React from "react"
+import { ThemeProvider as NextThemesProvider } from "next-themes"
+// Corrected import for ThemeProviderProps:
+import { type ThemeProviderProps } from "next-themes"; // Import directly from 'next-themes'
+
+export function ThemeProvider({ children, ...props }: ThemeProviderProps) {
+  return <NextThemesProvider {...props}>{children}</NextThemesProvider>
+}
+
+================================================================================
+
+File: components/browsing/MarkdownRenderer.tsx
+// src/components/browsing/MarkdownRenderer.tsx
+'use client'; // It uses `dangerouslySetInnerHTML`, making it client-side for this pattern.
+              // Alternatively, HTML parsing can be done on the server and HTML passed as prop.
+
+import { marked } from 'marked';
+import { useEffect, useMemo } from 'react'; // useMemo for parsing, useEffect if parsing were async
+// Optional: Add DOMPurify for sanitization if markdown source is not 100% trusted
+// import DOMPurify from 'dompurify';
+
+interface MarkdownRendererProps {
+  markdown: string;
+}
+
+export default function MarkdownRenderer({ markdown }: MarkdownRendererProps) {
+  // Parse the markdown string to HTML.
+  // useMemo will re-calculate only if the 'markdown' prop changes.
+  const html = useMemo(() => {
+    if (typeof window === 'undefined') {
+        // If running in an SSR context where marked might be called without DOMPurify (if used),
+        // or if you want to ensure it's only parsed once.
+        // However, for this component marked as 'use client', this check is less critical
+        // as it primarily renders client-side.
+    }
+    const rawHtml = marked.parse(markdown) as string;
+    // Example of sanitization if you were to use DOMPurify:
+    // if (typeof window !== 'undefined') { // DOMPurify only runs in browser
+    //   return DOMPurify.sanitize(rawHtml);
+    // }
+    return rawHtml;
+  }, [markdown]);
+
+  // Using dangerouslySetInnerHTML because 'marked' produces an HTML string.
+  // Ensure that the 'markdown' content is from a trusted source or sanitized.
+  // Since in Signum, users are creating their own local content first,
+  // the trust level is higher for this local-only phase.
+  // For remote content later, sanitization will be critical.
+  return <div dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+================================================================================
+
+File: lib/markdownParser.ts
+// src/lib/markdownParser.ts
+import matter, { GrayMatterOption, Input } from 'gray-matter'; // Import GrayMatterOption and Input
+import { marked } from 'marked'; // For optional direct HTML rendering, though mostly client-side
+import { MarkdownFrontmatter, ParsedMarkdownFile } from '@/types';
+import yaml from 'js-yaml'; // For more robust YAML stringification
+
+/**
+ * Parses a raw markdown string (which includes YAML frontmatter) into an object
+ * containing the frontmatter (as an object) and the markdown body content.
+ *
+ * @param rawMarkdown The complete markdown string with frontmatter.
+ * @returns An object with `frontmatter` and `content` (markdown body).
+ * @throws Error if frontmatter parsing fails.
+ */
+export function parseMarkdownString(rawMarkdown: string): { frontmatter: MarkdownFrontmatter, content: string } {
+  try {
+    // Ensure gray-matter options are correctly typed if needed, though defaults are often fine
+    const { data, content: bodyContent } = matter(rawMarkdown as Input); // Cast to Input if type issues
+    
+    // Ensure title is always a string, provide default if missing or not string
+    const title = typeof data.title === 'string' ? data.title : 'Untitled';
+
+    return { 
+      frontmatter: { ...data, title } as MarkdownFrontmatter, // Ensure title is part of the typed frontmatter
+      content: bodyContent.trim() 
+    };
+  } catch (e) {
+    console.error("Error parsing markdown string with gray-matter:", e);
+    // Provide a more specific error message to the user
+    throw new Error("Invalid YAML frontmatter format. Please check for syntax errors (e.g., unclosed quotes, incorrect indentation).");
+  }
+}
+
+/**
+ * Converts a frontmatter object and a markdown body content string back into
+ * a single string formatted as YAML frontmatter followed by the markdown content.
+ * Uses js-yaml for robust YAML serialization.
+ *
+ * @param frontmatter The frontmatter object.
+ * @param content The markdown body content.
+ * @returns A string combining serialized YAML frontmatter and markdown content.
+ */
+export function stringifyToMarkdown(frontmatter: MarkdownFrontmatter, content: string): string {
+  try {
+    // Filter out undefined or null values from frontmatter before stringifying
+    const cleanedFrontmatter: Partial<MarkdownFrontmatter> = {};
+    for (const key in frontmatter) {
+      if (Object.prototype.hasOwnProperty.call(frontmatter, key) && frontmatter[key] !== undefined && frontmatter[key] !== null) {
+        cleanedFrontmatter[key] = frontmatter[key];
+      }
+    }
+
+    const fmString = Object.keys(cleanedFrontmatter).length > 0 
+      ? yaml.dump(cleanedFrontmatter, { skipInvalid: true, indent: 2 }) // Use js-yaml for proper YAML formatting
+      : ''; // No frontmatter if object is empty
+
+    if (fmString) {
+        return `---\n${fmString}---\n\n${content}`;
+    }
+    return content; // Return only content if no frontmatter
+
+  } catch (e) {
+    console.error("Error stringifying frontmatter to YAML:", e);
+    // Fallback to simpler stringification or re-throw
+    // For now, let's try a very basic fallback if yaml.dump fails for some reason
+    let fallbackFmString = '';
+    for (const key in frontmatter) {
+        if (Object.prototype.hasOwnProperty.call(frontmatter, key)) {
+            fallbackFmString += `${key}: ${String(frontmatter[key])}\n`;
+        }
+    }
+    if (fallbackFmString) {
+        return `---\n${fallbackFmString}---\n\n${content}`;
+    }
+    return content;
+  }
+}
+
+/**
+ * Parses a raw markdown string and also renders its body content to HTML using 'marked'.
+ * This is primarily a utility if pre-rendered HTML is needed somewhere, but Signum focuses
+ * on client-side rendering of raw markdown.
+ *
+ * @param slug The slug for the parsed file.
+ * @param path The file path for the parsed file.
+ * @param rawMarkdownContent The complete markdown string with frontmatter.
+ * @returns A ParsedMarkdownFile object, potentially including htmlContent.
+ */
+export function parseAndRenderMarkdown(slug: string, path: string, rawMarkdownContent: string): ParsedMarkdownFile {
+  const { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+  
+  // marked.parse can be configured with options if needed
+  // const htmlContent = marked.parse(content) as string;
+
+  return {
+    slug,
+    path,
+    frontmatter,
+    content,
+    // htmlContent, // Uncomment if you decide to pre-render HTML
+  };
+}
+
+================================================================================
+
+File: lib/utils.ts
+// src/lib/utils.ts
+import { type ClassValue, clsx } from "clsx"
+import { twMerge } from "tailwind-merge"
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs))
+}
+
+export function slugify(text: string): string {
+  return text
+    .toString()
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, '-') // Replace spaces with -
+    .replace(/[^\w-]+/g, '') // Remove all non-word chars
+    .replace(/--+/g, '-'); // Replace multiple - with single -
+}
+
+export function generateSiteId(title: string): string {
+  const randomString = Math.random().toString(36).substring(2, 7);
+  return `${slugify(title)}-${randomString}`;
+}
+
+// isValidName was in fileTreeUtils.ts, can be kept there or moved here if generally useful.
+// For this example, assuming it's in fileTreeUtils.ts and imported from there.
+
+================================================================================
+
+File: lib/remoteSiteFetcher.ts
+// src/lib/remoteSiteFetcher.ts
+import { LocalSiteData, ParsedMarkdownFile, SiteConfigFile, MarkdownFrontmatter } from '@/types';
+import { parseMarkdownString } from './markdownParser';
+import yaml from 'js-yaml';
+
+interface RemoteManifestFileEntry {
+  path: string;
+  lastUpdated?: string;
+}
+
+export interface RemoteManifest {
+  siteId: string; // Should be present in a well-formed manifest
+  title?: string;
+  description?: string;
+  lastUpdated?: string;
+  files: RemoteManifestFileEntry[]; // Must be present
+  rssFeedUrl?: string;
+}
+
+async function fetchRemoteFile(baseUrl: string, filePath: string): Promise<string> {
+  const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+  const cleanFilePath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+  const url = `${cleanBaseUrl}/${cleanFilePath}`;
+  
+  console.log(`[RFS] Attempting: GET ${url}`);
+  try {
+    const response = await fetch(url, { cache: 'no-store', mode: 'cors' });
+    console.log(`[RFS] Status for ${url}: ${response.status}`);
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Could not read error response body");
+      console.error(`[RFS] FAILED fetch ${url}. Status: ${response.status}. Body: ${errorText.substring(0, 200)}...`);
+      throw new Error(`Fetch failed for ${url}: ${response.statusText} (${response.status})`);
+    }
+    const textContent = await response.text();
+    console.log(`[RFS] SUCCESS fetch ${url}. Length: ${textContent.length}`);
+    return textContent;
+  } catch (networkError) { // Catches fetch() itself failing (e.g., DNS, network down, CORS not properly resolved by browser)
+    console.error(`[RFS] NETWORK ERROR fetching ${url}:`, networkError);
+    throw networkError; // Re-throw to be caught by fetchRemoteSiteData
+  }
+}
+
+export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalSiteData | null> {
+  console.log(`[RFS] >>> Starting fetchRemoteSiteData for URL: ${remoteSiteUrl}`);
+  if (!remoteSiteUrl || !remoteSiteUrl.startsWith('http')) {
+    console.error(`[RFS] Invalid remoteSiteUrl provided: ${remoteSiteUrl}`);
+    return null;
+  }
+
+  try {
+    // 1. Fetch manifest.json
+    console.log(`[RFS] Fetching manifest.json...`);
+    const manifestString = await fetchRemoteFile(remoteSiteUrl, 'manifest.json');
+    let manifest: RemoteManifest;
+    try {
+      manifest = JSON.parse(manifestString);
+      console.log(`[RFS] Parsed manifest:`, JSON.stringify(manifest, null, 2).substring(0, 500) + "...");
+    } catch (e) {
+      console.error(`[RFS] FAILED to parse manifest.json. Content: ${manifestString.substring(0,200)}...`, e);
+      return null;
+    }
+
+    if (!manifest || !manifest.files || !Array.isArray(manifest.files) || !manifest.siteId) {
+        console.error("[RFS] Invalid manifest structure: 'files' array or 'siteId' is missing or invalid.", manifest);
+        return null;
+    }
+
+    let siteConfig: SiteConfigFile = {
+      title: manifest.title || new URL(remoteSiteUrl).hostname || 'Remote Site',
+      description: manifest.description || '',
+      author: '', 
+      style_hints: {}, 
+    };
+    console.log(`[RFS] Initial siteConfig from manifest title/desc.`);
+
+    // 2. Attempt to fetch site.yaml
+    const siteYamlEntry = manifest.files.find(f => f.path === 'site.yaml' || f.path === '/site.yaml');
+    if (siteYamlEntry) {
+      console.log(`[RFS] Found site.yaml in manifest. Fetching: ${siteYamlEntry.path}`);
+      try {
+        const siteYamlString = await fetchRemoteFile(remoteSiteUrl, siteYamlEntry.path);
+        const parsedConfig = yaml.load(siteYamlString) as SiteConfigFile;
+        siteConfig = { ...siteConfig, ...parsedConfig, title: parsedConfig.title || siteConfig.title }; // Prioritize site.yaml title
+        console.log(`[RFS] Merged siteConfig with site.yaml:`, siteConfig);
+      } catch (yamlError) {
+        console.warn(`[RFS] Could not fetch or parse remote site.yaml:`, yamlError);
+      }
+    } else {
+        console.log(`[RFS] site.yaml not found in manifest files.`);
+    }
+    
+    // 3. Fetch all content files listed in the manifest
+    const contentFilesPromises: Promise<ParsedMarkdownFile | null>[] = manifest.files
+      .filter(fileEntry => fileEntry.path && fileEntry.path.startsWith('content/') && fileEntry.path.endsWith('.md'))
+      .map(async (fileEntry) => {
+        console.log(`[RFS] Processing MD file from manifest: ${fileEntry.path}`);
+        try {
+          const rawMarkdown = await fetchRemoteFile(remoteSiteUrl, fileEntry.path);
+          const { frontmatter, content } = parseMarkdownString(rawMarkdown);
+          const slug = fileEntry.path.substring(fileEntry.path.lastIndexOf('/') + 1).replace('.md', '');
+          return { slug, path: fileEntry.path, frontmatter, content };
+        } catch (mdError) {
+          console.warn(`[RFS] FAILED to fetch or parse MD file ${fileEntry.path}:`, mdError);
+          return null;
+        }
+      });
+    
+    const resolvedContentFiles = await Promise.all(contentFilesPromises);
+    const validContentFiles = resolvedContentFiles.filter(file => file !== null) as ParsedMarkdownFile[];
+    console.log(`[RFS] Fetched and parsed ${validContentFiles.length} content files.`);
+
+    // If no index.md, this site is essentially unloadable for browsing
+    if (!validContentFiles.some(f => f.path === 'content/index.md')) {
+        console.warn(`[RFS] No 'content/index.md' found in remote site bundle. Site might be incomplete.`);
+        // Depending on requirements, you might return null here or an empty site.
+        // For now, we proceed, but the page component will likely 404 on index.
+    }
+    
+    const appSpecificSiteId = `remote-${manifest.siteId}`; // Use siteId from manifest for app's internal tracking
+
+    const finalSiteData: LocalSiteData = {
+      siteId: appSpecificSiteId,
+      config: siteConfig,
+      contentFiles: validContentFiles,
+    };
+    console.log(`[RFS] <<< Successfully constructed remote site data for ${appSpecificSiteId}`);
+    return finalSiteData;
+
+  } catch (error) { // This catches errors from fetchRemoteFile or JSON.parse(manifestString)
+    console.error(`[RFS] <<< CRITICAL ERROR in fetchRemoteSiteData for ${remoteSiteUrl}:`, error);
+    return null;
+  }
+}
+
+================================================================================
+
+File: lib/fileTreeUtils.ts
+// src/lib/fileTreeUtils.ts
+import { ParsedMarkdownFile } from '@/types';
+
+export interface TreeNode {
+  id: string; // Full path, unique
+  name: string; // File or folder name
+  type: 'file' | 'folder';
+  path: string; // Full path from 'content/' root
+  children?: TreeNode[];
+  fileData?: ParsedMarkdownFile; // Only for 'file' type
+}
+
+/**
+ * Converts a flat list of ParsedMarkdownFile into a hierarchical TreeNode structure.
+ * Assumes paths are relative to a 'content/' root implicitly.
+ */
+export function buildFileTree(files: ParsedMarkdownFile[]): TreeNode[] {
+  const root: TreeNode = { id: 'content', name: 'content', type: 'folder', path: 'content', children: [] };
+
+  files.forEach(file => {
+    // file.path is like "content/posts/my-post.md"
+    // We want path segments relative to "content/"
+    const relativePath = file.path.startsWith('content/') ? file.path.substring('content/'.length) : file.path;
+    const segments = relativePath.split('/').filter(s => s !== '');
+    
+    let currentNode = root;
+
+    segments.forEach((segment, index) => {
+      const isLastSegment = index === segments.length - 1;
+      const segmentPath = segments.slice(0, index + 1).join('/');
+      const fullPath = `content/${segmentPath}`;
+
+      let childNode = currentNode.children?.find(child => child.path === fullPath);
+
+      if (!childNode) {
+        if (isLastSegment && segment.endsWith('.md')) { // It's a file
+          childNode = {
+            id: fullPath,
+            name: segment,
+            type: 'file',
+            path: fullPath,
+            fileData: file,
+          };
+        } else { // It's a folder
+          childNode = {
+            id: fullPath,
+            name: segment,
+            type: 'folder',
+            path: fullPath,
+            children: [],
+          };
+        }
+        currentNode.children?.push(childNode);
+        currentNode.children?.sort((a,b) => { // Sort: folders first, then alphabetically
+            if (a.type === 'folder' && b.type === 'file') return -1;
+            if (a.type === 'file' && b.type === 'folder') return 1;
+            return a.name.localeCompare(b.name);
+        });
+      }
+      // If it's a folder, move into it for the next segment
+      if (childNode.type === 'folder') {
+        currentNode = childNode;
+      }
+    });
+  });
+
+  return root.children || []; // Return children of the implicit 'content' root
+}
+
+/**
+ * Gets the parent path from a given path.
+ * e.g., "content/posts/foo.md" -> "content/posts"
+ * e.g., "content/posts" -> "content"
+ * e.g., "content" -> "" (or a root marker)
+ */
+export function getParentPath(path: string): string {
+  if (!path || path === 'content') return 'content'; // Or handle root differently
+  const parts = path.split('/');
+  parts.pop();
+  return parts.join('/') || 'content';
+}
+
+/**
+ * Gets the name (file or folder name) from a path.
+ */
+export function getNameFromPath(path: string): string {
+  if (!path) return '';
+  return path.substring(path.lastIndexOf('/') + 1);
+}
+
+/**
+ * Validates a new file or folder name.
+ * Basic validation: no slashes, not empty, common invalid chars.
+ */
+export function isValidName(name: string): boolean {
+    if (!name || name.trim() === '') return false;
+    if (name.includes('/') || name.includes('\\')) return false;
+    // Add more checks for invalid characters like < > : " | ? *
+    const invalidChars = /[<>:"|?*]/;
+    if (invalidChars.test(name)) return false;
+    return true;
+}
+
+================================================================================
+
+File: lib/localSiteFs.ts
+// src/lib/localSiteFs.ts
+import { LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types';
+import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
+import yaml from 'js-yaml';
+
+
+const LOCAL_STORAGE_KEY = 'signum-sites-data';
+
+function _isBrowser(): boolean {
+  return typeof window !== 'undefined';
+}
+
+function _readAllSitesFromStorage(): LocalSiteData[] {
+  if (!_isBrowser()) return [];
+  try {
+    const jsonData = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return jsonData ? JSON.parse(jsonData) : [];
+  } catch (error) {
+    console.error("Error reading sites from localStorage:", error);
+    return [];
+  }
+}
+
+function _writeAllSitesToStorage(sites: LocalSiteData[]): void {
+  if (!_isBrowser()) return;
+  try {
+    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(sites));
+  } catch (error) {
+    console.error("Error writing sites to localStorage:", error);
+  }
+}
+
+export async function loadAllSites(): Promise<LocalSiteData[]> {
+  return Promise.resolve(_readAllSitesFromStorage());
+}
+
+/**
+ * Gets a specific site by its ID from local storage.
+ * Returns LocalSiteData or null if not found.
+ */
+export async function getSiteById(siteId: string): Promise<LocalSiteData | null> { // CHANGED RETURN TYPE
+  const sites = _readAllSitesFromStorage();
+  const site = sites.find(s => s.siteId === siteId);
+  return Promise.resolve(site || null); // Ensure it returns null if not found
+}
+
+export async function saveSite(siteData: LocalSiteData): Promise<void> {
+  const sites = _readAllSitesFromStorage();
+  const existingSiteIndex = sites.findIndex(s => s.siteId === siteData.siteId);
+  if (existingSiteIndex > -1) {
+    sites[existingSiteIndex] = siteData;
+  } else {
+    sites.push(siteData);
+  }
+  _writeAllSitesToStorage(sites);
+  return Promise.resolve();
+}
+
+export async function deleteSite(siteId: string): Promise<void> {
+  let sites = _readAllSitesFromStorage();
+  sites = sites.filter(s => s.siteId !== siteId);
+  _writeAllSitesToStorage(sites);
+  return Promise.resolve();
+}
+
+export async function saveSiteConfig(siteId: string, config: SiteConfigFile): Promise<void> {
+  const sites = _readAllSitesFromStorage();
+  const siteIndex = sites.findIndex(s => s.siteId === siteId);
+  if (siteIndex > -1) {
+    sites[siteIndex].config = config;
+    _writeAllSitesToStorage(sites);
+  } else {
+    console.warn(`Site with ID ${siteId} not found for saving config.`);
+  }
+  return Promise.resolve();
+}
+
+export async function saveContentFile(siteId: string, path: string, rawMarkdownContent: string): Promise<ParsedMarkdownFile | undefined> {
+  const sites = _readAllSitesFromStorage();
+  const siteIndex = sites.findIndex(s => s.siteId === siteId);
+  if (siteIndex > -1) {
+    try { // Add try-catch for parseMarkdownString
+        const { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+        const fileSlug = path.substring(path.lastIndexOf('/') + 1).replace('.md', '');
+        const newOrUpdatedFile: ParsedMarkdownFile = {
+        slug: fileSlug,
+        path: path,
+        frontmatter: frontmatter,
+        content: content,
+        };
+        const contentFileIndex = sites[siteIndex].contentFiles.findIndex(f => f.path === path);
+        if (contentFileIndex > -1) {
+        sites[siteIndex].contentFiles[contentFileIndex] = newOrUpdatedFile;
+        } else {
+        sites[siteIndex].contentFiles.push(newOrUpdatedFile);
+        }
+        _writeAllSitesToStorage(sites);
+        return Promise.resolve(newOrUpdatedFile);
+    } catch (parseError) {
+        console.error(`Error parsing markdown for ${path} in site ${siteId}:`, parseError);
+        // Potentially throw or return undefined to indicate failure at a higher level
+        return Promise.resolve(undefined); 
+    }
+  } else {
+    console.warn(`Site with ID ${siteId} not found for saving content file.`);
+    return Promise.resolve(undefined);
+  }
+}
+
+export async function deleteContentFile(siteId: string, filePath: string): Promise<void> {
+  const sites = _readAllSitesFromStorage();
+  const siteIndex = sites.findIndex(s => s.siteId === siteId);
+  if (siteIndex > -1) {
+    sites[siteIndex].contentFiles = sites[siteIndex].contentFiles.filter(f => f.path !== filePath);
+    _writeAllSitesToStorage(sites);
+  } else {
+    console.warn(`Site with ID ${siteId} not found for deleting content file.`);
+  }
+  return Promise.resolve();
+}
+
+export async function listSiteIds(): Promise<string[]> {
+  const sites = _readAllSitesFromStorage();
+  return Promise.resolve(sites.map(s => s.siteId));
+}
+
 ================================================================================
 
