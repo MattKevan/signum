@@ -3,18 +3,19 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { TreeNode } from '@/lib/fileTreeUtils';
-import { ChevronRight, Folder, FileText, FolderOpen } from 'lucide-react';
+import { type TreeNode } from '@/lib/fileTreeUtils';
+import { ChevronRight, Folder, FileText as FileTextIcon, FolderOpen, PlusSquare, FolderPlus as FolderPlusIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils'; // For conditional class names (from shadcn/ui setup)
+import { cn } from '@/lib/utils';
+// import { useRouter } from 'next/navigation'; // Can be used if needed
 
 interface FileTreeProps {
   nodes: TreeNode[];
-  baseEditPath: string; // e.g., /edit/siteId/content
-  currentOpenFile?: string; // Full path of the currently open file, e.g., "content/posts/my-post.md"
-  onNodeClick?: (node: TreeNode) => void; // For handling clicks if not navigation
-  onFileCreate?: (parentPath: string) => void; // Callback to create file in parentPath
-  onFolderCreate?: (parentPath: string) => void; // Callback to create folder in parentPath
+  baseEditPath: string;
+  currentOpenFile?: string;
+  onNodeClick?: (node: TreeNode) => void;
+  onFileCreate: (parentPath: string) => void;
+  onFolderCreate: (parentPath: string) => void;
 }
 
 interface FileTreeNodeProps {
@@ -22,85 +23,86 @@ interface FileTreeNodeProps {
   baseEditPath: string;
   currentOpenFile?: string;
   onNodeClick?: (node: TreeNode) => void;
-  onFileCreate?: (parentPath: string) => void;
-  onFolderCreate?: (parentPath: string) => void;
+  onFileCreate: (parentPath: string) => void;
+  onFolderCreate: (parentPath: string) => void;
   level: number;
 }
 
 const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({ 
     node, baseEditPath, currentOpenFile, onNodeClick, onFileCreate, onFolderCreate, level 
 }) => {
-  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); // Folders default open for now
+  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); 
+  // const router = useRouter(); // Use if direct navigation is needed beyond Link
 
   const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation if clicking on chevron
+    e.stopPropagation();
     if (node.type === 'folder') {
       setIsOpen(!isOpen);
     }
   };
 
-  const Icon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileText;
-  const indent = level * 16; // 16px per level
+  const NodeIcon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileTextIcon;
+  const indent = level * 16;
 
-  // Path for editing: remove 'content/' prefix and '.md' suffix for files
-  const editSlug = node.path.startsWith('content/') ? node.path.substring('content/'.length) : node.path;
-  const finalEditSlug = node.type === 'file' ? editSlug.replace(/\.md$/, '') : editSlug;
-  const editHref = node.type === 'file' ? `${baseEditPath}/${finalEditSlug}` : '#'; // Folders are not directly editable via link for now
+  const editSlugOrPathSegment = node.path.startsWith('content/') 
+    ? node.path.substring('content/'.length) 
+    : node.path;
+  
+  const finalEditSlug = node.type === 'file' 
+    ? editSlugOrPathSegment.replace(/\.md$/, '') 
+    : editSlugOrPathSegment; // For folders, this is the path segment
+
+  const editHref = `${baseEditPath}/${finalEditSlug}`;
 
   const isSelected = node.type === 'file' && node.path === currentOpenFile;
 
-  const handleNodeClick = () => {
-    if (onNodeClick) {
-      onNodeClick(node);
-    }
-    if (node.type === 'folder' && !onNodeClick) { // Default behavior if no onNodeClick for folder
-        setIsOpen(!isOpen);
-    }
-  };
+  // Removed unused handleNodeClickInternal
 
   return (
     <div className="text-sm">
       <div
-        onClick={handleNodeClick}
         className={cn(
-            "flex items-center py-1.5 pr-2 rounded-md hover:bg-muted cursor-pointer group",
+            "flex items-center py-1.5 pr-1 rounded-md hover:bg-muted group relative",
             isSelected && "bg-accent text-accent-foreground hover:bg-accent/90"
         )}
         style={{ paddingLeft: `${indent}px` }}
       >
         {node.type === 'folder' && (
           <ChevronRight
-            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", isOpen && "rotate-90")}
-            onClick={handleToggle} // Allow toggling by clicking chevron
+            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90")}
+            onClick={handleToggle}
           />
         )}
-        <Icon className={cn("h-4 w-4 mr-2 shrink-0", node.type === 'folder' ? 'text-blue-500' : 'text-gray-500')} />
-        {node.type === 'file' ? (
-            <Link href={editHref} className="truncate flex-grow" title={node.name}>
-                {node.name.replace(/\.md$/, '')}
-            </Link>
-        ) : (
-            <span className="truncate flex-grow font-medium" title={node.name}>{node.name}</span>
-        )}
+        {!node.type && <div className="w-5 shrink-0"></div>} {/* Adjusted for alignment */}
+        
+        <NodeIcon className={cn("h-4 w-4 mr-1.5 shrink-0", node.type === 'folder' ? 'text-amber-500' : 'text-sky-500')} />
+        
+        <Link href={editHref} className="truncate flex-grow" title={node.name}>
+            {node.name}
+        </Link>
 
-        {/* Action buttons (visible on hover over the node's div) - Basic Example */}
-        {node.type === 'folder' && (
-            <div className="ml-auto hidden group-hover:flex items-center gap-1">
-                {onFileCreate && (
-                    <Button variant="ghost" size="sm" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
-                        <FileText className="h-3 w-3" />
+        <div className="ml-auto hidden group-hover:flex items-center gap-0.5 absolute right-1 top-1/2 -translate-y-1/2 bg-muted p-0.5 rounded shadow-sm">
+            {node.type === 'folder' && (
+                <>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
+                        <PlusSquare className="h-3.5 w-3.5" />
                     </Button>
-                )}
-                {onFolderCreate && (
-                     <Button variant="ghost" size="sm" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
-                        <Folder className="h-3 w-3" />
+                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
+                        <FolderPlusIcon className="h-3.5 w-3.5" />
                     </Button>
-                )}
-            </div>
-        )}
+                </>
+            )}
+            {/* Example for file actions (e.g., delete)
+            {node.type === 'file' && (
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete File" onClick={(e) => { e.stopPropagation(); console.log('delete file:', node.path); }}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+            )}
+            */}
+        </div>
       </div>
       {node.type === 'folder' && isOpen && node.children && node.children.length > 0 && (
-        <div className="pl-0"> {/* No extra padding here, handled by node's style */}
+        <div className="pl-0">
           {node.children.map(childNode => (
             <FileOrFolderNode 
                 key={childNode.id} 
@@ -116,7 +118,7 @@ const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({
         </div>
       )}
       {node.type === 'folder' && isOpen && (!node.children || node.children.length === 0) && (
-        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16}px` }}>
+        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16 + 4}px` }}> {/* Adjusted padding */}
             (empty)
         </div>
       )}

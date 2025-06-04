@@ -5,13 +5,13 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
-import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
+import { Settings, Eye, Home, PlusCircle, FolderPlus } from 'lucide-react'; // Added FolderPlus
+import { buildFileTree, type TreeNode, isValidName } from '@/lib/fileTreeUtils'; 
 import FileTree from '@/components/publishing/FileTree';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
-import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+
+const NEW_FILE_SLUG_MARKER = '_new';
 
 export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -20,11 +20,12 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const siteId = params.siteId as string;
 
   const site = useAppStore((state) => state.getSiteById(siteId));
-  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
 
   const fileTreeNodes = useMemo(() => {
     if (site?.contentFiles) {
-      return buildFileTree(site.contentFiles);
+      // Pass the full site.contentFiles array to buildFileTree
+      // buildFileTree will internally use frontmatter.title for node names
+      return buildFileTree(site.contentFiles); 
     }
     return [];
   }, [site?.contentFiles]);
@@ -32,103 +33,72 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
 
   useEffect(() => {
-    // Determine current open file from pathname
-    // Pathname: /edit/siteId/content/path/to/file
+    // ... (useEffect for currentOpenFile remains the same as previous correct version)
     const pathSegments = pathname.split('/content/');
     if (pathSegments.length > 1) {
-        const filePath = pathSegments[1];
-        if (filePath) {
-            setCurrentOpenFile(`content/${filePath}.md`);
-        } else {
-            // It might be the index file at a folder level, or site config page
-            // Check if it's the site config page
-            if (pathname === `/edit/${siteId}`) {
-                 setCurrentOpenFile(undefined); // No file selected for site config
+        const filePathPart = pathSegments[1]; 
+        if (filePathPart === NEW_FILE_SLUG_MARKER || filePathPart.endsWith(`/${NEW_FILE_SLUG_MARKER}`)) {
+            setCurrentOpenFile(undefined);
+        } else if (filePathPart) {
+            let potentialPath = `content/${filePathPart}.md`;
+            if (site?.contentFiles.some(f => f.path === potentialPath)) {
+                setCurrentOpenFile(potentialPath);
             } else {
-                // It's likely content/index.md or content/folder/index.md
-                const basePath = pathSegments[0] + '/content/';
-                const potentialIndexPath = pathname.substring(basePath.length);
-                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
-                    setCurrentOpenFile('content/index.md');
-                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
-                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
+                potentialPath = `content/${filePathPart}/index.md`.replace(/\/\//g, '/');
+                if (site?.contentFiles.some(f => f.path === potentialPath)) {
+                    setCurrentOpenFile(potentialPath);
                 } else {
-                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
+                    setCurrentOpenFile(undefined);
                 }
             }
+        } else { 
+             const potentialIndexPath = `content/${pathname.split('/content/')[1] || ''}index.md`.replace(/\/index\.md$/, '/index.md').replace('//index.md', '/index.md');
+             if (site?.contentFiles.some(f => f.path === potentialIndexPath)) {
+                setCurrentOpenFile(potentialIndexPath);
+             } else if (pathname.endsWith('/content/') || pathname.endsWith('/content')) {
+                setCurrentOpenFile('content/index.md');
+             } else {
+                setCurrentOpenFile(undefined);
+             }
         }
-    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
-        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
+    } else if (pathname === `/edit/${siteId}`) {
+        setCurrentOpenFile(undefined); 
     } else {
-        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
+        setCurrentOpenFile(undefined);
     }
-  }, [pathname, siteId]);
+  }, [pathname, siteId, site?.contentFiles]);
 
-
-  const handleCreateNewFile = async (parentPath: string = 'content') => {
-    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
-    if (!rawFileName || !isValidName(rawFileName)) {
-      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
-      return;
-    }
-    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
-    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
-
-    // Check if file already exists
-    if (site?.contentFiles.some(f => f.path === newFilePath)) {
-        toast.error(`File "${newFilePath}" already exists.`);
-        return;
-    }
-
-    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
-    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
-    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
-
-    try {
-        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
-        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
-        // Navigate to the new file for editing
-        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
-        router.push(`/edit/${siteId}/content/${editSlug}`);
-    } catch (error) {
-        toast.error("Failed to create file.");
-        console.error("Error creating file:", error);
-    }
+  const handleNavigateToNewFile = (parentPath: string = 'content') => {
+    const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
+    const newFileRoute = `/edit/${siteId}/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
+    router.push(newFileRoute.replace(/\/\//g, '/'));
   };
   
-  const handleCreateNewFolder = async (parentPath: string = 'content') => {
+  const handleCreateNewFolderInPath = async (parentPath: string = 'content') => { // Renamed for clarity
     const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
     if (!folderName || !isValidName(folderName)) {
         if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
         return;
     }
-    
-    // To "create" a folder, we'll create a placeholder .keep file in it,
-    // then immediately prompt to create a real file inside it.
-    // This is a common pattern if the system doesn't explicitly store empty folders.
-    // OR, simply adjust the UI to allow creating files under this new conceptual path.
-    // For now, let's make folder creation mean "create a new file inside this new folder path".
-    
-    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
-    
-    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
-    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
+    toast.info(`Folder "${folderName}" is ready. Use "New Content File" (e.g., from the File Tree actions for this folder) to create files within this path.`);
+    // To make the new folder appear visually without a page reload,
+    // we would need to update the 'site.contentFiles' in the Zustand store
+    // with a conceptual marker or an empty .keep file, then have FileTree re-render.
+    // For now, this is a UX hint; the folder physically exists when a file is saved into it.
   };
-
 
   if (!site) {
     return (
-        <div className="flex items-center justify-center h-screen">
-            <p>Loading site editor or site not found...</p>
-            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
+        <div className="flex flex-col items-center justify-center h-screen">
+            <p className="mb-2">Loading site editor or site not found...</p>
+            <Button variant="link" asChild><Link href="/">Go Home</Link></Button>
         </div>
     );
   }
 
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
+    <div className="flex h-screen bg-background overflow-hidden">
+      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
         <div className="mb-4">
             <h2 className="text-xl font-semibold truncate" title={site.config.title}>
                 {site.config.title || 'Site Editor'}
@@ -142,34 +112,32 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
               <Settings className="mr-2 h-4 w-4" /> Site Config
             </Link>
           </Button>
+           <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
+              <PlusCircle className="mr-2 h-4 w-4" /> New Content File
+            </Button>
+            <Button variant="ghost" onClick={() => handleCreateNewFolderInPath('content')} className="justify-start"> {/* New Folder in Root */}
+              <FolderPlus className="mr-2 h-4 w-4" /> New Root Folder
+            </Button>
         </nav>
 
         <div className="mb-2 flex justify-between items-center">
             <h3 className="text-sm font-semibold px-1">Content Files</h3>
-            <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
-                    <FileText className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
-                    <FolderPlus className="h-4 w-4" />
-                </Button>
-            </div>
         </div>
         
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1 custom-scrollbar">
           <FileTree 
             nodes={fileTreeNodes} 
             baseEditPath={`/edit/${siteId}/content`}
             currentOpenFile={currentOpenFile}
-            onFileCreate={handleCreateNewFile} // Pass handler down
-            onFolderCreate={handleCreateNewFolder} // Pass handler down
+            onFileCreate={handleNavigateToNewFile} 
+            onFolderCreate={handleCreateNewFolderInPath} // Use the renamed handler
           />
         </div>
 
-        <div className="mt-auto space-y-2 pt-4 border-t">
+        <div className="mt-auto space-y-2 pt-4 border-t shrink-0">
             <Button variant="outline" asChild className="w-full justify-start">
                 <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
-                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
+                    <Eye className="mr-2 h-4 w-4" /> View Site (Live)
                 </Link>
             </Button>
             <Button variant="ghost" asChild className="w-full justify-start">
@@ -179,9 +147,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <main className="flex-1 p-6 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
         {children}
-      </main>
+      </div>
     </div>
   );
 }

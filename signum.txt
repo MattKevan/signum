@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
-Root Directory: ./src
-Excluded Directories: public, node_modules, ios
+Root Directory: src/
+Excluded Directories: ios, public, node_modules
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html
 ================================================================================
 
@@ -350,8 +350,6 @@ File: app/globals.css
 
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -381,6 +379,8 @@ File: app/globals.css
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
 }
 
 .dark {
@@ -1731,92 +1731,21 @@ File: app/(browsing)/[siteId]/layout.tsx
 'use client';
 
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react'; 
+import { useParams, usePathname } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
-import { LocalSiteData } from '@/types';
-import { Home, ArrowLeft, Leaf, Settings, ExternalLink, AlertTriangle } from 'lucide-react';
+import { LocalSiteData, ParsedMarkdownFile } from '@/types';
+import { Home, ExternalLink, Menu, X, FileText, Columns } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { parseSiteIdentifier, ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import { cn } from '@/lib/utils';
 
-const REMOTE_SITE_ID_PREFIX = "remote@";
-
-function cleanAndGetSiteId(rawParamValue: string | string[] | undefined): string {
-    let idCandidate = '';
-    if (Array.isArray(rawParamValue)) {
-        idCandidate = rawParamValue[0] || ''; 
-    } else if (typeof rawParamValue === 'string') {
-        idCandidate = rawParamValue;
-    }
-
-    console.log(`[Layout] cleanAndGetSiteId - initial rawParamValue: "${idCandidate}"`);
-
-    // Attempt to URL decode first, in case it's double-encoded or params hook didn't fully decode
-    try {
-        let decodedOnce = decodeURIComponent(idCandidate);
-        console.log(`[Layout] cleanAndGetSiteId - after first decodeURIComponent: "${decodedOnce}"`);
-        // If it still looks like it has quotes AND percent encoding, try decoding again
-        // This is unusual, but let's try to be robust if quotes themselves were encoded
-        if ((decodedOnce.startsWith('"') || decodedOnce.startsWith('%22')) && 
-            (decodedOnce.endsWith('"') || decodedOnce.endsWith('%22')) &&
-            decodedOnce.includes('%')) {
-            
-            let tempId = decodedOnce;
-            if (tempId.startsWith('%22')) tempId = tempId.substring(3);
-            if (tempId.endsWith('%22')) tempId = tempId.substring(0, tempId.length - 3);
-            
-            // Or simply, if it starts with " and ends with " after one decode, remove them
-            if (tempId.startsWith('"') && tempId.endsWith('"')) {
-                 tempId = tempId.substring(1, tempId.length - 1);
-            }
-            // Then decode again
-            decodedOnce = decodeURIComponent(tempId);
-            console.log(`[Layout] cleanAndGetSiteId - after second decodeURIComponent (if applicable): "${decodedOnce}"`);
-        }
-        idCandidate = decodedOnce;
-    } catch (e) {
-        console.warn(`[Layout] cleanAndGetSiteId - decodeURIComponent failed for "${idCandidate}", using as is. Error:`, e);
-        // If decoding fails, use the idCandidate as is, it might already be decoded.
-    }
-    
-    // Now, definitively remove leading/trailing quotes from the (potentially) decoded string
-    if (typeof idCandidate === 'string' && idCandidate.startsWith('"') && idCandidate.endsWith('"')) {
-        idCandidate = idCandidate.substring(1, idCandidate.length - 1);
-        console.log(`[Layout] cleanAndGetSiteId - successfully removed quotes: "${idCandidate}"`);
-    } else {
-        console.log(`[Layout] cleanAndGetSiteId - no quotes to remove or not a string: "${idCandidate}"`);
-    }
-    
-    return idCandidate;
-}
-
-
-function checkIsRemote(id: string): boolean {
-  // This function now expects an ID that has had quotes and URL encoding dealt with
-  console.log(`[Layout] checkIsRemote called with ID: "${id}", prefix: "${REMOTE_SITE_ID_PREFIX}"`);
-  const result = id && id.startsWith(REMOTE_SITE_ID_PREFIX); 
-  console.log(`[Layout] checkIsRemote result: ${result}`);
-  return !!result; 
-}
-
-function decodeRemoteUrlFromCleanedSiteId(cleanedSiteId: string): string | null {
-  // This function expects cleanedSiteId to be like "remote@http://127.0.0.1:8080"
-  // The "http://..." part should NOT be URL encoded anymore.
-  if (checkIsRemote(cleanedSiteId)) { // checkIsRemote needs the "remote@" prefix
-    try {
-      // The part after "remote@" is the actual URL, which should already be decoded.
-      const actualUrl = cleanedSiteId.substring(REMOTE_SITE_ID_PREFIX.length);
-      console.log(`[Layout] Extracted actual URL for remote site: "${actualUrl}"`);
-      // Validate if it's a proper URL structure
-      new URL(actualUrl); // This will throw if actualUrl is not a valid URL
-      return actualUrl;
-    } catch (e) {
-      console.error("[Layout] Failed to parse or validate decoded remote URL:", cleanedSiteId, e);
-      return null;
-    }
-  }
-  console.log(`[Layout] decodeRemoteUrlFromCleanedSiteId: Cleaned ID "${cleanedSiteId}" is not a remote pattern.`);
-  return null;
+interface NavLinkItem {
+  href: string;
+  label: string;
+  icon?: React.ElementType;
+  isActive?: boolean;
 }
 
 export default function SiteBrowsingLayout({
@@ -1824,173 +1753,216 @@ export default function SiteBrowsingLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const params = useParams(); // params.siteId might be "remote%40http%253A%252F%252F127.0.0.1%253A8080"
-                              // or "\"remote@http%3A%2F%2F127.0.0.1%3A8080\""
+  const params = useParams();
+  const pathname = usePathname();
 
   const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  // ... (isLoading, errorMessage, parsedIdentifier, isMobileMenuOpen states remain the same) ...
   const [isLoading, setIsLoading] = useState(true);
-  const [isActuallyRemote, setIsActuallyRemote] = useState(false);
-  const [actualRemoteBaseUrl, setActualRemoteBaseUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [parsedIdentifier, setParsedIdentifier] = useState<ParsedSiteIdentifier | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const siteIdFromParamsRaw = params.siteId as string; // Keep the raw one for display in errors/links
-  const cleanedSiteId = useMemo(() => cleanAndGetSiteId(siteIdFromParamsRaw), [siteIdFromParamsRaw]);
-
+  const siteIdParamValue = useMemo(() => params.siteId as string, [params.siteId]);
 
   useEffect(() => {
-    if (!cleanedSiteId) {
-      // ... (same as before)
-      console.log("[Layout] useEffect: No cleanedSiteId, setting not found.");
-      setIsLoading(false);
-      setSiteData(null);
-      setErrorMessage("Site identifier is missing or invalid in the URL.");
+    // ... (useEffect for fetching siteData remains the same as the last correct version) ...
+    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
+
+    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
+      setParsedIdentifier(null); setIsLoading(false); setSiteData(null);
+      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote site URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID invalid.");
       return;
     }
-    
-    console.log("[Layout] useEffect triggered. CLEANED siteId to process:", `"${cleanedSiteId}"`);
+    setParsedIdentifier(localParsedResult);
 
     let mounted = true;
-    setIsLoading(true);
-    setSiteData(undefined); 
-    setErrorMessage(null);
+    setIsLoading(true); setSiteData(undefined); setErrorMessage(null);
 
-    async function fetchLayoutData() {
+    async function fetchLayoutData(validParsedResult: ParsedSiteIdentifier) {
       let fetchedSiteData: LocalSiteData | null = null;
-      const isRemoteCheckResult = checkIsRemote(cleanedSiteId);
-      console.log(`[Layout] Based on cleaned ID, isRemoteCheckResult for "${cleanedSiteId}": ${isRemoteCheckResult}`);
-
-      if (isRemoteCheckResult) {
-        console.log("[Layout] fetchLayoutData: Path taken for REMOTE site.");
-        setIsActuallyRemote(true);
-        // decodeRemoteUrlFromCleanedSiteId now expects a cleanedId like "remote@http://127.0.0.1:8080"
-        const decodedAndValidatedUrl = decodeRemoteUrlFromCleanedSiteId(cleanedSiteId); 
-        console.log("[Layout] fetchLayoutData: Decoded & Validated URL for remote fetch:", `"${decodedAndValidatedUrl}"`);
-        setActualRemoteBaseUrl(decodedAndValidatedUrl); 
-        
-        if (decodedAndValidatedUrl) {
-          fetchedSiteData = await fetchRemoteSiteData(decodedAndValidatedUrl);
-          if (!fetchedSiteData) {
-            setErrorMessage(`Failed to fetch remote site data from ${decodedAndValidatedUrl}. Check [RFS] logs.`);
-          }
-        } else {
-          fetchedSiteData = null; 
-          setErrorMessage(`Invalid remote site URL structure after cleaning ID: ${cleanedSiteId}`);
-        }
-      } else {
-        // ... (local site logic remains the same, using cleanedSiteId)
-        console.log("[Layout] fetchLayoutData: Path taken for LOCAL site.");
-        setIsActuallyRemote(false);
-        setActualRemoteBaseUrl(null);
-        fetchedSiteData = await localSiteFs.getSiteById(cleanedSiteId);
-        if (!fetchedSiteData) {
-            setErrorMessage(`Local site with ID "${cleanedSiteId}" not found.`);
-        }
+      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
+        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
+        if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
+      } else if (!validParsedResult.isRemote) {
+        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
+        if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
       }
-
       if (!mounted) return;
-
       setSiteData(fetchedSiteData);
       setIsLoading(false);
-      console.log("[Layout] fetchLayoutData finished. isLoading:", false, "siteData:", fetchedSiteData ? `Loaded (${fetchedSiteData.siteId})` : "Null");
     }
-
-    fetchLayoutData();
-
-    return () => {
-      mounted = false;
-    };
-  }, [cleanedSiteId]); 
+    fetchLayoutData(localParsedResult);
+    return () => { mounted = false; };
+  }, [siteIdParamValue]);
 
 
-  // --- Render blocks (isLoading, !siteData, main layout) ---
-  // The JSX for these blocks can remain the same, using `siteIdFromParamsRaw` for user-facing display of the ID
-  // and `cleanedSiteId` or `siteConfig.title` for other internal display logic.
-  // Example for error message:
-  // {errorMessage || `The site (ID/URL: ${siteIdFromParamsRaw}) could not be loaded...`}
+  const navLinks: NavLinkItem[] = useMemo(() => {
+    if (!siteData?.contentFiles || !parsedIdentifier) return [];
 
-  if (isLoading) {
-    return ( <div className="flex flex-col min-h-screen"> <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur"> <div className="container flex h-16 items-center justify-between"> <div className="flex items-center space-x-2"> <Leaf className="h-6 w-6 text-primary animate-pulse" /> <span className="text-xl font-semibold text-muted-foreground">Loading Site...</span> </div> <Button variant="outline" size="sm" asChild> <Link href="/" title="Back to Signum Dashboard"> <span className="flex items-center"> <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard </span> </Link> </Button> </div> </header> <main className="flex-grow w-full flex justify-center items-center"> <p>Loading layout...</p> </main> <footer className="border-t bg-muted/50 text-center py-4"> <p className="text-xs text-muted-foreground">Signum</p> </footer> </div> );
-  }
+    const links: NavLinkItem[] = [];
+    const topLevelPageSlugs = new Set<string>();
+    const folderInfo: Record<string, { count: number, files: ParsedMarkdownFile[] }> = {};
 
-  if (!siteData) { 
-    return ( <div className="flex flex-col min-h-screen"> <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur"> <div className="container flex h-16 items-center justify-between"> <Link href="/" className="flex items-center space-x-2"> <Leaf className="h-7 w-7 text-primary" /> <span className="text-2xl font-bold text-foreground">Signum</span> </Link> <Button variant="outline" size="sm" asChild> <Link href="/"> <span className="flex items-center"> <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard </span> </Link> </Button> </div> </header> <main className="flex-grow container mx-auto px-4 py-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-destructive mb-4" /> <h1 className="text-2xl font-bold mb-2">Site Not Found</h1> <p className="text-muted-foreground max-w-md"> {errorMessage || `The site (ID/URL: ${siteIdFromParamsRaw /* Use raw param for display */}) could not be loaded. Please check the URL or try again later.`} </p> <Button variant="default" asChild className="mt-6"> <Link href="/">Go to Dashboard</Link> </Button> </div> </main> <footer className="border-t bg-muted/50 text-center py-4"> <p className="text-xs text-muted-foreground">Signum</p> </footer> </div> );
-  }
+    // --- Pass 1: Categorize files and count items in folders ---
+    siteData.contentFiles.forEach(file => {
+      if (file.frontmatter.draft) return;
+
+      const relativePath = file.path.replace(/^content\//, '');
+      const pathParts = relativePath.split('/');
+
+      if (pathParts.length === 1 && relativePath.endsWith('.md') && relativePath !== 'index.md') {
+        // Top-level page file (e.g., content/about.md)
+        const slug = pathParts[0].replace(/\.md$/, '');
+        topLevelPageSlugs.add(slug);
+        // Store the file info for later to get title
+        if (!folderInfo[slug]) folderInfo[slug] = { count: 0, files: [] }; // Ensure entry exists
+        folderInfo[slug].files.push(file);
+
+
+      } else if (pathParts.length > 1 && pathParts[0] !== '') {
+        // File is in a subdirectory (e.g., content/blog/post1.md)
+        const folderSlug = pathParts[0];
+        if (!folderInfo[folderSlug]) {
+          folderInfo[folderSlug] = { count: 0, files: [] };
+        }
+        if (relativePath.endsWith('.md')) { // Only count markdown files for this logic
+            folderInfo[folderSlug].count++;
+            folderInfo[folderSlug].files.push(file);
+        }
+      }
+    });
+
+    // --- Pass 2: Generate Nav Links ---
+    // Home link
+    const homeHref = `/${parsedIdentifier.rawParam}`;
+    links.push({ href: homeHref, label: "Home", icon: Home, isActive: pathname === homeHref || pathname === `${homeHref}/` });
+
+    // Top-level page links (that are not folders)
+    topLevelPageSlugs.forEach(slug => {
+        // Ensure this slug doesn't also represent a folder that would be treated as a collection/page
+        if (folderInfo[slug] && folderInfo[slug].count === 0) { // It's a top-level file, not a folder with same name
+            const fileForTitle = folderInfo[slug].files[0]; // Should be the page itself
+            const href = `/${parsedIdentifier.rawParam}/${slug}`;
+            links.push({
+            href,
+            label: fileForTitle?.frontmatter.title || slug.charAt(0).toUpperCase() + slug.slice(1),
+            icon: FileText,
+            isActive: pathname === href,
+            });
+        }
+    });
+    
+    // Folder links (either single page folder or collection)
+    Object.entries(folderInfo).forEach(([folderSlug, info]) => {
+      if (topLevelPageSlugs.has(folderSlug) && info.count === 0) return; // Already handled as top-level page
+
+      if (info.count > 0) { // It's a folder with content
+        const href = `/${parsedIdentifier.rawParam}/${folderSlug}`;
+        let label = folderSlug.charAt(0).toUpperCase() + folderSlug.slice(1);
+        let icon = Columns; // Default to collection icon
+
+        if (info.count === 1) {
+          // If it's a single-page folder, the label might come from that single page's title
+          label = info.files[0]?.frontmatter.title || label;
+          icon = FileText; // Icon for single page
+        }
+
+        links.push({
+          href,
+          label,
+          icon,
+          isActive: pathname === href || pathname.startsWith(`${href}/`),
+        });
+      }
+    });
+    
+    // Remove duplicates that might arise if a top-level page slug is same as a folder slug (folder takes precedence)
+    const uniqueLinks = Array.from(new Map(links.map(link => [link.href, link])).values());
+
+    return uniqueLinks.sort((a, b) => {
+        if (a.label === "Home") return -1;
+        if (b.label === "Home") return 1;
+        return a.label.localeCompare(b.label);
+    });
+
+  }, [siteData, parsedIdentifier, pathname]);
+
+  // ... (isLoading, error UI, SiteNavMenu, and main return structure remain similar to your last full version)
+  if (isLoading) { return <div className="p-4 text-center">Loading site layout...</div>; }
+  if (!siteData || !parsedIdentifier) { return <div className="p-4 text-center">{errorMessage || "Site not found or error loading layout."}</div>;}
 
   const siteConfig = siteData.config;
-  const currentDisplaySiteId = siteIdFromParamsRaw || cleanedSiteId; 
+  const currentDisplaySiteId = parsedIdentifier.rawParam;
 
-  const navLinks = siteData.contentFiles
-    .filter(file => file.path !== 'content/index.md')
-    .map(file => {
-      const slug = file.path.startsWith('content/') 
-                   ? file.path.substring('content/'.length).replace(/\.md$/, '')
-                   : file.path.replace(/\.md$/, '');
-      return {
-        href: `/${currentDisplaySiteId}/${slug}`,
-        label: file.frontmatter.title || file.slug,
-      };
-    })
-    .sort((a,b) => a.label.localeCompare(b.label));
+  const SiteNavMenu = ({ isMobile }: { isMobile?: boolean }) => (
+    <>
+      {navLinks.map(link => (
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          asChild 
+          key={link.href}
+          className={cn(
+            "justify-start",
+            isMobile ? "w-full text-base py-3" : "md:w-auto", // Adjusted for better mobile feel
+            link.isActive && "bg-accent text-accent-foreground hover:bg-accent/90"
+          )}
+        >
+          <Link href={link.href} title={link.label} passHref onClick={() => setIsMobileMenuOpen(false)}>
+            {link.icon && <link.icon className={cn("h-4 w-4 shrink-0", isMobile ? "mr-3" : "mr-1.5")} />}
+            <span>{link.label}</span>
+          </Link>
+        </Button>
+      ))}
+    </>
+  );
 
   return (
     <div className="flex flex-col min-h-screen bg-background text-foreground">
-      <header className="sticky top-0 z-40 w-full border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/50">
-        <div className="container flex h-16 items-center justify-between">
-          <Link href={`/${currentDisplaySiteId}`} className="flex items-center space-x-2">
-            <Leaf className="h-6 w-6 text-primary" />
-            <span className="text-xl font-semibold text-foreground">
-              {siteConfig?.title || cleanedSiteId}
+      <header className="sticky top-16 md:top-0 z-30 w-full border-b bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-16 items-center"> {/* Increased height for better touch targets / spacing */}
+          <Link href={`/${currentDisplaySiteId}`} className="flex items-center space-x-2 mr-auto" onClick={() => setIsMobileMenuOpen(false)}>
+            <span className="text-xl font-semibold text-foreground truncate hover:text-primary transition-colors">
+              {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl}
             </span>
-            {isActuallyRemote && actualRemoteBaseUrl && (
-                <a href={actualRemoteBaseUrl} target="_blank" rel="noopener noreferrer" title={`Open original remote site: ${actualRemoteBaseUrl}`} className="ml-2">
+            {parsedIdentifier.isRemote && parsedIdentifier.remoteBaseUrl && (
+                <a href={parsedIdentifier.remoteBaseUrl} target="_blank" rel="noopener noreferrer" title={`Open original remote site: ${parsedIdentifier.remoteBaseUrl}`} className="ml-1 flex-shrink-0">
                     <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
                 </a>
             )}
           </Link>
           
           <nav className="hidden md:flex items-center space-x-1">
-            <Button variant="ghost" size="sm" asChild>
-                <Link href={`/${currentDisplaySiteId}`} title="Site Home">
-                    <span className="flex items-center">
-                        <Home className="h-4 w-4 mr-1" /> Home
-                    </span>
-                </Link>
-            </Button>
-            {navLinks.map(link => (
-              <Button variant="ghost" size="sm" asChild key={link.href}>
-                <Link href={link.href} title={link.label}>
-                  {link.label}
-                </Link>
-              </Button>
-            ))}
+            <SiteNavMenu />
           </nav>
 
-          <div className="flex items-center">
-            <Button variant="outline" size="sm" asChild className="ml-2">
-                <Link href="/" title="Back to Signum Dashboard">
-                    <span className="flex items-center">
-                        <ArrowLeft className="h-4 w-4 mr-1" /> Dashboard
-                    </span>
-                </Link>
+          <div className="md:hidden ml-2">
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Toggle menu">
+              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
-            <div className="md:hidden ml-2"> 
-              <Button variant="ghost" size="icon">
-                <Settings className="h-5 w-5" />
-                <span className="sr-only">Toggle menu</span>
-              </Button>
-            </div>
           </div>
         </div>
+         {isMobileMenuOpen && (
+          <div className="md:hidden border-t bg-background shadow-lg"> {/* Added background and shadow for mobile menu */}
+            <nav className="container flex flex-col space-y-1 py-3">
+              <SiteNavMenu isMobile={true} />
+            </nav>
+          </div>
+        )}
       </header>
       
       <main className="flex-grow w-full">
         {children}
       </main>
       
-      <footer className="border-t bg-muted/50 text-center py-4">
-        <p className="text-xs text-muted-foreground">
-          Viewing site: {siteConfig?.title || cleanedSiteId} ({isActuallyRemote ? "Remote" : "Local"})
+      <footer className="border-t bg-muted/10 py-6 text-center"> {/* Updated bg-muted/10 for subtlety */}
+        <p className="text-sm text-muted-foreground">
+          Viewing: {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl} ({parsedIdentifier.isRemote ? "Remote" : "Local"})
         </p>
+         <Link href="/" className="mt-1 inline-block text-sm text-primary hover:underline">
+            Back to Signum Dashboard
+          </Link>
       </footer>
     </div>
   );
@@ -2002,135 +1974,278 @@ File: app/(browsing)/[siteId]/[[...slug]]/page.tsx
 // src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useParams } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
 import MarkdownRenderer from '@/components/browsing/MarkdownRenderer';
 import { ParsedMarkdownFile, LocalSiteData } from '@/types';
 import { Button } from '@/components/ui/button';
-import { AlertTriangle } from 'lucide-react';
+import { AlertTriangle, CalendarDays, ArrowRight, ListChecks, FolderOpen } from 'lucide-react';
+import { parseSiteIdentifier, ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import Link from 'next/link';
 
-const REMOTE_SITE_ID_PREFIX_PAGE = "remote@"; // Use a distinct constant name if preferred
-
-function checkIsRemotePage(id: string): boolean { // Renamed for clarity within this file
-  console.log(`[Page] checkIsRemotePage called with ID: "${id}", prefix: "${REMOTE_SITE_ID_PREFIX_PAGE}"`);
-  const result = id && id.startsWith(REMOTE_SITE_ID_PREFIX_PAGE);
-  console.log(`[Page] checkIsRemotePage result: ${result}`);
-  return !!result;
+interface CollectionListItem extends Omit<ParsedMarkdownFile, 'frontmatter'> {
+  frontmatter: ParsedMarkdownFile['frontmatter'] & {
+    date?: string;
+    title: string;
+  };
+  itemLink: string;
 }
 
-function decodeRemoteUrlFromSiteIdPage(siteIdFromUrl: string): string | null { // Renamed
-  if (checkIsRemotePage(siteIdFromUrl)) {
-    try {
-      const encodedUrlPart = siteIdFromUrl.substring(REMOTE_SITE_ID_PREFIX_PAGE.length);
-      const decoded = decodeURIComponent(encodedUrlPart);
-      console.log(`[Page] Successfully decoded "${encodedUrlPart}" to "${decoded}"`);
-      return decoded;
-    } catch (e) {
-      console.error("[Page] Failed to decode remote URL from siteId:", siteIdFromUrl, e);
-      return null;
-    }
-  }
-  console.log(`[Page] decodeRemoteUrlFromSiteIdPage: ID "${siteIdFromUrl}" is not a remote pattern.`);
-  return null;
+enum PageRenderType { // Renamed from PageType to avoid conflict if imported
+  Loading,
+  SinglePageDisplay,
+  CollectionListingDisplay,
+  NotFound,
+  Error,
 }
 
-export default function SitePage() {
+export default function CatchAllSitePage() {
   const paramsHook = useParams();
-  const router = useRouter();
 
-  const [siteDataForPage, setSiteDataForPage] = useState<LocalSiteData | null | undefined>(undefined);
-  const [contentFile, setContentFile] = useState<ParsedMarkdownFile | null | undefined>(undefined);
-  const [isLoadingPage, setIsLoadingPage] = useState(true);
-  const [pageSpecificErrorMessage, setPageSpecificErrorMessage] = useState<string | null>(null);
-  const [displayTitle, setDisplayTitle] = useState<string>("Loading Page...");
+  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  const [renderType, setRenderType] = useState<PageRenderType>(PageRenderType.Loading);
+  
+  const [singlePageContentFile, setSinglePageContentFile] = useState<ParsedMarkdownFile | null>(null);
+  const [collectionItems, setCollectionItems] = useState<CollectionListItem[]>([]);
+  const [collectionDisplayTitle, setCollectionDisplayTitle] = useState<string>(""); // For Collection Listing
 
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading..."); // For document.title and UI headers
+  const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
+
+  const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
+  const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
 
   useEffect(() => {
-    const siteIdFromParams = paramsHook.siteId as string;
-    const slugArray = paramsHook.slug as string[] | undefined;
+    setRenderType(PageRenderType.Loading);
+    setSinglePageContentFile(null); setCollectionItems([]); setErrorMessage(null); setPageMetaTitle("Loading...");
 
-    if (!siteIdFromParams) {
-      console.log("[Page] useEffect: No siteIdFromParams.");
-      setIsLoadingPage(false); setSiteDataForPage(null); setContentFile(null);
-      setPageSpecificErrorMessage("Site identifier missing."); setDisplayTitle("Error");
+    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
+    
+    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
+      setParsedPageIdentifier(null); setRenderType(PageRenderType.Error);
+      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID missing.");
+      setPageMetaTitle("Error");
       return;
     }
-    
-    console.log("[Page] useEffect triggered. siteIdFromParams to process:", `"${siteIdFromParams}"`, "slugArray:", slugArray);
+    setParsedPageIdentifier(localParsedResult);
 
     let mounted = true;
-    setIsLoadingPage(true);
-    setSiteDataForPage(undefined); 
-    setContentFile(undefined);
-    setPageSpecificErrorMessage(null);
 
-    async function fetchDataForPage() {
+    async function processSiteContent(validParsedResult: ParsedSiteIdentifier) {
       let fetchedSiteData: LocalSiteData | null = null;
-      const isRemoteCheckResult = checkIsRemotePage(siteIdFromParams); // Call refined checker
-      
-      if (isRemoteCheckResult) {
-        console.log("[Page] fetchDataForPage: Path taken for REMOTE site.");
-        const decodedUrl = decodeRemoteUrlFromSiteIdPage(siteIdFromParams);
-        console.log("[Page] fetchDataForPage: Decoded URL for remote fetch:", `"${decodedUrl}"`);
-        if (decodedUrl) {
-          fetchedSiteData = await fetchRemoteSiteData(decodedUrl);
-          if (!fetchedSiteData) {
-            setPageSpecificErrorMessage(`Failed to fetch remote site data from ${decodedUrl}. Check layout console for [RFS] details.`);
-          }
-        } else {
-          setPageSpecificErrorMessage(`Invalid remote site URL could not be decoded from ID: ${siteIdFromParams}`);
-        }
-      } else {
-        console.log("[Page] fetchDataForPage: Path taken for LOCAL site.");
-        fetchedSiteData = await localSiteFs.getSiteById(siteIdFromParams);
-        if (!fetchedSiteData) {
-            setPageSpecificErrorMessage(`Local site with ID "${siteIdFromParams}" not found.`);
-        }
+      // ... (fetch siteData - same as before) ...
+      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
+        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
+        if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
+      } else if (!validParsedResult.isRemote) {
+        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
+        if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
       }
 
       if (!mounted) return;
-
       if (!fetchedSiteData) {
-        console.log("[Page] Site data ultimately not found for page.");
-        setSiteDataForPage(null); setContentFile(null); setIsLoadingPage(false);
-        setDisplayTitle("Site Not Found");
-        // Error message should have been set above
+        setSiteData(null); setRenderType(PageRenderType.Error);
+        setPageMetaTitle("Site Not Found");
         return;
       }
-      console.log("[Page] Site data fetched for page:", fetchedSiteData.siteId);
-      setSiteDataForPage(fetchedSiteData);
+      setSiteData(fetchedSiteData);
 
-      const pageFilePath = `content/${slugArray && slugArray.length > 0 ? slugArray.join('/') : 'index'}.md`;
-      console.log("[Page] Looking for page file path:", pageFilePath);
-      const foundContentFile = fetchedSiteData.contentFiles.find(file => file.path === pageFilePath);
+      const currentSlugPath = slugArray.join('/'); // e.g., "" or "about" or "blog" or "blog/my-post"
+      const contentFiles = fetchedSiteData.contentFiles.filter(f => !f.frontmatter.draft);
 
-      if (!foundContentFile) {
-        console.log("[Page] Specific content file not found:", pageFilePath);
-        setContentFile(null);
-        setPageSpecificErrorMessage(`Page "${slugArray ? slugArray.join('/') : 'index'}" not found within this site.`);
-        setDisplayTitle("Page Not Found");
-      } else {
-        console.log("[Page] Content file found:", foundContentFile.path);
-        setContentFile(foundContentFile);
-        setDisplayTitle(foundContentFile.frontmatter.title || "Untitled Page");
+      // --- Determine Render Type ---
+
+      // 1. Check for direct single page match (e.g., /about -> content/about.md; /blog/my-post -> content/blog/my-post.md)
+      const singlePagePath = `content/${currentSlugPath || 'index'}.md`;
+      const directFileMatch = contentFiles.find(f => f.path === singlePagePath);
+
+      if (directFileMatch) {
+        setSinglePageContentFile(directFileMatch);
+        setRenderType(PageRenderType.SinglePageDisplay);
+        setPageMetaTitle(directFileMatch.frontmatter.title || "Untitled Page");
+        return;
       }
-      setIsLoadingPage(false);
+
+      // 2. If not a direct file, check if currentSlugPath refers to a folder
+      //    A folder is identified if there are files starting with `content/${currentSlugPath}/`
+      const itemsInThisFolder = contentFiles.filter(
+        f => f.path.startsWith(`content/${currentSlugPath}/`) && 
+             f.path !== `content/${currentSlugPath}/index.md` // Exclude index for listing
+      );
+      
+      if (itemsInThisFolder.length > 0) {
+        // This path is a folder containing items
+        if (itemsInThisFolder.length === 1 && !slugArray.some(s => s.endsWith('.md'))) { 
+            // Folder with exactly one non-draft .md file (and the URL doesn't look like it's trying to be a file itself)
+            // Treat this single file as the page for this folder slug.
+            const singleItemInFolder = itemsInThisFolder[0];
+            // Check if the URL intended to target this specific file or the folder
+            // If slugArray.join('/') is 'about' and file is 'content/about/page.md', render page.md
+            setSinglePageContentFile(singleItemInFolder);
+            setRenderType(PageRenderType.SinglePageDisplay);
+            setPageMetaTitle(singleItemInFolder.frontmatter.title || currentSlugPath.split('/').pop() || "Page");
+
+        } else {
+            // Folder with 2+ items, or 1 item where URL seems to target the folder for listing
+            const mappedItems: CollectionListItem[] = itemsInThisFolder
+            .map(file => ({
+                ...file,
+                frontmatter: {
+                title: file.frontmatter.title || file.slug,
+                date: file.frontmatter.date,
+                ...file.frontmatter,
+                },
+                itemLink: `/${validParsedResult.rawParam}/${file.path.replace(/^content\//, '').replace(/\.md$/, '')}`
+            }))
+            .sort((a, b) => {
+                if (a.frontmatter.date && b.frontmatter.date) {
+                return new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime();
+                }
+                return (a.frontmatter.title || '').localeCompare(b.frontmatter.title || '');
+            });
+
+            setCollectionItems(mappedItems);
+            const title = currentSlugPath.split('/').pop() || "Collection";
+            setCollectionDisplayTitle(title.charAt(0).toUpperCase() + title.slice(1));
+            setPageMetaTitle(collectionDisplayTitle); // Title for the listing page itself
+            setRenderType(PageRenderType.CollectionListingDisplay);
+        }
+      } else {
+        // No direct file, no items in folder
+        setRenderType(PageRenderType.NotFound);
+        setErrorMessage(`Content not found at: "${currentSlugPath || 'homepage'}"`);
+        setPageMetaTitle("Page Not Found");
+      }
     }
 
-    fetchDataForPage();
+    if (localParsedResult) { // Ensure localParsedResult is not null before calling
+        processSiteContent(localParsedResult);
+    }
+    return () => { mounted = false; };
+  }, [siteIdParamValue, slugArray, collectionDisplayTitle]); // Added collectionDisplayTitle
 
-    return () => {
-      mounted = false;
-    };
-  }, [paramsHook]);
+  useEffect(() => {
+    // ... (document.title update logic as before, using pageMetaTitle) ...
+    if (renderType === PageRenderType.Loading) {
+        document.title = "Loading... | Signum";
+        return;
+    }
+    let title = pageMetaTitle;
+    if (siteData?.config?.title) {
+        title += ` | ${siteData.config.title}`;
+    } else if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
+        title += ` | Signum`;
+    }
+    document.title = title;
+  }, [renderType, pageMetaTitle, siteData]);
 
-  // ... (useEffect for document.title and render logic remains unchanged) ...
-  useEffect(() => { if (!isLoadingPage && displayTitle && siteDataForPage?.config.title) { document.title = `${displayTitle} | ${siteDataForPage.config.title}`; } else if (!isLoadingPage && displayTitle) { document.title = displayTitle; } else if (!isLoadingPage && siteDataForPage?.config.title) { document.title = siteDataForPage.config.title; } else if (!isLoadingPage && !siteDataForPage) { document.title = "Site Not Found | Signum"; } else { document.title = "Signum"; } }, [isLoadingPage, displayTitle, siteDataForPage]);
-  if (isLoadingPage) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 flex justify-center items-center min-h-[300px]"> <p>Loading page content...</p> </div> ); }
-  if (!siteDataForPage || !contentFile) { return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-orange-500 mb-4" /> <h1 className="text-2xl font-bold mb-2">{displayTitle}</h1> <p className="text-muted-foreground max-w-md"> {pageSpecificErrorMessage || "The page you are looking for could not be loaded."} </p> <Button onClick={() => router.push(siteDataForPage ? `/${siteDataForPage.siteId}` : '/')} variant="outline" className="mt-6"> {siteDataForPage ? 'Go to Site Home' : 'Go to Dashboard'} </Button> </div> </div> ); }
-  return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8"> <article className="prose dark:prose-invert lg:prose-xl max-w-none"> <h1 className="mb-4 text-4xl font-extrabold leading-tight tracking-tight text-gray-900 dark:text-white lg:text-5xl"> {contentFile.frontmatter.title || "Untitled Page"} </h1> {contentFile.frontmatter.date && ( <p className="text-base font-medium text-gray-500 dark:text-gray-400 mb-6"> Published on: {new Date(contentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} </p> )} <MarkdownRenderer markdown={contentFile.content} /> </article> </div> );
+  // --- Render logic based on renderType ---
+  if (renderType === PageRenderType.Loading) { /* ... loading UI ... */ }
+  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
+  if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) { /* ... error/not found UI ... */ }
+  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) { /* ... single page render UI ... */ }
+  if (renderType === PageRenderType.CollectionListingDisplay) { /* ... collection listing render UI ... */ }
+  
+  // Re-add full render blocks for brevity, they are similar to previous version
+  // Make sure to use `singlePageContentFile` for single page and `collectionItems` for listing.
+
+  if (renderType === PageRenderType.Loading) {
+    return ( <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[300px]"><p>Loading content...</p></div> );
+  }
+
+  if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
+    return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-destructive mb-4" /> <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1> <p className="text-muted-foreground max-w-md"> {errorMessage || "The requested content could not be loaded or found."} </p> <Button asChild variant="outline" className="mt-6"> <Link href={siteData ? siteHomeLinkForError : '/'}> {siteData ? 'Go to Site Home' : 'Go to Dashboard'} </Link> </Button> </div> </div> );
+  }
+
+  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) {
+    return (
+      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <article className="prose dark:prose-invert lg:prose-xl max-w-none">
+          <header className="mb-8">
+              <h1 className="mb-2 text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
+              {singlePageContentFile.frontmatter.title || "Untitled Page"}
+              </h1>
+              {singlePageContentFile.frontmatter.date && (
+              <p className="text-base font-medium text-muted-foreground">
+                  Published on: {new Date(singlePageContentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+              </p>
+              )}
+          </header>
+          <MarkdownRenderer markdown={singlePageContentFile.content} />
+        </article>
+      </div>
+    );
+  }
+
+  if (renderType === PageRenderType.CollectionListingDisplay) {
+    return (
+      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div className="mb-8 pb-4 border-b">
+          <div className="flex items-center space-x-3">
+              <FolderOpen className="h-10 w-10 text-primary" /> {/* Consistent Icon */}
+              <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
+              {collectionDisplayTitle}
+              </h1>
+          </div>
+          {siteData?.config.title && ( // Ensure siteData exists
+            <p className="text-lg text-muted-foreground mt-2">
+              From site: <Link href={parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/'} className="hover:underline text-primary font-medium">{siteData.config.title}</Link>
+            </p>
+          )}
+        </div>
+
+        {collectionItems.length === 0 && (
+          <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg bg-card">
+            <ListChecks className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
+            <h2 className="text-xl font-semibold text-foreground mb-2">No Items Found</h2>
+            <p className="text-muted-foreground">
+              {errorMessage || `There are no items in this collection.`}
+            </p>
+          </div>
+        )}
+
+        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+          {collectionItems.map((item) => {
+            // ... (item rendering - same as before) ...
+            const itemDate = item.frontmatter.date ? new Date(item.frontmatter.date) : null;
+            const isValidDate = itemDate && itemDate.getFullYear() > 1970;
+            return (
+              <article key={item.path} className="flex flex-col p-6 bg-card border border-border rounded-lg shadow-sm hover:shadow-lg transition-shadow">
+                <div className="flex-grow">
+                  <h2 className="text-xl font-semibold mb-2 leading-tight">
+                    <Link href={item.itemLink} className="hover:text-primary transition-colors">
+                      {item.frontmatter.title}
+                    </Link>
+                  </h2>
+                  {isValidDate && (
+                    <p className="text-xs text-muted-foreground mb-3 flex items-center">
+                      <CalendarDays className="h-3.5 w-3.5 mr-1.5 shrink-0" />
+                      {itemDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
+                    </p>
+                  )}
+                  <p className="text-sm text-muted-foreground mb-4 line-clamp-4 leading-relaxed">
+                    {item.frontmatter.summary || item.content.substring(0, 180).replace(/#.*$/gm, '').replace(/[\*\`\[\]]/g, '').trim() + '...'}
+                  </p>
+                </div>
+                <div className="mt-auto">
+                  <Button variant="outline" size="sm" asChild>
+                    <Link href={item.itemLink}>
+                      View Item <ArrowRight className="h-4 w-4 ml-2" />
+                    </Link>
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  
+  return <div className="p-4 text-center">Unable to determine content type.</div>;
 }
 
 ================================================================================
@@ -2852,6 +2967,32 @@ export {
 
 ================================================================================
 
+File: components/ui/link.tsx
+/**
+ * TODO: Update this component to use your client-side framework's link
+ * component. We've provided examples of how to do this for Next.js, Remix, and
+ * Inertia.js in the Catalyst documentation:
+ *
+ * https://catalyst.tailwindui.com/docs#client-side-router-integration
+ */
+
+import * as Headless from '@headlessui/react'
+import React, { forwardRef } from 'react'
+
+export const Link = forwardRef(function Link(
+  props: { href: string } & React.ComponentPropsWithoutRef<'a'>,
+  ref: React.ForwardedRef<HTMLAnchorElement>
+) {
+  return (
+    <Headless.DataInteractive>
+      <a {...props} ref={ref} />
+    </Headless.DataInteractive>
+  )
+})
+
+
+================================================================================
+
 File: components/ui/label.tsx
 "use client"
 
@@ -3220,7 +3361,7 @@ File: components/core/Navbar.tsx
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation'; // Import useRouter
-import { Leaf, Home, Settings, HelpCircle, Search, Globe } from 'lucide-react';
+import { Leaf, Home, Settings, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input'; // Import Input
 import React, { useState } from 'react';
@@ -3230,7 +3371,7 @@ const NavLink: React.FC<{ href: string; label: string; icon?: React.ReactNode; }
   const pathname = usePathname();
   const isActive = pathname === href || (href !== '/' && pathname.startsWith(href));
   return (
-    <Button variant="ghost" asChild className={`justify-start ${isActive ? 'bg-accent text-accent-foreground' : ''}`}>
+    <Button  className={`justify-start ${isActive ? 'bg-accent text-accent-foreground' : ''}`}>
       <Link href={href} className="flex items-center space-x-2">
         {icon}
         <span>{label}</span>
@@ -3286,7 +3427,7 @@ export default function Navbar() {
               className="pl-9" // Padding for the icon
             />
           </div>
-          <Button type="submit" size="sm">Browse</Button>
+          <Button type="submit">Browse</Button>
         </form>
         
         <nav className="hidden md:flex items-center space-x-1">
@@ -3295,7 +3436,7 @@ export default function Navbar() {
         </nav>
 
         <div className="md:hidden">
-          <Button variant="ghost" size="icon">
+          <Button  >
             <Settings className="h-5 w-5" />
             <span className="sr-only">Toggle menu</span>
           </Button>
@@ -3500,32 +3641,126 @@ export function parseAndRenderMarkdown(slug: string, path: string, rawMarkdownCo
 
 ================================================================================
 
+File: lib/browsingUtils.ts
+// src/lib/browsingUtils.ts
+
+export const REMOTE_SITE_ID_MARKER = "remote@";
+
+export interface ParsedSiteIdentifier {
+  rawParam: string;          // The original parameter from the URL
+  cleanedIdOrUrl: string;  // The ID after basic cleaning (quotes, one layer of URI decode)
+  isRemote: boolean;
+  remoteBaseUrl: string | null; // Decoded and validated base URL if remote
+  effectiveSiteId: string;     // The ID to use for fetching/internal logic (e.g. "actual-id" or "remote@actual-id")
+}
+
+/**
+ * Parses the site identifier from URL parameters, handles decoding,
+ * and determines if it's a local or remote site.
+ * 
+ * @param siteIdParam The raw siteId parameter from Next.js `useParams()`.
+ * @returns ParsedSiteIdentifier object or null if siteIdParam is invalid.
+ */
+export function parseSiteIdentifier(siteIdParam: string | string[] | undefined): ParsedSiteIdentifier | null {
+  let rawId = '';
+  if (Array.isArray(siteIdParam)) {
+    rawId = siteIdParam[0] || '';
+  } else if (typeof siteIdParam === 'string') {
+    rawId = siteIdParam;
+  }
+
+  if (!rawId) {
+    console.warn("[BrowsingUtils] siteIdParam is empty or undefined.");
+    return null;
+  }
+
+  let cleanedId = rawId;
+
+  // Attempt to decode (browsers/Next.js might already do one layer)
+  try {
+    let decodedOnce = decodeURIComponent(cleanedId);
+    // Heuristic: if it still contains '%', it might be double-encoded, especially if wrapped in quotes.
+    if (decodedOnce.includes('%') && (decodedOnce.startsWith('"') || decodedOnce.startsWith('%22'))) {
+        let temp = decodedOnce;
+        if (temp.startsWith('%22')) temp = temp.substring(3); // Remove leading %22
+        if (temp.endsWith('%22')) temp = temp.substring(0, temp.length - 3); // Remove trailing %22
+        if (temp.startsWith('"')) temp = temp.substring(1); // Remove leading "
+        if (temp.endsWith('"')) temp = temp.substring(0, temp.length - 1); // Remove trailing "
+        decodedOnce = decodeURIComponent(temp);
+    }
+    cleanedId = decodedOnce;
+  } catch (e) {
+    console.warn(`[BrowsingUtils] decodeURIComponent failed for "${cleanedId}", using as is. Error:`, e);
+  }
+
+  // Final removal of surrounding quotes if present
+  if (cleanedId.startsWith('"') && cleanedId.endsWith('"')) {
+    cleanedId = cleanedId.substring(1, cleanedId.length - 1);
+  }
+  
+  const isRemote = cleanedId.startsWith(REMOTE_SITE_ID_MARKER);
+  let remoteBaseUrl: string | null = null;
+  const effectiveSiteId = cleanedId; // For local sites, cleanedId is the effectiveSiteId
+
+  if (isRemote) {
+    const potentialUrl = cleanedId.substring(REMOTE_SITE_ID_MARKER.length);
+    try {
+      // The URL part should already be decoded by the steps above.
+      // We just need to validate it's a URL.
+      const urlObject = new URL(potentialUrl);
+      remoteBaseUrl = urlObject.origin; // Use origin (scheme + hostname + port)
+      // For remote sites, the cleanedId itself (e.g., "remote@http://...") is used as the key/identifier
+      // for display and routing, but the actual ID fetched from manifest is what `LocalSiteData.siteId` will hold.
+      // Let's keep `effectiveSiteId` as the full "remote@..." string for consistency in what the client uses
+      // to identify this browsing session. The fetcher will derive the internal siteId.
+    } catch (e) {
+      console.error(`[BrowsingUtils] Invalid remote URL part: "${potentialUrl}" from "${cleanedId}"`, e);
+      return { // Return a partial result indicating parsing failure for remote URL
+          rawParam: rawId,
+          cleanedIdOrUrl: cleanedId,
+          isRemote: true,
+          remoteBaseUrl: null, // Explicitly null due to error
+          effectiveSiteId: cleanedId,
+      }; 
+    }
+  }
+
+  return {
+    rawParam: rawId,
+    cleanedIdOrUrl: cleanedId,
+    isRemote,
+    remoteBaseUrl,
+    effectiveSiteId,
+  };
+}
+
+================================================================================
+
 File: lib/utils.ts
 // src/lib/utils.ts
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
-export function cn(...inputs: ClassValue[]) {
+export function cn(...inputs: ClassValue[]) { // EXPORTED
   return twMerge(clsx(inputs))
 }
 
+// NOT EXPORTED by default in the common shadcn/ui utils.ts
 export function slugify(text: string): string {
   return text
     .toString()
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-') // Replace spaces with -
-    .replace(/[^\w-]+/g, '') // Remove all non-word chars
-    .replace(/--+/g, '-'); // Replace multiple - with single -
+    .replace(/\s+/g, '-') 
+    .replace(/[^\w-]+/g, '') 
+    .replace(/--+/g, '-'); 
 }
 
+// NOT EXPORTED by default
 export function generateSiteId(title: string): string {
   const randomString = Math.random().toString(36).substring(2, 7);
   return `${slugify(title)}-${randomString}`;
 }
-
-// isValidName was in fileTreeUtils.ts, can be kept there or moved here if generally useful.
-// For this example, assuming it's in fileTreeUtils.ts and imported from there.
 
 ================================================================================
 

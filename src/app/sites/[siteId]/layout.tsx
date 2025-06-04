@@ -1,187 +1,230 @@
-// src/app/(publishing)/edit/[siteId]/layout.tsx
+// src/app/(browsing)/[siteId]/layout.tsx
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
+import { useParams, usePathname } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
+import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
+import type { LocalSiteData, ParsedMarkdownFile, NavLinkItem as NavLinkItemType } from '@/types'; // Use NavLinkItemType
+import { Home, ExternalLink, Menu, X, FileText as FileTextIcon, Columns as ColumnsIcon } from 'lucide-react'; // Aliased icons
 import { Button } from '@/components/ui/button';
-import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
-import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
-import FileTree from '@/components/publishing/FileTree';
-import { useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
-import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
-import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import { cn } from '@/lib/utils';
 
-export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
+// NavLinkItem is now imported from '@/types'
+
+export default function SiteBrowsingLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const params = useParams();
   const pathname = usePathname();
-  const router = useRouter();
-  const siteId = params.siteId as string;
 
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
+  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [parsedIdentifier, setParsedIdentifier] = useState<ParsedSiteIdentifier | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const fileTreeNodes = useMemo(() => {
-    if (site?.contentFiles) {
-      return buildFileTree(site.contentFiles);
-    }
-    return [];
-  }, [site?.contentFiles]);
-
-  const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
+  const siteIdParamValue = useMemo(() => params.siteId as string, [params.siteId]);
 
   useEffect(() => {
-    // Determine current open file from pathname
-    // Pathname: /edit/siteId/content/path/to/file
-    const pathSegments = pathname.split('/content/');
-    if (pathSegments.length > 1) {
-        const filePath = pathSegments[1];
-        if (filePath) {
-            setCurrentOpenFile(`content/${filePath}.md`);
-        } else {
-            // It might be the index file at a folder level, or site config page
-            // Check if it's the site config page
-            if (pathname === `/edit/${siteId}`) {
-                 setCurrentOpenFile(undefined); // No file selected for site config
-            } else {
-                // It's likely content/index.md or content/folder/index.md
-                const basePath = pathSegments[0] + '/content/';
-                const potentialIndexPath = pathname.substring(basePath.length);
-                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
-                    setCurrentOpenFile('content/index.md');
-                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
-                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
-                } else {
-                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
-                }
-            }
-        }
-    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
-        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
-    } else {
-        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
-    }
-  }, [pathname, siteId]);
+    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
 
-
-  const handleCreateNewFile = async (parentPath: string = 'content') => {
-    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
-    if (!rawFileName || !isValidName(rawFileName)) {
-      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
+    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
+      setParsedIdentifier(null); setIsLoading(false); setSiteData(null);
+      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote site URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID invalid.");
       return;
     }
-    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
-    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
+    setParsedIdentifier(localParsedResult);
 
-    // Check if file already exists
-    if (site?.contentFiles.some(f => f.path === newFilePath)) {
-        toast.error(`File "${newFilePath}" already exists.`);
-        return;
+    let mounted = true;
+    setIsLoading(true); setSiteData(undefined); setErrorMessage(null);
+
+    async function fetchLayoutData(validParsedResult: ParsedSiteIdentifier) {
+      let fetchedSiteData: LocalSiteData | null = null;
+      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
+        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
+        if (!fetchedSiteData && mounted) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
+      } else if (!validParsedResult.isRemote) {
+        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
+        if (!fetchedSiteData && mounted) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
+      }
+      if (!mounted) return;
+      setSiteData(fetchedSiteData);
+      setIsLoading(false);
     }
-
-    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
-    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
-    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
-
-    try {
-        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
-        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
-        // Navigate to the new file for editing
-        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
-        router.push(`/edit/${siteId}/content/${editSlug}`);
-    } catch (error) {
-        toast.error("Failed to create file.");
-        console.error("Error creating file:", error);
+    if (localParsedResult) {
+        fetchLayoutData(localParsedResult);
     }
-  };
-  
-  const handleCreateNewFolder = async (parentPath: string = 'content') => {
-    const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
-    if (!folderName || !isValidName(folderName)) {
-        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
-        return;
-    }
-    
-    // To "create" a folder, we'll create a placeholder .keep file in it,
-    // then immediately prompt to create a real file inside it.
-    // This is a common pattern if the system doesn't explicitly store empty folders.
-    // OR, simply adjust the UI to allow creating files under this new conceptual path.
-    // For now, let's make folder creation mean "create a new file inside this new folder path".
-    
-    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
-    
-    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
-    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
-  };
+    return () => { mounted = false; };
+  }, [siteIdParamValue]);
 
 
-  if (!site) {
-    return (
-        <div className="flex items-center justify-center h-screen">
-            <p>Loading site editor or site not found...</p>
-            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
-        </div>
-    );
-  }
+  const navLinks: NavLinkItemType[] = useMemo(() => {
+    if (!siteData?.contentFiles || !parsedIdentifier) return [];
+
+    const links: NavLinkItemType[] = [];
+    const topLevelPageSlugs = new Set<string>();
+    const folderInfo: Record<string, { count: number, files: ParsedMarkdownFile[], representativeFile?: ParsedMarkdownFile }> = {};
+
+    siteData.contentFiles.forEach(file => {
+      if (file.frontmatter.draft || file.frontmatter.status === 'draft') return;
+
+      const relativePath = file.path.replace(/^content\//, '');
+      const pathParts = relativePath.split('/');
+
+      if (pathParts.length === 1 && relativePath.endsWith('.md') && relativePath !== 'index.md') {
+        const slug = pathParts[0].replace(/\.md$/, '');
+        topLevelPageSlugs.add(slug);
+        if (!folderInfo[slug]) folderInfo[slug] = { count: 0, files: [] };
+        folderInfo[slug].files.push(file);
+        folderInfo[slug].representativeFile = file;
+      } else if (pathParts.length > 1 && pathParts[0] !== '') {
+        const folderSlug = pathParts[0];
+        if (!folderInfo[folderSlug]) {
+          folderInfo[folderSlug] = { count: 0, files: [] };
+        }
+        if (relativePath.endsWith('.md')) {
+            folderInfo[folderSlug].count++;
+            folderInfo[folderSlug].files.push(file);
+            if(relativePath === `${folderSlug}/index.md` || !folderInfo[folderSlug].representativeFile) {
+                folderInfo[folderSlug].representativeFile = file;
+            }
+        }
+      }
+    });
+
+    const homeHref = `/${parsedIdentifier.rawParam}`;
+    links.push({ href: homeHref, label: "Home", iconComponent: Home, isActive: pathname === homeHref || pathname === `${homeHref}/` });
+
+    topLevelPageSlugs.forEach(slug => {
+        if (folderInfo[slug] && folderInfo[slug].count === 0 && folderInfo[slug].representativeFile) { 
+            const fileForTitle = folderInfo[slug].representativeFile!;
+            const href = `/${parsedIdentifier.rawParam}/${slug}`;
+            links.push({
+                href,
+                label: fileForTitle.frontmatter.title || slug.charAt(0).toUpperCase() + slug.slice(1),
+                iconComponent: FileTextIcon,
+                isActive: pathname === href,
+            });
+        }
+    });
+    
+    Object.entries(folderInfo).forEach(([folderSlug, info]) => {
+      if (topLevelPageSlugs.has(folderSlug) && info.count === 0) return; 
+
+      if (info.count > 0 && info.representativeFile) { 
+        const href = `/${parsedIdentifier.rawParam}/${folderSlug}`;
+        let label = folderSlug.charAt(0).toUpperCase() + folderSlug.slice(1);
+        const indexFileInFolder = info.files.find(f => f.path === `content/${folderSlug}/index.md`);
+        if (indexFileInFolder?.frontmatter.title) {
+            label = indexFileInFolder.frontmatter.title;
+        } else if (siteData.config.collections?.find(c => c.path === folderSlug)?.nav_label) {
+            label = siteData.config.collections.find(c => c.path === folderSlug)!.nav_label!;
+        } else if (info.count === 1 && info.files[0]?.frontmatter.title) {
+            label = info.files[0].frontmatter.title;
+        }
+        
+        links.push({
+          href,
+          label,
+          iconComponent: ColumnsIcon,
+          isActive: pathname === href || pathname.startsWith(`${href}/`),
+        });
+      }
+    });
+    
+    const uniqueLinks = Array.from(new Map(links.map(link => [link.href, link])).values());
+
+    return uniqueLinks.sort((a, b) => {
+        if (a.label === "Home") return -1;
+        if (b.label === "Home") return 1;
+        return a.label.localeCompare(b.label);
+    });
+
+  }, [siteData, parsedIdentifier, pathname]);
+
+  if (isLoading) { return <div className="p-4 text-center">Loading site layout...</div>; }
+  if (!siteData || !parsedIdentifier) { return <div className="p-4 text-center">{errorMessage || "Site not found or error loading layout."}</div>;}
+
+  const siteConfig = siteData.config;
+  const currentDisplaySiteId = parsedIdentifier.rawParam;
+
+  const SiteNavMenu = ({ isMobile }: { isMobile?: boolean }) => (
+    <>
+      {navLinks.map(link => {
+        const IconComp = link.iconComponent;
+        return (
+            <Button 
+            variant="ghost" 
+            size="sm" 
+            asChild 
+            key={link.href}
+            className={cn(
+                "justify-start",
+                isMobile ? "w-full text-base py-3" : "md:w-auto",
+                link.isActive && "bg-accent text-accent-foreground hover:bg-accent/90"
+            )}
+            >
+            <Link href={link.href} title={link.label} passHref onClick={() => setIsMobileMenuOpen(false)}>
+                {IconComp && <IconComp className={cn("h-4 w-4 shrink-0", isMobile ? "mr-3" : "mr-1.5")} />}
+                <span>{link.label}</span>
+            </Link>
+            </Button>
+        );
+      })}
+    </>
+  );
 
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
-        <div className="mb-4">
-            <h2 className="text-xl font-semibold truncate" title={site.config.title}>
-                {site.config.title || 'Site Editor'}
-            </h2>
-            <p className="text-xs text-muted-foreground truncate" title={siteId}>ID: {siteId}</p>
-        </div>
+    <div className="flex flex-col min-h-screen bg-background text-foreground">
+      <header className="sticky top-16 md:top-0 z-30 w-full border-b bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-16 items-center">
+          <Link href={`/${currentDisplaySiteId}`} className="flex items-center space-x-2 mr-auto" onClick={() => setIsMobileMenuOpen(false)}>
+            <span className="text-xl font-semibold text-foreground truncate hover:text-primary transition-colors">
+              {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl}
+            </span>
+            {parsedIdentifier.isRemote && parsedIdentifier.remoteBaseUrl && (
+                <a href={parsedIdentifier.remoteBaseUrl} target="_blank" rel="noopener noreferrer" title={`Open original remote site: ${parsedIdentifier.remoteBaseUrl}`} className="ml-1 flex-shrink-0">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                </a>
+            )}
+          </Link>
+          
+          <nav className="hidden md:flex items-center space-x-1">
+            <SiteNavMenu />
+          </nav>
 
-        <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}`}>
-              <Settings className="mr-2 h-4 w-4" /> Site Config
-            </Link>
-          </Button>
-        </nav>
-
-        <div className="mb-2 flex justify-between items-center">
-            <h3 className="text-sm font-semibold px-1">Content Files</h3>
-            <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
-                    <FileText className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
-                    <FolderPlus className="h-4 w-4" />
-                </Button>
-            </div>
-        </div>
-        
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
-          <FileTree 
-            nodes={fileTreeNodes} 
-            baseEditPath={`/edit/${siteId}/content`}
-            currentOpenFile={currentOpenFile}
-            onFileCreate={handleCreateNewFile} // Pass handler down
-            onFolderCreate={handleCreateNewFolder} // Pass handler down
-          />
-        </div>
-
-        <div className="mt-auto space-y-2 pt-4 border-t">
-            <Button variant="outline" asChild className="w-full justify-start">
-                <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
-                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
-                </Link>
+          <div className="md:hidden ml-2">
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Toggle menu">
+              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
-            <Button variant="ghost" asChild className="w-full justify-start">
-              <Link href="/">
-                <Home className="mr-2 h-4 w-4" /> App Dashboard
-              </Link>
-            </Button>
+          </div>
         </div>
-      </aside>
-      <main className="flex-1 p-6 overflow-y-auto">
+         {isMobileMenuOpen && (
+          <div className="md:hidden border-t bg-background shadow-lg">
+            <nav className="container flex flex-col space-y-1 py-3">
+              <SiteNavMenu isMobile={true} />
+            </nav>
+          </div>
+        )}
+      </header>
+      
+      <main className="flex-grow w-full">
         {children}
       </main>
+      
+      <footer className="border-t bg-muted/10 py-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Viewing: {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl} ({parsedIdentifier.isRemote ? "Remote" : "Local"})
+        </p>
+         <Link href="/" className="mt-1 inline-block text-sm text-primary hover:underline">
+            Back to Signum Dashboard
+          </Link>
+      </footer>
     </div>
   );
 }

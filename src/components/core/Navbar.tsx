@@ -3,7 +3,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation'; // Import useRouter
-import { Leaf, Home, Settings, HelpCircle, Search, Globe } from 'lucide-react';
+import { Leaf, Home, Settings, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input'; // Import Input
 import React, { useState } from 'react';
@@ -13,7 +13,7 @@ const NavLink: React.FC<{ href: string; label: string; icon?: React.ReactNode; }
   const pathname = usePathname();
   const isActive = pathname === href || (href !== '/' && pathname.startsWith(href));
   return (
-    <Button variant="ghost" asChild className={`justify-start ${isActive ? 'bg-accent text-accent-foreground' : ''}`}>
+    <Button  className={`justify-start ${isActive ? 'bg-accent text-accent-foreground' : ''}`}>
       <Link href={href} className="flex items-center space-x-2">
         {icon}
         <span>{label}</span>
@@ -69,7 +69,7 @@ export default function Navbar() {
               className="pl-9" // Padding for the icon
             />
           </div>
-          <Button type="submit" size="sm">Browse</Button>
+          <Button type="submit">Browse</Button>
         </form>
         
         <nav className="hidden md:flex items-center space-x-1">
@@ -78,7 +78,7 @@ export default function Navbar() {
         </nav>
 
         <div className="md:hidden">
-          <Button variant="ghost" size="icon">
+          <Button  >
             <Settings className="h-5 w-5" />
             <span className="sr-only">Toggle menu</span>
           </Button>
