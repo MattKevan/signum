@@ -5,65 +5,62 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo } from 'react';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
-import MarkdownRenderer from '@/components/browsing/MarkdownRenderer';
-import { ParsedMarkdownFile, LocalSiteData } from '@/types';
+// MarkdownRenderer is no longer used directly here for the main content if we pre-render to string
+// import MarkdownRenderer from '@/components/browsing/MarkdownRenderer'; 
+import { marked } from 'marked'; // Use marked directly for rendering body to string
+import type { LocalSiteData, ParsedMarkdownFile as ParsedMarkdownFileType, SiteConfigFile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, CalendarDays, ArrowRight, ListChecks, FolderOpen } from 'lucide-react';
-import { parseSiteIdentifier, ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
+import { cn } from '@/lib/utils'; // For combining classes
 
-interface CollectionListItem extends Omit<ParsedMarkdownFile, 'frontmatter'> {
-  frontmatter: ParsedMarkdownFile['frontmatter'] & {
+// Template partials for constructing the header and footer strings for preview
+// (These are NOT React components, they return HTML strings)
+import { renderHeader as renderThemeHeaderString } from '@/themes/default/partials/header';
+import { renderFooter as renderThemeFooterString } from '@/themes/default/partials/footer';
+import { renderArticleContent as renderThemeArticleString } from '@/themes/default/partials/article';
+import { renderCollectionListContent as renderThemeCollectionListString } from '@/themes/default/partials/collection';
+
+
+interface CollectionListItemReact extends Omit<ParsedMarkdownFileType, 'frontmatter' | 'content'> {
+  frontmatter: ParsedMarkdownFileType['frontmatter'] & {
     date?: string;
     title: string;
   };
   itemLink: string;
+  summaryOrContentTeaser: string; // For collection item preview
 }
 
-enum PageRenderType { // Renamed from PageType to avoid conflict if imported
-  Loading,
-  SinglePageDisplay,
-  CollectionListingDisplay,
-  NotFound,
-  Error,
-}
+enum PageRenderType { Loading, SinglePageDisplay, CollectionListingDisplay, NotFound, Error }
+
+const THEME_WRAPPER_CLASS = "signum-theme-default-wrapper"; // Consistent wrapper class
 
 export default function CatchAllSitePage() {
   const paramsHook = useParams();
-
   const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
   const [renderType, setRenderType] = useState<PageRenderType>(PageRenderType.Loading);
-  
-  const [singlePageContentFile, setSinglePageContentFile] = useState<ParsedMarkdownFile | null>(null);
-  const [collectionItems, setCollectionItems] = useState<CollectionListItem[]>([]);
-  const [collectionDisplayTitle, setCollectionDisplayTitle] = useState<string>(""); // For Collection Listing
-
+  const [pageHtmlContent, setPageHtmlContent] = useState<string>(""); // To store the fully rendered HTML string for the page
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading..."); // For document.title and UI headers
+  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading...");
   const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
 
   const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
   const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
 
   useEffect(() => {
+    // ... (fetching siteData logic remains the same as your last working version) ...
+    // When siteData and page type are determined, call a function to render HTML string
     setRenderType(PageRenderType.Loading);
-    setSinglePageContentFile(null); setCollectionItems([]); setErrorMessage(null); setPageMetaTitle("Loading...");
+    setPageHtmlContent(""); setErrorMessage(null); setPageMetaTitle("Loading...");
 
     const localParsedResult = parseSiteIdentifier(siteIdParamValue);
-    
-    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
-      setParsedPageIdentifier(null); setRenderType(PageRenderType.Error);
-      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID missing.");
-      setPageMetaTitle("Error");
-      return;
-    }
+    if (!localParsedResult) { /* ... error handling ... */ return; }
     setParsedPageIdentifier(localParsedResult);
 
-    let mounted = true;
-
-    async function processSiteContent(validParsedResult: ParsedSiteIdentifier) {
+    async function processAndRenderSiteContent(validParsedResult: ParsedSiteIdentifier) {
       let fetchedSiteData: LocalSiteData | null = null;
-      // ... (fetch siteData - same as before) ...
+      // ... Fetch siteData logic ...
       if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
         fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
         if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
@@ -72,205 +69,162 @@ export default function CatchAllSitePage() {
         if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
       }
 
-      if (!mounted) return;
       if (!fetchedSiteData) {
-        setSiteData(null); setRenderType(PageRenderType.Error);
-        setPageMetaTitle("Site Not Found");
-        return;
+        setSiteData(null); setRenderType(PageRenderType.Error); setPageMetaTitle("Site Not Found"); return;
       }
       setSiteData(fetchedSiteData);
 
-      const currentSlugPath = slugArray.join('/'); // e.g., "" or "about" or "blog" or "blog/my-post"
-      const contentFiles = fetchedSiteData.contentFiles.filter(f => !f.frontmatter.draft);
+      // --- Determine Page Type and Render HTML String ---
+      const currentSlugPath = slugArray.join('/');
+      const contentFiles = fetchedSiteData.contentFiles.filter(f => !f.frontmatter.draft && f.frontmatter.status !== 'draft');
+      const singlePagePath = `content/${currentSlugPath || 'index'}.md`.toLowerCase();
+      const directFileMatch = contentFiles.find(f => f.path.toLowerCase() === singlePagePath);
 
-      // --- Determine Render Type ---
-
-      // 1. Check for direct single page match (e.g., /about -> content/about.md; /blog/my-post -> content/blog/my-post.md)
-      const singlePagePath = `content/${currentSlugPath || 'index'}.md`;
-      const directFileMatch = contentFiles.find(f => f.path === singlePagePath);
+      const siteRootPathForLinks = `/${validParsedResult.rawParam}/`.replace(/\/\//g, '/');
+      const ssgNavLinks = getSsgNavLinks(fetchedSiteData, siteRootPathForLinks); // Use the same nav link logic as exporter
+      const themeHeaderHtml = renderThemeHeaderString(fetchedSiteData.config, ssgNavLinks, siteRootPathForLinks);
+      const themeFooterHtml = renderThemeFooterString(fetchedSiteData.config);
+      let mainContentHtml = "";
 
       if (directFileMatch) {
-        setSinglePageContentFile(directFileMatch);
-        setRenderType(PageRenderType.SinglePageDisplay);
+        mainContentHtml = renderThemeArticleString(directFileMatch);
         setPageMetaTitle(directFileMatch.frontmatter.title || "Untitled Page");
-        return;
-      }
-
-      // 2. If not a direct file, check if currentSlugPath refers to a folder
-      //    A folder is identified if there are files starting with `content/${currentSlugPath}/`
-      const itemsInThisFolder = contentFiles.filter(
-        f => f.path.startsWith(`content/${currentSlugPath}/`) && 
-             f.path !== `content/${currentSlugPath}/index.md` // Exclude index for listing
-      );
-      
-      if (itemsInThisFolder.length > 0) {
-        // This path is a folder containing items
-        if (itemsInThisFolder.length === 1 && !slugArray.some(s => s.endsWith('.md'))) { 
-            // Folder with exactly one non-draft .md file (and the URL doesn't look like it's trying to be a file itself)
-            // Treat this single file as the page for this folder slug.
-            const singleItemInFolder = itemsInThisFolder[0];
-            // Check if the URL intended to target this specific file or the folder
-            // If slugArray.join('/') is 'about' and file is 'content/about/page.md', render page.md
-            setSinglePageContentFile(singleItemInFolder);
-            setRenderType(PageRenderType.SinglePageDisplay);
-            setPageMetaTitle(singleItemInFolder.frontmatter.title || currentSlugPath.split('/').pop() || "Page");
-
-        } else {
-            // Folder with 2+ items, or 1 item where URL seems to target the folder for listing
-            const mappedItems: CollectionListItem[] = itemsInThisFolder
-            .map(file => ({
-                ...file,
-                frontmatter: {
-                title: file.frontmatter.title || file.slug,
-                date: file.frontmatter.date,
-                ...file.frontmatter,
-                },
-                itemLink: `/${validParsedResult.rawParam}/${file.path.replace(/^content\//, '').replace(/\.md$/, '')}`
-            }))
-            .sort((a, b) => {
-                if (a.frontmatter.date && b.frontmatter.date) {
-                return new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime();
-                }
-                return (a.frontmatter.title || '').localeCompare(b.frontmatter.title || '');
-            });
-
-            setCollectionItems(mappedItems);
-            const title = currentSlugPath.split('/').pop() || "Collection";
-            setCollectionDisplayTitle(title.charAt(0).toUpperCase() + title.slice(1));
-            setPageMetaTitle(collectionDisplayTitle); // Title for the listing page itself
-            setRenderType(PageRenderType.CollectionListingDisplay);
-        }
+        setRenderType(PageRenderType.SinglePageDisplay);
       } else {
-        // No direct file, no items in folder
-        setRenderType(PageRenderType.NotFound);
-        setErrorMessage(`Content not found at: "${currentSlugPath || 'homepage'}"`);
-        setPageMetaTitle("Page Not Found");
+        const itemsInThisFolder = contentFiles.filter(
+          f => f.path.toLowerCase().startsWith(`content/${currentSlugPath}/`.toLowerCase()) && 
+               f.path.toLowerCase() !== `content/${currentSlugPath}/index.md`.toLowerCase()
+        );
+        if (itemsInThisFolder.length > 0) {
+          // Collection Listing
+          const mappedItems: CollectionListItemReact[] = itemsInThisFolder
+            .map(file => {
+                const summary = file.frontmatter.summary || (marked.parse((file.content || '').substring(0, 180) + '...') as string);
+                return {
+                    ...file, // slug, path, frontmatter
+                    itemLink: `${siteRootPathForLinks}${file.path.replace(/^content\//i, '').replace(/\.md$/i, '')}`.replace(/\/\//g, '/'),
+                    summaryOrContentTeaser: summary,
+                };
+            })
+            .sort((a, b) => new Date(b.frontmatter.date || 0).getTime() - new Date(a.frontmatter.date || 0).getTime());
+
+          let collectionTitle = currentSlugPath.split('/').pop() || "Collection";
+          const collectionConfig = fetchedSiteData.config.collections?.find(c => c.path === currentSlugPath.split('/').pop());
+          if(collectionConfig?.nav_label) collectionTitle = collectionConfig.nav_label;
+          else collectionTitle = collectionTitle.charAt(0).toUpperCase() + collectionTitle.slice(1);
+          
+          const collectionIndexFile = contentFiles.find(f => f.path.toLowerCase() === `content/${currentSlugPath}/index.md`.toLowerCase());
+          const collectionIndexContentHtml = collectionIndexFile ? marked.parse(collectionIndexFile.content || '') as string : undefined;
+
+          mainContentHtml = renderThemeCollectionListString(collectionTitle, mappedItems, collectionIndexContentHtml);
+          setPageMetaTitle(collectionTitle);
+          setRenderType(PageRenderType.CollectionListingDisplay);
+        } else {
+          setRenderType(PageRenderType.NotFound);
+          setErrorMessage(`Content not found at: "${currentSlugPath || 'homepage'}"`);
+          setPageMetaTitle("Page Not Found");
+        }
       }
+      setPageHtmlContent(`${themeHeaderHtml}<main class="site-content">${mainContentHtml}</main>${themeFooterHtml}`);
     }
+    if (localParsedResult) processAndRenderSiteContent(localParsedResult);
+  }, [siteIdParamValue, slugArray]); // Dependencies
 
-    if (localParsedResult) { // Ensure localParsedResult is not null before calling
-        processSiteContent(localParsedResult);
+  useEffect(() => { /* ... document.title update ... */ 
+    if (renderType === PageRenderType.Loading) document.title = "Loading... | Signum";
+    else {
+        let title = pageMetaTitle;
+        if (siteData?.config?.title) title += ` | ${siteData.config.title}`;
+        else if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) title += ` | Signum`;
+        document.title = title;
     }
-    return () => { mounted = false; };
-  }, [siteIdParamValue, slugArray, collectionDisplayTitle]); // Added collectionDisplayTitle
-
-  useEffect(() => {
-    // ... (document.title update logic as before, using pageMetaTitle) ...
-    if (renderType === PageRenderType.Loading) {
-        document.title = "Loading... | Signum";
-        return;
-    }
-    let title = pageMetaTitle;
-    if (siteData?.config?.title) {
-        title += ` | ${siteData.config.title}`;
-    } else if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
-        title += ` | Signum`;
-    }
-    document.title = title;
   }, [renderType, pageMetaTitle, siteData]);
 
-  // --- Render logic based on renderType ---
+  // --- Dynamic classes and styles for the wrapper ---
+  const wrapperClasses = [THEME_WRAPPER_CLASS];
+  const wrapperStyles: React.CSSProperties = {};
+
+  if (siteData?.config) {
+    if (siteData.config.theme === 'dark') wrapperClasses.push('theme-dark');
+    else if (siteData.config.theme === 'auto') wrapperClasses.push('theme-auto');
+    else wrapperClasses.push('theme-light');
+
+    if (siteData.config.font_family === 'serif') {
+      wrapperClasses.push('font-serif');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-serif)';
+    } else if (siteData.config.font_family === 'monospace') {
+      wrapperClasses.push('font-mono');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-mono)';
+    } else {
+      wrapperClasses.push('font-sans');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-sans)';
+    }
+    if (siteData.config.primary_color) {
+      wrapperStyles['--primary-color'] = siteData.config.primary_color;
+    }
+  }
+  
+  // --- Render logic ---
   if (renderType === PageRenderType.Loading) { /* ... loading UI ... */ }
-  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
   if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) { /* ... error/not found UI ... */ }
-  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) { /* ... single page render UI ... */ }
-  if (renderType === PageRenderType.CollectionListingDisplay) { /* ... collection listing render UI ... */ }
-  
-  // Re-add full render blocks for brevity, they are similar to previous version
-  // Make sure to use `singlePageContentFile` for single page and `collectionItems` for listing.
 
-  if (renderType === PageRenderType.Loading) {
+  // Main content render
+  return (
+    <div 
+      className={cn(wrapperClasses)} 
+      style={wrapperStyles}
+      dangerouslySetInnerHTML={{ __html: pageHtmlContent }} // Inject the themed HTML string
+    />
+  );
+}
+
+// Helper to get SSG Nav Links (can be moved to a shared util if siteExporter also uses identical logic)
+// Ensure this logic matches what siteExporter.ts uses for getSsgNavLinks
+function getSsgNavLinks(siteData: LocalSiteData, siteRootPath: string): NavLinkItem[] {
+    const navLinks: NavLinkItem[] = [];
+    const homePath = siteRootPath.endsWith('/') ? siteRootPath : `${siteRootPath}/`;
+    navLinks.push({ href: homePath, label: "Home", iconName: "home", isActive: false });
+    const collections = new Map<string, {label: string}>();
+    const topLevelPages = new Map<string, ParsedMarkdownFileType>();
+
+    siteData.contentFiles.forEach(file => {
+        if (file.frontmatter.draft || file.frontmatter.status === 'draft') return;
+        const relativePath = file.path.replace(/^content\//i, '');
+        const pathParts = relativePath.split('/');
+        if (pathParts.length > 1 && pathParts[0].toLowerCase() !== 'index.md') {
+            const collectionSlug = pathParts[0];
+            if (!collections.has(collectionSlug)) {
+                const collectionConfig = siteData.config.collections?.find(c => c.path === collectionSlug);
+                collections.set(collectionSlug, {
+                    label: collectionConfig?.nav_label || collectionSlug.charAt(0).toUpperCase() + collectionSlug.slice(1)
+                });
+            }
+        } else if (pathParts.length === 1 && relativePath.toLowerCase() !== 'index.md') {
+            const slug = relativePath.replace(/\.md$/i, '');
+            topLevelPages.set(slug, file);
+        }
+    });
+    topLevelPages.forEach((file, slug) => {
+        navLinks.push({
+            href: `${siteRootPath}${slug}`.replace(/\/\//g, '/'), // Live preview links to slugs, not .html
+            label: file.frontmatter.title || slug, iconName: "file-text", isActive: false,
+        });
+    });
+    collections.forEach((collectionData, collectionSlug) => {
+        navLinks.push({
+            href: `${siteRootPath}${collectionSlug}`.replace(/\/\//g, '/'), // Live preview links to folder slugs
+            label: collectionData.label, iconName: "folder", isActive: false,
+        });
+    });
+    return navLinks.filter((link, index, self) => index === self.findIndex((l) => (l.href === link.href)));
+ }
+
+// Placed loading/error returns at the end of the component for clarity
+// These are fallback displays if the main return isn't reached due to these states.
+if (renderType === PageRenderType.Loading) {
     return ( <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[300px]"><p>Loading content...</p></div> );
-  }
-
-  if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
+}
+const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
+if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
     return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-destructive mb-4" /> <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1> <p className="text-muted-foreground max-w-md"> {errorMessage || "The requested content could not be loaded or found."} </p> <Button asChild variant="outline" className="mt-6"> <Link href={siteData ? siteHomeLinkForError : '/'}> {siteData ? 'Go to Site Home' : 'Go to Dashboard'} </Link> </Button> </div> </div> );
-  }
-
-  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) {
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <article className="prose dark:prose-invert lg:prose-xl max-w-none">
-          <header className="mb-8">
-              <h1 className="mb-2 text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
-              {singlePageContentFile.frontmatter.title || "Untitled Page"}
-              </h1>
-              {singlePageContentFile.frontmatter.date && (
-              <p className="text-base font-medium text-muted-foreground">
-                  Published on: {new Date(singlePageContentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-              </p>
-              )}
-          </header>
-          <MarkdownRenderer markdown={singlePageContentFile.content} />
-        </article>
-      </div>
-    );
-  }
-
-  if (renderType === PageRenderType.CollectionListingDisplay) {
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 pb-4 border-b">
-          <div className="flex items-center space-x-3">
-              <FolderOpen className="h-10 w-10 text-primary" /> {/* Consistent Icon */}
-              <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
-              {collectionDisplayTitle}
-              </h1>
-          </div>
-          {siteData?.config.title && ( // Ensure siteData exists
-            <p className="text-lg text-muted-foreground mt-2">
-              From site: <Link href={parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/'} className="hover:underline text-primary font-medium">{siteData.config.title}</Link>
-            </p>
-          )}
-        </div>
-
-        {collectionItems.length === 0 && (
-          <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg bg-card">
-            <ListChecks className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">No Items Found</h2>
-            <p className="text-muted-foreground">
-              {errorMessage || `There are no items in this collection.`}
-            </p>
-          </div>
-        )}
-
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {collectionItems.map((item) => {
-            // ... (item rendering - same as before) ...
-            const itemDate = item.frontmatter.date ? new Date(item.frontmatter.date) : null;
-            const isValidDate = itemDate && itemDate.getFullYear() > 1970;
-            return (
-              <article key={item.path} className="flex flex-col p-6 bg-card border border-border rounded-lg shadow-sm hover:shadow-lg transition-shadow">
-                <div className="flex-grow">
-                  <h2 className="text-xl font-semibold mb-2 leading-tight">
-                    <Link href={item.itemLink} className="hover:text-primary transition-colors">
-                      {item.frontmatter.title}
-                    </Link>
-                  </h2>
-                  {isValidDate && (
-                    <p className="text-xs text-muted-foreground mb-3 flex items-center">
-                      <CalendarDays className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                      {itemDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-4 leading-relaxed">
-                    {item.frontmatter.summary || item.content.substring(0, 180).replace(/#.*$/gm, '').replace(/[\*\`\[\]]/g, '').trim() + '...'}
-                  </p>
-                </div>
-                <div className="mt-auto">
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={item.itemLink}>
-                      View Item <ArrowRight className="h-4 w-4 ml-2" />
-                    </Link>
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  
-  return <div className="p-4 text-center">Unable to determine content type.</div>;
 }

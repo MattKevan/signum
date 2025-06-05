@@ -1,8 +1,10 @@
 // src/themes/default/templates.ts
-import type { SiteConfigFile, ParsedMarkdownFile, NavLinkItem } from '@/types'; // Correct import for NavLinkItem
+import type { SiteConfigFile, ParsedMarkdownFile, NavLinkItem } from '@/types';
 
-// Helper to escape HTML
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// ... (escapeHtml, renderHeader, renderFooter, renderArticle, renderCollectionList, renderCollectionItem)
+// Ensure these other functions don't expect siteConfig.style_hints if they used it before.
+// For example, renderHeader might have used primary_color from style_hints. Now it doesn't.
+
 function escapeHtml(unsafe: any): string {
   if (typeof unsafe !== 'string') {
     if (unsafe === null || unsafe === undefined) return '';
@@ -18,15 +20,14 @@ function escapeHtml(unsafe: any): string {
 
 export function renderHeader(siteConfig: SiteConfigFile, navLinks: NavLinkItem[], siteRootPath: string): string {
   const siteTitle = escapeHtml(siteConfig?.title || 'Signum Site');
-  
   const navItemsHtml = navLinks.map(link => `
-    <li class="${link.isActive ? 'active' : ''}">
-      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}">
+    <li class="${link.isActive ? 'active' : ''}" style="${link.isActive && siteConfig.primary_color ? `border-bottom-color: ${escapeHtml(siteConfig.primary_color)};` : '' /* Example usage */}">
+      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}" style="${siteConfig.primary_color ? `color: var(--nav-link-color, ${escapeHtml(siteConfig.primary_color)});` : ''}">
         ${link.iconName ? `<!-- Icon: ${escapeHtml(link.iconName)} -->` : ''}
         <span>${escapeHtml(link.label)}</span>
       </a>
     </li>
-  `).join(''); // Corrected line ending
+  `).join('');
 
   return `
     <header class="site-header">
@@ -57,62 +58,54 @@ export function renderFooter(siteConfig: SiteConfigFile): string {
   `;
 }
 
+
 export function renderPageLayout(
   siteConfig: SiteConfigFile,
-  contentHtml: string,
+  fullBodyContentHtml: string, 
   pageTitle: string,
-  // For SSG, navLinks and siteRootPath would be passed if header is embedded here.
-  // For now, keeping it simpler: SSG will call renderHeader/renderFooter separately.
 ): string {
   const siteTitle = escapeHtml(siteConfig?.title || 'Signum Site');
   const effectivePageTitle = pageTitle ? `${escapeHtml(pageTitle)} | ${siteTitle}` : siteTitle;
 
-  // Applying style hints via inline styles or classes for the exported HTML
   let htmlClass = '';
-  if (siteConfig.style_hints?.theme === 'dark') htmlClass = 'theme-dark'; // Example class
-  if (siteConfig.style_hints?.theme === 'auto') htmlClass = 'theme-auto';
+  if (siteConfig.theme === 'dark') htmlClass = 'theme-dark'; // Access directly
+  if (siteConfig.theme === 'auto') htmlClass = 'theme-auto';
 
   let htmlStyle = '';
-  if (siteConfig.style_hints?.font_family) {
-    htmlStyle += `font-family: ${siteConfig.style_hints.font_family};`;
+  if (siteConfig.font_family) { // Access directly
+    htmlStyle += `font-family: "${siteConfig.font_family.replace(/"/g, '\\"')}";`;
   }
-  if (siteConfig.style_hints?.primary_color) {
-    // This sets a CSS variable that style.css can use
-    htmlStyle += `--primary-color: ${escapeHtml(siteConfig.style_hints.primary_color)};`;
+  if (siteConfig.primary_color) { // Access directly
+    htmlStyle += `--primary-color: ${escapeHtml(siteConfig.primary_color)};`;
   }
-
 
   return `
-    <!DOCTYPE html>
-    <html lang="en"${htmlClass ? ` class="${htmlClass}"` : ''}${htmlStyle ? ` style="${htmlStyle}"` : ''}>
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>${effectivePageTitle}</title>
-      <meta name="description" content="${escapeHtml(siteConfig.description || '')}">
-      ${siteConfig.author ? `<meta name="author" content="${escapeHtml(siteConfig.author)}">` : ''}
-      <link rel="stylesheet" href="/css/style.css">
-    </head>
-    <body>
-      <div class="site-container">
-        {/* In SSG, call renderHeader and renderFooter here with appropriate data */}
-        <main class="site-content">
-          ${contentHtml}
-        </main>
-      </div>
-      <script src="/js/scripts.js"></script>
-    </body>
-    </html>
+<!DOCTYPE html>
+<html lang="en"${htmlClass ? ` class="${htmlClass}"` : ''}${htmlStyle ? ` style="${htmlStyle}"` : ''}>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${effectivePageTitle}</title>
+  <meta name="description" content="${escapeHtml(siteConfig.description || '')}">
+  ${siteConfig.author ? `<meta name="author" content="${escapeHtml(siteConfig.author)}">` : ''}
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="site-container">
+    ${fullBodyContentHtml}
+  </div>
+  <script src="/js/scripts.js"></script>
+</body>
+</html>
   `;
 }
-// ... (renderArticle, renderCollectionItem, renderCollectionList remain the same as previous correct version)
-export function renderArticle(fileData: ParsedMarkdownFile, siteConfig: SiteConfigFile): string {
+
+export function renderArticle(fileData: ParsedMarkdownFile): string {
   const title = escapeHtml(fileData.frontmatter.title || 'Untitled Page');
   const date = fileData.frontmatter.date 
     ? new Date(fileData.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) 
     : '';
   const bodyHtmlPlaceholder = `<!-- SSG would render markdown body here: ${escapeHtml(fileData.content.substring(0,50))}... -->`;
-
 
   return `
     <article class="post">
@@ -136,7 +129,7 @@ interface CollectionListItemForTemplate extends Omit<ParsedMarkdownFile, 'frontm
   itemLink: string;
 }
 
-export function renderCollectionItem(item: CollectionListItemForTemplate, siteConfig: SiteConfigFile): string {
+export function renderCollectionItem(item: CollectionListItemForTemplate): string {
   const title = escapeHtml(item.frontmatter.title || 'Untitled Item');
   const date = item.frontmatter.date 
     ? new Date(item.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
@@ -158,9 +151,9 @@ export function renderCollectionItem(item: CollectionListItemForTemplate, siteCo
 export function renderCollectionList(
   collectionTitle: string, 
   items: CollectionListItemForTemplate[], 
-  siteConfig: SiteConfigFile
+  siteConfig: SiteConfigFile 
 ): string {
-  const itemsHtml = items.map(item => renderCollectionItem(item, siteConfig)).join('');
+  const itemsHtml = items.map(item => renderCollectionItem(item)).join('');
 
   return `
     <section class="collection">

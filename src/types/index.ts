@@ -4,11 +4,11 @@ export interface SiteConfigFile {
   title: string;
   description: string;
   author?: string;
-  style_hints?: {
-    font_family?: 'serif' | 'sans-serif' | 'monospace';
-    theme?: 'light' | 'dark' | 'auto';
-    primary_color?: string;
-  };
+  // Style hints are now top-level optional properties
+  font_family?: 'serif' | 'sans-serif' | 'monospace';
+  theme?: 'light' | 'dark' | 'auto';
+  primary_color?: string; // Hex color string e.g., #RRGGBB
+
   collections?: Array<{
     path: string;
     nav_label?: string;
@@ -50,12 +50,10 @@ export interface AppState {
   getSiteById: (siteId: string) => LocalSiteData | undefined;
 }
 
-// Moved NavLinkItem here
 export interface NavLinkItem {
   href: string;
   label: string;
-  iconName?: string; // For JS templates, icon component passed directly in React components
+  iconName?: string;
   isActive?: boolean;
-  // For React components, we might still pass the Lucide icon component directly
   iconComponent?: React.ElementType;
 }

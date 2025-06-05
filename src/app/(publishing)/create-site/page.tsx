@@ -8,17 +8,21 @@ import { SiteConfigFile, LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter 
 import SiteConfigForm from '@/components/publishing/SiteConfigForm';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
-import { toast } from "sonner"; // For notifications
+import { toast } from "sonner";
 
 export default function CreateSitePage() {
   const router = useRouter();
-  const addSite = useAppStore((state) => state.addSite); // Get specific action
+  const addSite = useAppStore((state) => state.addSite);
 
   const [siteConfig, setSiteConfig] = useState<SiteConfigFile>({
     title: '',
     description: '',
-    // Initialize other optional fields if necessary
-    // style_hints: { font_family: 'sans-serif', theme: 'light' },
+    author: '',
+    // Initialize new style properties with defaults
+    font_family: 'sans-serif',
+    theme: 'light',
+    primary_color: '#007AFF',
+    collections: [],
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -34,33 +38,35 @@ export default function CreateSitePage() {
     setIsLoading(true);
 
     const newSiteId = generateSiteId(siteConfig.title);
-
-    // Create a default index.md
     const defaultIndexFrontmatter: MarkdownFrontmatter = { title: 'Welcome' };
     const defaultIndexBody = `# Welcome to ${siteConfig.title}\n\nThis is your new site's homepage. Start editing!`;
     
     const defaultIndexFile: ParsedMarkdownFile = {
-        slug: 'index', // slug derived from filename (index.md)
+        slug: 'index',
         path: 'content/index.md',
         frontmatter: defaultIndexFrontmatter,
         content: defaultIndexBody,
     };
 
+    // Construct the config for newSiteData using the spread of siteConfig from state
+    // This ensures all fields, including the new top-level style fields, are included.
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
-      config: { // Ensure all required fields from SiteConfigFile are present
-        title: siteConfig.title.trim(),
-        description: siteConfig.description.trim(),
+      config: {
+        ...siteConfig, // Spread all current form values
+        title: siteConfig.title.trim(), // Ensure title is trimmed
+        description: siteConfig.description.trim(), // Ensure description is trimmed
         author: siteConfig.author?.trim() || '', // Handle optional author
-        style_hints: siteConfig.style_hints || {}, // Ensure style_hints is an object
+        // Ensure collections is an array if not set by form for some reason
+        collections: siteConfig.collections || [], 
       },
       contentFiles: [defaultIndexFile],
     };
 
     try {
-      await addSite(newSiteData); // This action in store now calls localSiteFs.saveSite
+      await addSite(newSiteData);
       toast.success(`Site "${siteConfig.title}" created locally!`);
-      router.push(`/edit/${newSiteId}`); // Navigate to the editor for the new site
+      router.push(`/edit/${newSiteId}/config`);
     } catch (error) {
       console.error("Error creating site:", error);
       toast.error("Failed to create site. Please try again.");

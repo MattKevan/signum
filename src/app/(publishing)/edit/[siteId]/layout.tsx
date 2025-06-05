@@ -5,11 +5,13 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { Settings, Eye, Home, PlusCircle, FolderPlus } from 'lucide-react'; // Added FolderPlus
+import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud } from 'lucide-react'; // Using UploadCloud for Publish
 import { buildFileTree, type TreeNode, isValidName } from '@/lib/fileTreeUtils'; 
 import FileTree from '@/components/publishing/FileTree';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
+import { exportSiteToZip } from '@/lib/siteExporter'; // Re-import for Zip export
+import { slugify } from '@/lib/utils'; // For default filename
 
 const NEW_FILE_SLUG_MARKER = '_new';
 
@@ -20,11 +22,10 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const siteId = params.siteId as string;
 
   const site = useAppStore((state) => state.getSiteById(siteId));
+  const [isPublishing, setIsPublishing] = useState(false); // For the Publish button
 
   const fileTreeNodes = useMemo(() => {
     if (site?.contentFiles) {
-      // Pass the full site.contentFiles array to buildFileTree
-      // buildFileTree will internally use frontmatter.title for node names
       return buildFileTree(site.contentFiles); 
     }
     return [];
@@ -33,7 +34,14 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
 
   useEffect(() => {
-    // ... (useEffect for currentOpenFile remains the same as previous correct version)
+    const isConfigPage = pathname === `/edit/${siteId}/config`;
+    const isEditorRootPage = pathname === `/edit/${siteId}`; // This will redirect, but good to handle
+
+    if (isConfigPage || isEditorRootPage) {
+        setCurrentOpenFile(undefined); // No file selected on config or root editor page
+        return;
+    }
+
     const pathSegments = pathname.split('/content/');
     if (pathSegments.length > 1) {
         const filePathPart = pathSegments[1]; 
@@ -61,10 +69,8 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
                 setCurrentOpenFile(undefined);
              }
         }
-    } else if (pathname === `/edit/${siteId}`) {
-        setCurrentOpenFile(undefined); 
     } else {
-        setCurrentOpenFile(undefined);
+        setCurrentOpenFile(undefined); // Not a content editing page
     }
   }, [pathname, siteId, site?.contentFiles]);
 
@@ -74,17 +80,47 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     router.push(newFileRoute.replace(/\/\//g, '/'));
   };
   
-  const handleCreateNewFolderInPath = async (parentPath: string = 'content') => { // Renamed for clarity
+  const handleCreateNewFolderInPath = async (parentPath: string = 'content') => {
     const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
     if (!folderName || !isValidName(folderName)) {
-        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
+        if(folderName !== null) toast.error("Invalid folder name.");
         return;
     }
-    toast.info(`Folder "${folderName}" is ready. Use "New Content File" (e.g., from the File Tree actions for this folder) to create files within this path.`);
-    // To make the new folder appear visually without a page reload,
-    // we would need to update the 'site.contentFiles' in the Zustand store
-    // with a conceptual marker or an empty .keep file, then have FileTree re-render.
-    // For now, this is a UX hint; the folder physically exists when a file is saved into it.
+    toast.info(`Folder "${folderName}" is ready. Use "New Content File" to create files within this path.`);
+  };
+
+  const handlePublishSite = async () => {
+    if (!site) {
+      toast.error("Site data not found. Cannot publish.");
+      return;
+    }
+
+    // Later, read site.config.publishingTarget or similar
+    const publishingTarget = 'zip'; // Default to zip for now
+
+    setIsPublishing(true);
+    
+    if (publishingTarget === 'zip') {
+      toast.info("Generating site bundle for download...");
+      try {
+        const blob = await exportSiteToZip(site);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${slugify(site.config.title || 'signum-site')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+        toast.success("Site bundle downloaded!");
+      } catch (error) {
+        console.error("Error publishing site to Zip:", error);
+        toast.error(`Failed to generate Zip: ${(error as Error).message}`);
+      }
+    } else {
+      // Handle other targets like Netlify, Signum Hosting
+      toast.warn(`Publishing to "${publishingTarget}" is not yet implemented.`);
+    }
+    setIsPublishing(false);
   };
 
   if (!site) {
@@ -95,6 +131,8 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </div>
     );
   }
+
+  const isSiteConfigPageActive = pathname === `/edit/${siteId}/config`;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -107,15 +145,15 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </div>
 
         <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}`}>
+          <Button variant="ghost" asChild className={`justify-start ${isSiteConfigPageActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/config`}> {/* Updated Link */}
               <Settings className="mr-2 h-4 w-4" /> Site Config
             </Link>
           </Button>
            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
               <PlusCircle className="mr-2 h-4 w-4" /> New Content File
             </Button>
-            <Button variant="ghost" onClick={() => handleCreateNewFolderInPath('content')} className="justify-start"> {/* New Folder in Root */}
+            <Button variant="ghost" onClick={() => handleCreateNewFolderInPath('content')} className="justify-start">
               <FolderPlus className="mr-2 h-4 w-4" /> New Root Folder
             </Button>
         </nav>
@@ -130,11 +168,20 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             baseEditPath={`/edit/${siteId}/content`}
             currentOpenFile={currentOpenFile}
             onFileCreate={handleNavigateToNewFile} 
-            onFolderCreate={handleCreateNewFolderInPath} // Use the renamed handler
+            onFolderCreate={handleCreateNewFolderInPath}
           />
         </div>
 
         <div className="mt-auto space-y-2 pt-4 border-t shrink-0">
+            <Button 
+              variant="default" 
+              onClick={handlePublishSite} 
+              disabled={isPublishing}
+              className="w-full justify-start"
+            >
+              <UploadCloud className="mr-2 h-4 w-4" /> 
+              {isPublishing ? 'Publishing...' : 'Publish Site'}
+            </Button>
             <Button variant="outline" asChild className="w-full justify-start">
                 <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
                     <Eye className="mr-2 h-4 w-4" /> View Site (Live)
@@ -147,7 +194,7 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-6">
         {children}
       </div>
     </div>
