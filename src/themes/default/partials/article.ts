@@ -12,14 +12,14 @@ export function renderArticleContent(fileData: ParsedMarkdownFile): string {
 
   // The .prose class will provide Tailwind-like typography for elements within.
   return `
-<article class="post prose"> {/* Added .prose class here */}
-  <header class="post-header"> {/* Specific styling for post headers in theme.css */}
-    <h1>${title}</h1> {/* Will be styled by .prose h1 */}
+<article class="post prose"> <!-- Added .prose class here -->
+  <header class="post-header"> <!-- Specific styling for post headers in theme.css -->
+    <h1>${title}</h1> <!-- Will be styled by .prose h1 -->
     ${date ? `<p class="post-date">${date}</p>` : ''}
     ${fileData.frontmatter.summary ? `<p class="post-summary">${escapeHtml(fileData.frontmatter.summary)}</p>` : ''}
   </header>
-  <div class="post-content"> {/* This div is mostly for semantic grouping if needed */}
-    ${markdownBodyHtml} {/* Markdown elements (p, ul, etc.) will be styled by .prose */}
+  <div class="post-content"> <!-- This div is mostly for semantic grouping if needed -->
+    ${markdownBodyHtml} <!-- Markdown elements (p, ul, etc.) will be styled by .prose -->
   </div>
 </article>
   `;

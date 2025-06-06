@@ -1,7 +1,7 @@
 // src/lib/localSiteFs.ts
 import { LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types';
-import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
-import yaml from 'js-yaml';
+import { parseMarkdownString } from './markdownParser';
+//import yaml from 'js-yaml';
 
 
 const LOCAL_STORAGE_KEY = 'signum-sites-data';

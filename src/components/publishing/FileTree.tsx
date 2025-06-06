@@ -1,150 +1,111 @@
 // src/components/publishing/FileTree.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { type TreeNode } from '@/lib/fileTreeUtils';
-import { ChevronRight, Folder, FileText as FileTextIcon, FolderOpen, PlusSquare, FolderPlus as FolderPlusIcon } from 'lucide-react';
+import { Folder, FileText as FileTextIcon, PlusSquare, GripVertical, ChevronRight, FolderGit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-// import { useRouter } from 'next/navigation'; // Can be used if needed
+import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
+import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface FileTreeProps {
   nodes: TreeNode[];
   baseEditPath: string;
-  currentOpenFile?: string;
-  onNodeClick?: (node: TreeNode) => void;
+  activePath?: string;
   onFileCreate: (parentPath: string) => void;
-  onFolderCreate: (parentPath: string) => void;
+  onStructureChange: (nodes: TreeNode[]) => void;
 }
 
-interface FileTreeNodeProps {
+interface FileTreeNodeProps extends FileTreeProps {
   node: TreeNode;
-  baseEditPath: string;
-  currentOpenFile?: string;
-  onNodeClick?: (node: TreeNode) => void;
-  onFileCreate: (parentPath: string) => void;
-  onFolderCreate: (parentPath: string) => void;
-  level: number;
 }
 
-const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({ 
-    node, baseEditPath, currentOpenFile, onNodeClick, onFileCreate, onFolderCreate, level 
-}) => {
-  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); 
-  // const router = useRouter(); // Use if direct navigation is needed beyond Link
+const SortableNode: React.FC<FileTreeNodeProps> = ({ node, nodes, baseEditPath, activePath, onFileCreate, onStructureChange }) => {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: node.id });
+    const [isOpen, setIsOpen] = useState(true);
+    
+    const style = { transform: CSS.Transform.toString(transform), transition };
 
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (node.type === 'folder') {
-      setIsOpen(!isOpen);
-    }
-  };
+    const isFolderType = node.type === 'folder' || node.type === 'collection';
 
-  const NodeIcon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileTextIcon;
-  const indent = level * 16;
+    const href = node.type === 'collection'
+        ? `${baseEditPath}/collection/${node.path.replace('content/', '')}`
+        : node.type === 'file'
+        ? `${baseEditPath}/content/${node.path.replace('content/', '').replace('.md', '')}`
+        : '#';
 
-  const editSlugOrPathSegment = node.path.startsWith('content/') 
-    ? node.path.substring('content/'.length) 
-    : node.path;
-  
-  const finalEditSlug = node.type === 'file' 
-    ? editSlugOrPathSegment.replace(/\.md$/, '') 
-    : editSlugOrPathSegment; // For folders, this is the path segment
+    const isSelected = activePath === node.path || (isFolderType && activePath?.startsWith(node.path));
 
-  const editHref = `${baseEditPath}/${finalEditSlug}`;
+    const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'folder' ? FolderGit2 : FileTextIcon);
 
-  const isSelected = node.type === 'file' && node.path === currentOpenFile;
+    return (
+        <div ref={setNodeRef} style={style} className="flex flex-col">
+            <div className="flex items-center group w-full">
+                <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none">
+                    <GripVertical className="h-4 w-4 text-muted-foreground/50" />
+                </div>
+                <div className={cn("flex-grow flex items-center py-1.5 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
+                    {isFolderType && (
+                        <ChevronRight className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90", !node.children?.length && "invisible")} onClick={() => setIsOpen(!isOpen)} />
+                    )}
+                    <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-amber-500' : 'text-sky-500', !isFolderType && 'ml-5')} />
+                    
+                    <Link href={href} className="truncate flex-grow mx-1.5" title={node.name} onClick={(e) => { if (href === '#') e.preventDefault() }}>
+                        {node.name}
+                    </Link>
 
-  // Removed unused handleNodeClickInternal
-
-  return (
-    <div className="text-sm">
-      <div
-        className={cn(
-            "flex items-center py-1.5 pr-1 rounded-md hover:bg-muted group relative",
-            isSelected && "bg-accent text-accent-foreground hover:bg-accent/90"
-        )}
-        style={{ paddingLeft: `${indent}px` }}
-      >
-        {node.type === 'folder' && (
-          <ChevronRight
-            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90")}
-            onClick={handleToggle}
-          />
-        )}
-        {!node.type && <div className="w-5 shrink-0"></div>} {/* Adjusted for alignment */}
-        
-        <NodeIcon className={cn("h-4 w-4 mr-1.5 shrink-0", node.type === 'folder' ? 'text-amber-500' : 'text-sky-500')} />
-        
-        <Link href={editHref} className="truncate flex-grow" title={node.name}>
-            {node.name}
-        </Link>
-
-        <div className="ml-auto hidden group-hover:flex items-center gap-0.5 absolute right-1 top-1/2 -translate-y-1/2 bg-muted p-0.5 rounded shadow-sm">
-            {node.type === 'folder' && (
-                <>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
-                        <PlusSquare className="h-3.5 w-3.5" />
-                    </Button>
-                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
-                        <FolderPlusIcon className="h-3.5 w-3.5" />
-                    </Button>
-                </>
+                    <div className="ml-auto hidden group-hover:flex items-center gap-0.5 absolute right-1 top-1/2 -translate-y-1/2 bg-muted p-0.5 rounded shadow-sm">
+                        {isFolderType && (
+                            <Button variant="ghost" size="icon" className="h-6 w-6" title="New File" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
+                                <PlusSquare className="h-3.5 w-3.5" />
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </div>
+            {isFolderType && isOpen && node.children && node.children.length > 0 && (
+                <div className="pl-6">
+                    <FileTree nodes={node.children} baseEditPath={baseEditPath} activePath={activePath} onFileCreate={onFileCreate} onStructureChange={(newChildren) => {
+                        const newParentNode = { ...node, children: newChildren };
+                        const newNodes = nodes.map(n => n.id === node.id ? newParentNode : n);
+                        onStructureChange(newNodes);
+                    }} />
+                </div>
             )}
-            {/* Example for file actions (e.g., delete)
-            {node.type === 'file' && (
-                <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete File" onClick={(e) => { e.stopPropagation(); console.log('delete file:', node.path); }}>
-                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
-                </Button>
-            )}
-            */}
         </div>
-      </div>
-      {node.type === 'folder' && isOpen && node.children && node.children.length > 0 && (
-        <div className="pl-0">
-          {node.children.map(childNode => (
-            <FileOrFolderNode 
-                key={childNode.id} 
-                node={childNode} 
-                baseEditPath={baseEditPath}
-                currentOpenFile={currentOpenFile}
-                onNodeClick={onNodeClick}
-                onFileCreate={onFileCreate}
-                onFolderCreate={onFolderCreate}
-                level={level + 1}
-            />
-          ))}
-        </div>
-      )}
-      {node.type === 'folder' && isOpen && (!node.children || node.children.length === 0) && (
-        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16 + 4}px` }}> {/* Adjusted padding */}
-            (empty)
-        </div>
-      )}
-    </div>
-  );
+    );
 };
 
-export default function FileTree({ nodes, baseEditPath, currentOpenFile, onFileCreate, onFolderCreate, onNodeClick }: FileTreeProps) {
+export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate, onStructureChange }: FileTreeProps) {
+  const nodeIds = useMemo(() => nodes.map(n => n.id), [nodes]);
+
   if (!nodes || nodes.length === 0) {
     return <p className="p-2 text-sm text-muted-foreground">(No content files yet)</p>;
   }
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (over && active.id !== over.id) {
+        const oldIndex = nodeIds.indexOf(active.id as string);
+        const newIndex = nodeIds.indexOf(over.id as string);
+        if (oldIndex !== -1 && newIndex !== -1) {
+            onStructureChange(arrayMove(nodes, oldIndex, newIndex));
+        }
+    }
+  };
+
   return (
-    <div className="space-y-0.5">
-      {nodes.map(node => (
-        <FileOrFolderNode 
-            key={node.id} 
-            node={node} 
-            baseEditPath={baseEditPath}
-            currentOpenFile={currentOpenFile}
-            onNodeClick={onNodeClick}
-            onFileCreate={onFileCreate}
-            onFolderCreate={onFolderCreate}
-            level={0} 
-        />
-      ))}
-    </div>
+    <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        <SortableContext items={nodeIds} strategy={verticalListSortingStrategy}>
+            <div className="space-y-0.5">
+                {nodes.map(node => (
+                    <SortableNode key={node.id} node={node} nodes={nodes} baseEditPath={baseEditPath} activePath={activePath} onFileCreate={onFileCreate} onStructureChange={onStructureChange} />
+                ))}
+            </div>
+        </SortableContext>
+    </DndContext>
   );
 }

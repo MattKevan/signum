@@ -1,22 +1,15 @@
 // src/lib/remoteSiteFetcher.ts
-import { LocalSiteData, ParsedMarkdownFile, SiteConfigFile, MarkdownFrontmatter } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, SiteConfigFile, Manifest } from '@/types';
 import { parseMarkdownString } from './markdownParser';
-import yaml from 'js-yaml';
 
-interface RemoteManifestFileEntry {
-  path: string;
-  lastUpdated?: string;
-}
-
-export interface RemoteManifest {
-  siteId: string; // Should be present in a well-formed manifest
-  title?: string;
-  description?: string;
-  lastUpdated?: string;
-  files: RemoteManifestFileEntry[]; // Must be present
-  rssFeedUrl?: string;
-}
-
+/**
+ * Fetches the text content of a single file from a remote server.
+ * This is a low-level helper for fetching manifest, content, etc.
+ * @param baseUrl The base URL of the remote site (e.g., "http://example.com").
+ * @param filePath The path to the file relative to the base URL (e.g., "_signum/manifest.json").
+ * @returns A Promise that resolves to the text content of the file.
+ * @throws An error if the network request fails or the server returns a non-2xx status.
+ */
 async function fetchRemoteFile(baseUrl: string, filePath: string): Promise<string> {
   const cleanBaseUrl = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
   const cleanFilePath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
@@ -35,12 +28,19 @@ async function fetchRemoteFile(baseUrl: string, filePath: string): Promise<strin
     const textContent = await response.text();
     console.log(`[RFS] SUCCESS fetch ${url}. Length: ${textContent.length}`);
     return textContent;
-  } catch (networkError) { // Catches fetch() itself failing (e.g., DNS, network down, CORS not properly resolved by browser)
+  } catch (networkError) {
     console.error(`[RFS] NETWORK ERROR fetching ${url}:`, networkError);
-    throw networkError; // Re-throw to be caught by fetchRemoteSiteData
+    throw networkError;
   }
 }
 
+/**
+ * Fetches and reconstructs an entire remote Signum site into the LocalSiteData format.
+ * It starts by fetching the manifest, then fetches all content files listed within it.
+ * This is the primary function for viewing a remote site within the Signum client.
+ * @param remoteSiteUrl The base URL of the remote Signum site.
+ * @returns A Promise that resolves to a complete LocalSiteData object, or null if fetching fails.
+ */
 export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalSiteData | null> {
   console.log(`[RFS] >>> Starting fetchRemoteSiteData for URL: ${remoteSiteUrl}`);
   if (!remoteSiteUrl || !remoteSiteUrl.startsWith('http')) {
@@ -49,10 +49,10 @@ export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalS
   }
 
   try {
-    // 1. Fetch manifest.json
+    // 1. Fetch manifest.json. This is now the single entry point for site metadata.
     console.log(`[RFS] Fetching manifest.json...`);
-    const manifestString = await fetchRemoteFile(remoteSiteUrl, 'manifest.json');
-    let manifest: RemoteManifest;
+    const manifestString = await fetchRemoteFile(remoteSiteUrl, '_signum/manifest.json');
+    let manifest: Manifest;
     try {
       manifest = JSON.parse(manifestString);
       console.log(`[RFS] Parsed manifest:`, JSON.stringify(manifest, null, 2).substring(0, 500) + "...");
@@ -61,47 +61,34 @@ export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalS
       return null;
     }
 
-    if (!manifest || !manifest.files || !Array.isArray(manifest.files) || !manifest.siteId) {
-        console.error("[RFS] Invalid manifest structure: 'files' array or 'siteId' is missing or invalid.", manifest);
+    if (!manifest || !manifest.config || !manifest.entries || !Array.isArray(manifest.entries) || !manifest.siteId) {
+        console.error("[RFS] Invalid manifest structure: 'config', 'entries' array, or 'siteId' is missing or invalid.", manifest);
         return null;
     }
 
-    let siteConfig: SiteConfigFile = {
-      title: manifest.title || new URL(remoteSiteUrl).hostname || 'Remote Site',
-      description: manifest.description || '',
-      author: '', 
-      style_hints: {}, 
-    };
-    console.log(`[RFS] Initial siteConfig from manifest title/desc.`);
-
-    // 2. Attempt to fetch site.yaml
-    const siteYamlEntry = manifest.files.find(f => f.path === 'site.yaml' || f.path === '/site.yaml');
-    if (siteYamlEntry) {
-      console.log(`[RFS] Found site.yaml in manifest. Fetching: ${siteYamlEntry.path}`);
-      try {
-        const siteYamlString = await fetchRemoteFile(remoteSiteUrl, siteYamlEntry.path);
-        const parsedConfig = yaml.load(siteYamlString) as SiteConfigFile;
-        siteConfig = { ...siteConfig, ...parsedConfig, title: parsedConfig.title || siteConfig.title }; // Prioritize site.yaml title
-        console.log(`[RFS] Merged siteConfig with site.yaml:`, siteConfig);
-      } catch (yamlError) {
-        console.warn(`[RFS] Could not fetch or parse remote site.yaml:`, yamlError);
-      }
-    } else {
-        console.log(`[RFS] site.yaml not found in manifest files.`);
+    // 2. Get site config directly from the manifest. No need to fetch site.yaml anymore.
+    const siteConfig: SiteConfigFile = manifest.config;
+    // Fallback for title if it's missing in the config from the manifest.
+    if (!siteConfig.title) {
+      siteConfig.title = new URL(remoteSiteUrl).hostname || 'Remote Site';
     }
+    console.log(`[RFS] Loaded siteConfig from manifest:`, siteConfig);
     
-    // 3. Fetch all content files listed in the manifest
-    const contentFilesPromises: Promise<ParsedMarkdownFile | null>[] = manifest.files
-      .filter(fileEntry => fileEntry.path && fileEntry.path.startsWith('content/') && fileEntry.path.endsWith('.md'))
-      .map(async (fileEntry) => {
-        console.log(`[RFS] Processing MD file from manifest: ${fileEntry.path}`);
+    // 3. Fetch all content files listed in the manifest's 'entries' array.
+    const contentFilesPromises: Promise<ParsedMarkdownFile | null>[] = manifest.entries
+      .filter(entry => entry.sourcePath && entry.sourcePath.startsWith('_signum/content/') && entry.sourcePath.endsWith('.md'))
+      .map(async (entry) => {
+        // The sourcePath is like `_signum/content/about.md`.
+        // The file to fetch on the server is at the root, e.g., `http://site.com/content/about.md`.
+        const filePathToFetch = entry.sourcePath.replace(/^_signum\//, '');
+        console.log(`[RFS] Processing MD file from manifest entry: ${filePathToFetch}`);
         try {
-          const rawMarkdown = await fetchRemoteFile(remoteSiteUrl, fileEntry.path);
+          const rawMarkdown = await fetchRemoteFile(remoteSiteUrl, filePathToFetch);
           const { frontmatter, content } = parseMarkdownString(rawMarkdown);
-          const slug = fileEntry.path.substring(fileEntry.path.lastIndexOf('/') + 1).replace('.md', '');
-          return { slug, path: fileEntry.path, frontmatter, content };
+          // The path for LocalSiteData should be the path relative to the content root, e.g., 'content/about.md'.
+          return { slug: entry.slug, path: filePathToFetch, frontmatter, content };
         } catch (mdError) {
-          console.warn(`[RFS] FAILED to fetch or parse MD file ${fileEntry.path}:`, mdError);
+          console.warn(`[RFS] FAILED to fetch or parse MD file ${filePathToFetch}:`, mdError);
           return null;
         }
       });
@@ -110,14 +97,11 @@ export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalS
     const validContentFiles = resolvedContentFiles.filter(file => file !== null) as ParsedMarkdownFile[];
     console.log(`[RFS] Fetched and parsed ${validContentFiles.length} content files.`);
 
-    // If no index.md, this site is essentially unloadable for browsing
     if (!validContentFiles.some(f => f.path === 'content/index.md')) {
         console.warn(`[RFS] No 'content/index.md' found in remote site bundle. Site might be incomplete.`);
-        // Depending on requirements, you might return null here or an empty site.
-        // For now, we proceed, but the page component will likely 404 on index.
     }
     
-    const appSpecificSiteId = `remote-${manifest.siteId}`; // Use siteId from manifest for app's internal tracking
+    const appSpecificSiteId = `remote-${manifest.siteId}`; // Use siteId from manifest for app's internal tracking.
 
     const finalSiteData: LocalSiteData = {
       siteId: appSpecificSiteId,
@@ -127,7 +111,7 @@ export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalS
     console.log(`[RFS] <<< Successfully constructed remote site data for ${appSpecificSiteId}`);
     return finalSiteData;
 
-  } catch (error) { // This catches errors from fetchRemoteFile or JSON.parse(manifestString)
+  } catch (error) {
     console.error(`[RFS] <<< CRITICAL ERROR in fetchRemoteSiteData for ${remoteSiteUrl}:`, error);
     return null;
   }

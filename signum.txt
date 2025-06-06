@@ -11,64 +11,58 @@ export interface SiteConfigFile {
   title: string;
   description: string;
   author?: string;
-  style_hints?: {
-    font_family?: 'serif' | 'sans-serif' | 'monospace';
-    theme?: 'light' | 'dark' | 'auto';
-    primary_color?: string;
-  };
+  // Style hints are now top-level optional properties
+  font_family?: 'serif' | 'sans-serif' | 'monospace';
+  theme?: 'light' | 'dark' | 'auto';
+  primary_color?: string; // Hex color string e.g., #RRGGBB
+
+  collections?: Array<{
+    path: string;
+    nav_label?: string;
+    sort_by?: string;
+    sort_order?: 'asc' | 'desc';
+  }>;
 }
 
 export interface MarkdownFrontmatter {
   title: string;
-  date?: string; // ISO 8601
-  summary?: string; // Added for consistency with metadata
-  // Allow other custom frontmatter fields
-  // Example: ogImage?: string;
-  // Example: tags?: string[];
-  [key: string]: any; 
+  date?: string; // ISO 8601 (YYYY-MM-DD)
+  summary?: string;
+  tags?: string[];
+  status?: 'draft' | 'published';
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any; // For custom fields
 }
 
 export interface ParsedMarkdownFile {
-  slug: string; 
-  path: string; 
+  slug: string;
+  path: string;
   frontmatter: MarkdownFrontmatter;
-  content: string; // Raw Markdown content body
-  // htmlContent?: string; // Optional, rendered HTML (not currently used for primary rendering)
+  content: string;
 }
 
 export interface LocalSiteData {
-  siteId: string; 
+  siteId: string;
   config: SiteConfigFile;
   contentFiles: ParsedMarkdownFile[];
-  // Future:
-  // follows?: any[]; // Define type for follows
-  // blocks?: any[];  // Define type for blocks
-  // curations?: any[]; // Define type for curations
-  // likes?: any[]; // Define type for likes
 }
 
-// This is the interface for the Zustand store's state and actions
 export interface AppState {
   sites: LocalSiteData[];
-  addSite: (site: LocalSiteData) => Promise<void>; // Keep as Promise if it involves async FS operations
+  addSite: (site: LocalSiteData) => Promise<void>;
   updateSiteConfig: (siteId: string, config: SiteConfigFile) => Promise<void>;
-  
-  // REMOVE old methods:
-  // addContentFile: (siteId: string, file: ParsedMarkdownFile) => void; 
-  // updateContentFile: (siteId: string, filePath: string, newContent: string, newFrontmatter: MarkdownFrontmatter) => void;
-  
-  // ADD the new combined method signature that store will implement
-  // The store itself might have an implementation for addOrUpdateContentFile,
-  // but this AppState interface is what components would expect if they directly
-  // consumed a more generic "app state" object.
-  // For now, let's keep AppState lean and AppStore (in useAppStore.ts) will define its specific extended methods.
-  // OR, we make AppState match what AppStore provides:
-
   addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
   deleteSiteAndState: (siteId: string) => Promise<void>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
-
   getSiteById: (siteId: string) => LocalSiteData | undefined;
+}
+
+export interface NavLinkItem {
+  href: string;
+  label: string;
+  iconName?: string;
+  isActive?: boolean;
+  iconComponent?: React.ElementType;
 }
 
 ================================================================================
@@ -430,190 +424,233 @@ File: app/globals.css
 ================================================================================
 
 File: app/sites/[siteId]/layout.tsx
-// src/app/(publishing)/edit/[siteId]/layout.tsx
+// src/app/(browsing)/[siteId]/layout.tsx
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
+import { useParams, usePathname } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
+import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
+import type { LocalSiteData, ParsedMarkdownFile, NavLinkItem as NavLinkItemType } from '@/types'; // Use NavLinkItemType
+import { Home, ExternalLink, Menu, X, FileText as FileTextIcon, Columns as ColumnsIcon } from 'lucide-react'; // Aliased icons
 import { Button } from '@/components/ui/button';
-import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
-import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
-import FileTree from '@/components/publishing/FileTree';
-import { useEffect, useMemo, useState } from 'react';
-import { toast } from 'sonner';
-import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
-import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import { cn } from '@/lib/utils';
 
-export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
+// NavLinkItem is now imported from '@/types'
+
+export default function SiteBrowsingLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const params = useParams();
   const pathname = usePathname();
-  const router = useRouter();
-  const siteId = params.siteId as string;
 
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
+  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [parsedIdentifier, setParsedIdentifier] = useState<ParsedSiteIdentifier | null>(null);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
-  const fileTreeNodes = useMemo(() => {
-    if (site?.contentFiles) {
-      return buildFileTree(site.contentFiles);
-    }
-    return [];
-  }, [site?.contentFiles]);
-
-  const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
+  const siteIdParamValue = useMemo(() => params.siteId as string, [params.siteId]);
 
   useEffect(() => {
-    // Determine current open file from pathname
-    // Pathname: /edit/siteId/content/path/to/file
-    const pathSegments = pathname.split('/content/');
-    if (pathSegments.length > 1) {
-        const filePath = pathSegments[1];
-        if (filePath) {
-            setCurrentOpenFile(`content/${filePath}.md`);
-        } else {
-            // It might be the index file at a folder level, or site config page
-            // Check if it's the site config page
-            if (pathname === `/edit/${siteId}`) {
-                 setCurrentOpenFile(undefined); // No file selected for site config
-            } else {
-                // It's likely content/index.md or content/folder/index.md
-                const basePath = pathSegments[0] + '/content/';
-                const potentialIndexPath = pathname.substring(basePath.length);
-                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
-                    setCurrentOpenFile('content/index.md');
-                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
-                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
-                } else {
-                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
-                }
-            }
-        }
-    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
-        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
-    } else {
-        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
-    }
-  }, [pathname, siteId]);
+    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
 
-
-  const handleCreateNewFile = async (parentPath: string = 'content') => {
-    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
-    if (!rawFileName || !isValidName(rawFileName)) {
-      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
+    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
+      setParsedIdentifier(null); setIsLoading(false); setSiteData(null);
+      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote site URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID invalid.");
       return;
     }
-    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
-    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
+    setParsedIdentifier(localParsedResult);
 
-    // Check if file already exists
-    if (site?.contentFiles.some(f => f.path === newFilePath)) {
-        toast.error(`File "${newFilePath}" already exists.`);
-        return;
+    let mounted = true;
+    setIsLoading(true); setSiteData(undefined); setErrorMessage(null);
+
+    async function fetchLayoutData(validParsedResult: ParsedSiteIdentifier) {
+      let fetchedSiteData: LocalSiteData | null = null;
+      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
+        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
+        if (!fetchedSiteData && mounted) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
+      } else if (!validParsedResult.isRemote) {
+        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
+        if (!fetchedSiteData && mounted) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
+      }
+      if (!mounted) return;
+      setSiteData(fetchedSiteData);
+      setIsLoading(false);
     }
-
-    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
-    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
-    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
-
-    try {
-        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
-        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
-        // Navigate to the new file for editing
-        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
-        router.push(`/edit/${siteId}/content/${editSlug}`);
-    } catch (error) {
-        toast.error("Failed to create file.");
-        console.error("Error creating file:", error);
+    if (localParsedResult) {
+        fetchLayoutData(localParsedResult);
     }
-  };
-  
-  const handleCreateNewFolder = async (parentPath: string = 'content') => {
-    const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
-    if (!folderName || !isValidName(folderName)) {
-        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
-        return;
-    }
-    
-    // To "create" a folder, we'll create a placeholder .keep file in it,
-    // then immediately prompt to create a real file inside it.
-    // This is a common pattern if the system doesn't explicitly store empty folders.
-    // OR, simply adjust the UI to allow creating files under this new conceptual path.
-    // For now, let's make folder creation mean "create a new file inside this new folder path".
-    
-    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
-    
-    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
-    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
-  };
+    return () => { mounted = false; };
+  }, [siteIdParamValue]);
 
 
-  if (!site) {
-    return (
-        <div className="flex items-center justify-center h-screen">
-            <p>Loading site editor or site not found...</p>
-            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
-        </div>
-    );
-  }
+  const navLinks: NavLinkItemType[] = useMemo(() => {
+    if (!siteData?.contentFiles || !parsedIdentifier) return [];
+
+    const links: NavLinkItemType[] = [];
+    const topLevelPageSlugs = new Set<string>();
+    const folderInfo: Record<string, { count: number, files: ParsedMarkdownFile[], representativeFile?: ParsedMarkdownFile }> = {};
+
+    siteData.contentFiles.forEach(file => {
+      if (file.frontmatter.draft || file.frontmatter.status === 'draft') return;
+
+      const relativePath = file.path.replace(/^content\//, '');
+      const pathParts = relativePath.split('/');
+
+      if (pathParts.length === 1 && relativePath.endsWith('.md') && relativePath !== 'index.md') {
+        const slug = pathParts[0].replace(/\.md$/, '');
+        topLevelPageSlugs.add(slug);
+        if (!folderInfo[slug]) folderInfo[slug] = { count: 0, files: [] };
+        folderInfo[slug].files.push(file);
+        folderInfo[slug].representativeFile = file;
+      } else if (pathParts.length > 1 && pathParts[0] !== '') {
+        const folderSlug = pathParts[0];
+        if (!folderInfo[folderSlug]) {
+          folderInfo[folderSlug] = { count: 0, files: [] };
+        }
+        if (relativePath.endsWith('.md')) {
+            folderInfo[folderSlug].count++;
+            folderInfo[folderSlug].files.push(file);
+            if(relativePath === `${folderSlug}/index.md` || !folderInfo[folderSlug].representativeFile) {
+                folderInfo[folderSlug].representativeFile = file;
+            }
+        }
+      }
+    });
+
+    const homeHref = `/${parsedIdentifier.rawParam}`;
+    links.push({ href: homeHref, label: "Home", iconComponent: Home, isActive: pathname === homeHref || pathname === `${homeHref}/` });
+
+    topLevelPageSlugs.forEach(slug => {
+        if (folderInfo[slug] && folderInfo[slug].count === 0 && folderInfo[slug].representativeFile) { 
+            const fileForTitle = folderInfo[slug].representativeFile!;
+            const href = `/${parsedIdentifier.rawParam}/${slug}`;
+            links.push({
+                href,
+                label: fileForTitle.frontmatter.title || slug.charAt(0).toUpperCase() + slug.slice(1),
+                iconComponent: FileTextIcon,
+                isActive: pathname === href,
+            });
+        }
+    });
+    
+    Object.entries(folderInfo).forEach(([folderSlug, info]) => {
+      if (topLevelPageSlugs.has(folderSlug) && info.count === 0) return; 
+
+      if (info.count > 0 && info.representativeFile) { 
+        const href = `/${parsedIdentifier.rawParam}/${folderSlug}`;
+        let label = folderSlug.charAt(0).toUpperCase() + folderSlug.slice(1);
+        const indexFileInFolder = info.files.find(f => f.path === `content/${folderSlug}/index.md`);
+        if (indexFileInFolder?.frontmatter.title) {
+            label = indexFileInFolder.frontmatter.title;
+        } else if (siteData.config.collections?.find(c => c.path === folderSlug)?.nav_label) {
+            label = siteData.config.collections.find(c => c.path === folderSlug)!.nav_label!;
+        } else if (info.count === 1 && info.files[0]?.frontmatter.title) {
+            label = info.files[0].frontmatter.title;
+        }
+        
+        links.push({
+          href,
+          label,
+          iconComponent: ColumnsIcon,
+          isActive: pathname === href || pathname.startsWith(`${href}/`),
+        });
+      }
+    });
+    
+    const uniqueLinks = Array.from(new Map(links.map(link => [link.href, link])).values());
+
+    return uniqueLinks.sort((a, b) => {
+        if (a.label === "Home") return -1;
+        if (b.label === "Home") return 1;
+        return a.label.localeCompare(b.label);
+    });
+
+  }, [siteData, parsedIdentifier, pathname]);
+
+  if (isLoading) { return <div className="p-4 text-center">Loading site layout...</div>; }
+  if (!siteData || !parsedIdentifier) { return <div className="p-4 text-center">{errorMessage || "Site not found or error loading layout."}</div>;}
+
+  const siteConfig = siteData.config;
+  const currentDisplaySiteId = parsedIdentifier.rawParam;
+
+  const SiteNavMenu = ({ isMobile }: { isMobile?: boolean }) => (
+    <>
+      {navLinks.map(link => {
+        const IconComp = link.iconComponent;
+        return (
+            <Button 
+            variant="ghost" 
+            size="sm" 
+            asChild 
+            key={link.href}
+            className={cn(
+                "justify-start",
+                isMobile ? "w-full text-base py-3" : "md:w-auto",
+                link.isActive && "bg-accent text-accent-foreground hover:bg-accent/90"
+            )}
+            >
+            <Link href={link.href} title={link.label} passHref onClick={() => setIsMobileMenuOpen(false)}>
+                {IconComp && <IconComp className={cn("h-4 w-4 shrink-0", isMobile ? "mr-3" : "mr-1.5")} />}
+                <span>{link.label}</span>
+            </Link>
+            </Button>
+        );
+      })}
+    </>
+  );
 
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
-        <div className="mb-4">
-            <h2 className="text-xl font-semibold truncate" title={site.config.title}>
-                {site.config.title || 'Site Editor'}
-            </h2>
-            <p className="text-xs text-muted-foreground truncate" title={siteId}>ID: {siteId}</p>
-        </div>
+    <div className="flex flex-col min-h-screen bg-background text-foreground">
+      <header className="sticky top-16 md:top-0 z-30 w-full border-b bg-background/80 backdrop-blur-md supports-[backdrop-filter]:bg-background/60">
+        <div className="container flex h-16 items-center">
+          <Link href={`/${currentDisplaySiteId}`} className="flex items-center space-x-2 mr-auto" onClick={() => setIsMobileMenuOpen(false)}>
+            <span className="text-xl font-semibold text-foreground truncate hover:text-primary transition-colors">
+              {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl}
+            </span>
+            {parsedIdentifier.isRemote && parsedIdentifier.remoteBaseUrl && (
+                <a href={parsedIdentifier.remoteBaseUrl} target="_blank" rel="noopener noreferrer" title={`Open original remote site: ${parsedIdentifier.remoteBaseUrl}`} className="ml-1 flex-shrink-0">
+                    <ExternalLink className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                </a>
+            )}
+          </Link>
+          
+          <nav className="hidden md:flex items-center space-x-1">
+            <SiteNavMenu />
+          </nav>
 
-        <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}`}>
-              <Settings className="mr-2 h-4 w-4" /> Site Config
-            </Link>
-          </Button>
-        </nav>
-
-        <div className="mb-2 flex justify-between items-center">
-            <h3 className="text-sm font-semibold px-1">Content Files</h3>
-            <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
-                    <FileText className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
-                    <FolderPlus className="h-4 w-4" />
-                </Button>
-            </div>
-        </div>
-        
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
-          <FileTree 
-            nodes={fileTreeNodes} 
-            baseEditPath={`/edit/${siteId}/content`}
-            currentOpenFile={currentOpenFile}
-            onFileCreate={handleCreateNewFile} // Pass handler down
-            onFolderCreate={handleCreateNewFolder} // Pass handler down
-          />
-        </div>
-
-        <div className="mt-auto space-y-2 pt-4 border-t">
-            <Button variant="outline" asChild className="w-full justify-start">
-                <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
-                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
-                </Link>
+          <div className="md:hidden ml-2">
+            <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)} aria-label="Toggle menu">
+              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
             </Button>
-            <Button variant="ghost" asChild className="w-full justify-start">
-              <Link href="/">
-                <Home className="mr-2 h-4 w-4" /> App Dashboard
-              </Link>
-            </Button>
+          </div>
         </div>
-      </aside>
-      <main className="flex-1 p-6 overflow-y-auto">
+         {isMobileMenuOpen && (
+          <div className="md:hidden border-t bg-background shadow-lg">
+            <nav className="container flex flex-col space-y-1 py-3">
+              <SiteNavMenu isMobile={true} />
+            </nav>
+          </div>
+        )}
+      </header>
+      
+      <main className="flex-grow w-full">
         {children}
       </main>
+      
+      <footer className="border-t bg-muted/10 py-6 text-center">
+        <p className="text-sm text-muted-foreground">
+          Viewing: {siteConfig?.title || parsedIdentifier.cleanedIdOrUrl} ({parsedIdentifier.isRemote ? "Remote" : "Local"})
+        </p>
+         <Link href="/" className="mt-1 inline-block text-sm text-primary hover:underline">
+            Back to Signum Dashboard
+          </Link>
+      </footer>
     </div>
   );
 }
@@ -1193,13 +1230,15 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { FileText, Settings, Eye, PlusCircle, Home, FolderPlus } from 'lucide-react';
-import { buildFileTree, TreeNode, isValidName } from '@/lib/fileTreeUtils';
+import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud } from 'lucide-react'; // Using UploadCloud for Publish
+import { buildFileTree, type TreeNode, isValidName } from '@/lib/fileTreeUtils'; 
 import FileTree from '@/components/publishing/FileTree';
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types'; // Import these
-import { stringifyToMarkdown } from '@/lib/markdownParser'; // Import this
+import { exportSiteToZip } from '@/lib/siteExporter'; // Re-import for Zip export
+import { slugify } from '@/lib/utils'; // For default filename
+
+const NEW_FILE_SLUG_MARKER = '_new';
 
 export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();
@@ -1208,11 +1247,11 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const siteId = params.siteId as string;
 
   const site = useAppStore((state) => state.getSiteById(siteId));
-  const addOrUpdateContentFileAction = useAppStore((state) => state.addOrUpdateContentFile);
+  const [isPublishing, setIsPublishing] = useState(false); // For the Publish button
 
   const fileTreeNodes = useMemo(() => {
     if (site?.contentFiles) {
-      return buildFileTree(site.contentFiles);
+      return buildFileTree(site.contentFiles); 
     }
     return [];
   }, [site?.contentFiles]);
@@ -1220,103 +1259,109 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const [currentOpenFile, setCurrentOpenFile] = useState<string | undefined>();
 
   useEffect(() => {
-    // Determine current open file from pathname
-    // Pathname: /edit/siteId/content/path/to/file
+    const isConfigPage = pathname === `/edit/${siteId}/config`;
+    const isEditorRootPage = pathname === `/edit/${siteId}`; // This will redirect, but good to handle
+
+    if (isConfigPage || isEditorRootPage) {
+        setCurrentOpenFile(undefined); // No file selected on config or root editor page
+        return;
+    }
+
     const pathSegments = pathname.split('/content/');
     if (pathSegments.length > 1) {
-        const filePath = pathSegments[1];
-        if (filePath) {
-            setCurrentOpenFile(`content/${filePath}.md`);
-        } else {
-            // It might be the index file at a folder level, or site config page
-            // Check if it's the site config page
-            if (pathname === `/edit/${siteId}`) {
-                 setCurrentOpenFile(undefined); // No file selected for site config
+        const filePathPart = pathSegments[1]; 
+        if (filePathPart === NEW_FILE_SLUG_MARKER || filePathPart.endsWith(`/${NEW_FILE_SLUG_MARKER}`)) {
+            setCurrentOpenFile(undefined);
+        } else if (filePathPart) {
+            let potentialPath = `content/${filePathPart}.md`;
+            if (site?.contentFiles.some(f => f.path === potentialPath)) {
+                setCurrentOpenFile(potentialPath);
             } else {
-                // It's likely content/index.md or content/folder/index.md
-                const basePath = pathSegments[0] + '/content/';
-                const potentialIndexPath = pathname.substring(basePath.length);
-                if (potentialIndexPath === '' || potentialIndexPath === '/') { // Root index.md
-                    setCurrentOpenFile('content/index.md');
-                } else if (!potentialIndexPath.endsWith('/')) { // Specific index.md in a folder
-                     setCurrentOpenFile(`content/${potentialIndexPath}/index.md`);
+                potentialPath = `content/${filePathPart}/index.md`.replace(/\/\//g, '/');
+                if (site?.contentFiles.some(f => f.path === potentialPath)) {
+                    setCurrentOpenFile(potentialPath);
                 } else {
-                    setCurrentOpenFile(`content/${potentialIndexPath}index.md`);
+                    setCurrentOpenFile(undefined);
                 }
             }
+        } else { 
+             const potentialIndexPath = `content/${pathname.split('/content/')[1] || ''}index.md`.replace(/\/index\.md$/, '/index.md').replace('//index.md', '/index.md');
+             if (site?.contentFiles.some(f => f.path === potentialIndexPath)) {
+                setCurrentOpenFile(potentialIndexPath);
+             } else if (pathname.endsWith('/content/') || pathname.endsWith('/content')) {
+                setCurrentOpenFile('content/index.md');
+             } else {
+                setCurrentOpenFile(undefined);
+             }
         }
-    } else if (pathname === `/edit/${siteId}/content` || pathname === `/edit/${siteId}/content/`) {
-        setCurrentOpenFile('content/index.md'); // Default to root index.md if at /content
     } else {
-        setCurrentOpenFile(undefined); // No file selected (e.g., on site config page)
+        setCurrentOpenFile(undefined); // Not a content editing page
     }
-  }, [pathname, siteId]);
+  }, [pathname, siteId, site?.contentFiles]);
 
-
-  const handleCreateNewFile = async (parentPath: string = 'content') => {
-    const rawFileName = prompt(`Enter new file name (without .md) in "${parentPath.replace('content/', '') || 'root'}" folder:`);
-    if (!rawFileName || !isValidName(rawFileName)) {
-      if(rawFileName !== null) toast.error("Invalid file name. It cannot be empty or contain slashes / invalid characters.");
-      return;
-    }
-    const fileName = rawFileName.endsWith('.md') ? rawFileName : `${rawFileName}.md`;
-    const newFilePath = parentPath === 'content' ? `content/${fileName}` : `${parentPath}/${fileName}`;
-
-    // Check if file already exists
-    if (site?.contentFiles.some(f => f.path === newFilePath)) {
-        toast.error(`File "${newFilePath}" already exists.`);
-        return;
-    }
-
-    const defaultTitle = rawFileName.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-    const defaultFrontmatter: MarkdownFrontmatter = { title: defaultTitle };
-    const defaultBody = `# ${defaultTitle}\n\nStart writing your content here.`;
-    const rawMarkdownContent = stringifyToMarkdown(defaultFrontmatter, defaultBody);
-
-    try {
-        await addOrUpdateContentFileAction(siteId, newFilePath, rawMarkdownContent);
-        toast.success(`File "${fileName}" created in "${parentPath.replace('content/', '') || 'root'}"`);
-        // Navigate to the new file for editing
-        const editSlug = newFilePath.replace('content/', '').replace(/\.md$/, '');
-        router.push(`/edit/${siteId}/content/${editSlug}`);
-    } catch (error) {
-        toast.error("Failed to create file.");
-        console.error("Error creating file:", error);
-    }
+  const handleNavigateToNewFile = (parentPath: string = 'content') => {
+    const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
+    const newFileRoute = `/edit/${siteId}/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
+    router.push(newFileRoute.replace(/\/\//g, '/'));
   };
   
-  const handleCreateNewFolder = async (parentPath: string = 'content') => {
+  const handleCreateNewFolderInPath = async (parentPath: string = 'content') => {
     const folderName = prompt(`Enter new folder name in "${parentPath.replace('content/', '') || 'root'}":`);
     if (!folderName || !isValidName(folderName)) {
-        if(folderName !== null) toast.error("Invalid folder name. It cannot be empty or contain slashes / invalid characters.");
+        if(folderName !== null) toast.error("Invalid folder name.");
         return;
     }
-    
-    // To "create" a folder, we'll create a placeholder .keep file in it,
-    // then immediately prompt to create a real file inside it.
-    // This is a common pattern if the system doesn't explicitly store empty folders.
-    // OR, simply adjust the UI to allow creating files under this new conceptual path.
-    // For now, let's make folder creation mean "create a new file inside this new folder path".
-    
-    const newFolderPath = parentPath === 'content' ? `content/${folderName}` : `${parentPath}/${folderName}`;
-    
-    toast.info(`Folder "${folderName}" conceptually created. Now, let's create a file inside it.`);
-    handleCreateNewFile(newFolderPath); // Prompt to create a file in the new folder path
+    toast.info(`Folder "${folderName}" is ready. Use "New Content File" to create files within this path.`);
   };
 
+  const handlePublishSite = async () => {
+    if (!site) {
+      toast.error("Site data not found. Cannot publish.");
+      return;
+    }
+
+    // Later, read site.config.publishingTarget or similar
+    const publishingTarget = 'zip'; // Default to zip for now
+
+    setIsPublishing(true);
+    
+    if (publishingTarget === 'zip') {
+      toast.info("Generating site bundle for download...");
+      try {
+        const blob = await exportSiteToZip(site);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${slugify(site.config.title || 'signum-site')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+        toast.success("Site bundle downloaded!");
+      } catch (error) {
+        console.error("Error publishing site to Zip:", error);
+        toast.error(`Failed to generate Zip: ${(error as Error).message}`);
+      }
+    } else {
+      // Handle other targets like Netlify, Signum Hosting
+      toast.warn(`Publishing to "${publishingTarget}" is not yet implemented.`);
+    }
+    setIsPublishing(false);
+  };
 
   if (!site) {
     return (
-        <div className="flex items-center justify-center h-screen">
-            <p>Loading site editor or site not found...</p>
-            <Button variant="link" asChild className="ml-2"><Link href="/">Go Home</Link></Button>
+        <div className="flex flex-col items-center justify-center h-screen">
+            <p className="mb-2">Loading site editor or site not found...</p>
+            <Button variant="link" asChild><Link href="/">Go Home</Link></Button>
         </div>
     );
   }
 
+  const isSiteConfigPageActive = pathname === `/edit/${siteId}/config`;
+
   return (
-    <div className="flex h-screen bg-background">
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col">
+    <div className="flex h-screen bg-background overflow-hidden">
+      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
         <div className="mb-4">
             <h2 className="text-xl font-semibold truncate" title={site.config.title}>
                 {site.config.title || 'Site Editor'}
@@ -1325,39 +1370,46 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </div>
 
         <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${pathname === `/edit/${siteId}` ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}`}>
+          <Button variant="ghost" asChild className={`justify-start ${isSiteConfigPageActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/config`}> {/* Updated Link */}
               <Settings className="mr-2 h-4 w-4" /> Site Config
             </Link>
           </Button>
+           <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
+              <PlusCircle className="mr-2 h-4 w-4" /> New Content File
+            </Button>
+            <Button variant="ghost" onClick={() => handleCreateNewFolderInPath('content')} className="justify-start">
+              <FolderPlus className="mr-2 h-4 w-4" /> New Root Folder
+            </Button>
         </nav>
 
         <div className="mb-2 flex justify-between items-center">
             <h3 className="text-sm font-semibold px-1">Content Files</h3>
-            <div className="flex gap-1">
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFile('content')} title="New File in Root">
-                    <FileText className="h-4 w-4" />
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => handleCreateNewFolder('content')} title="New Folder in Root">
-                    <FolderPlus className="h-4 w-4" />
-                </Button>
-            </div>
         </div>
         
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1"> {/* Added pr and -mr for scrollbar */}
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1 custom-scrollbar">
           <FileTree 
             nodes={fileTreeNodes} 
             baseEditPath={`/edit/${siteId}/content`}
             currentOpenFile={currentOpenFile}
-            onFileCreate={handleCreateNewFile} // Pass handler down
-            onFolderCreate={handleCreateNewFolder} // Pass handler down
+            onFileCreate={handleNavigateToNewFile} 
+            onFolderCreate={handleCreateNewFolderInPath}
           />
         </div>
 
-        <div className="mt-auto space-y-2 pt-4 border-t">
+        <div className="mt-auto space-y-2 pt-4 border-t shrink-0">
+            <Button 
+              variant="default" 
+              onClick={handlePublishSite} 
+              disabled={isPublishing}
+              className="w-full justify-start"
+            >
+              <UploadCloud className="mr-2 h-4 w-4" /> 
+              {isPublishing ? 'Publishing...' : 'Publish Site'}
+            </Button>
             <Button variant="outline" asChild className="w-full justify-start">
                 <Link href={`/${siteId}`} target="_blank" rel="noopener noreferrer">
-                    <Eye className="mr-2 h-4 w-4" /> View Site (Local)
+                    <Eye className="mr-2 h-4 w-4" /> View Site (Live)
                 </Link>
             </Button>
             <Button variant="ghost" asChild className="w-full justify-start">
@@ -1367,9 +1419,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <main className="flex-1 p-6 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto p-6">
         {children}
-      </main>
+      </div>
     </div>
   );
 }
@@ -1377,6 +1429,35 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
 ================================================================================
 
 File: app/(publishing)/edit/[siteId]/page.tsx
+// src/app/(publishing)/edit/[siteId]/page.tsx
+'use client';
+
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+
+// This page now simply redirects to the config page by default for a site editor.
+export default function SiteEditorRootPage() {
+  const router = useRouter();
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  useEffect(() => {
+    if (siteId) {
+      router.replace(`/edit/${siteId}/config`);
+    }
+  }, [siteId, router]);
+
+  return (
+    <div className="p-6 flex justify-center items-center h-full">
+      <p>Redirecting to site configuration...</p>
+      {/* You could add a spinner here */}
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/config/page.tsx
 // src/app/(publishing)/edit/[siteId]/page.tsx
 'use client';
 
@@ -1513,123 +1594,381 @@ File: app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
 // src/app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
 'use client';
 
-import { useParams, useRouter } from 'next/navigation'; // useRouter might be useful later
+import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import MarkdownEditor from '@/components/publishing/MarkdownEditor';
+import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
 import { Button } from '@/components/ui/button';
-import { ParsedMarkdownFile, MarkdownFrontmatter } from '@/types';
-import { useEffect, useState, useCallback } from 'react';
-import { stringifyToMarkdown, parseMarkdownString } from '@/lib/markdownParser';
+import type { MarkdownFrontmatter } from '@/types';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { stringifyToMarkdown } from '@/lib/markdownParser'; // Removed unused: parseMarkdownString
+import { slugify } from '@/lib/utils';
 import { toast } from "sonner";
+import { Trash2, Save, Cloud, AlertCircle, CheckCircle } from 'lucide-react';
+// import Link from 'next/link'; // Not used directly in this version of UI
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { Link } from '@/components/ui/link';
+
+const NEW_FILE_SLUG_MARKER = '_new';
+const AUTOSAVE_DELAY = 2500;
+
+type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 
 export default function EditContentPage() {
   const params = useParams();
+  const router = useRouter();
   const siteId = params.siteId as string;
-  const slugArray = (params.slug as string[]) || []; // Ensure slugArray is always an array
+  
+  const slugSegments = useMemo(() => (params.slug as string[]) || [], [params.slug]);
+  const isNewFileIntent = useMemo(() => slugSegments.includes(NEW_FILE_SLUG_MARKER), [slugSegments]);
+  
+  const parentPathForNewFile = useMemo(() => {
+    if (!isNewFileIntent) return 'content';
+    const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
+    return newMarkerIndex > 0 ? `content/${slugSegments.slice(0, newMarkerIndex).join('/')}` : 'content';
+  }, [slugSegments, isNewFileIntent]);
 
-  // Memoized selectors for store state and actions
+  const targetPathForExistingFile = useMemo(() => {
+    if (isNewFileIntent) return '';
+    const pathParts = slugSegments.filter(s => s !== NEW_FILE_SLUG_MARKER);
+    if (pathParts.length === 0 && siteId) return 'content/index.md';
+    return `content/${pathParts.join('/')}.md`;
+  }, [slugSegments, isNewFileIntent, siteId]);
+
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const addOrUpdateContentFileAction = useAppStore(state => state.addOrUpdateContentFile);
+  const deleteContentFileAction = useAppStore(state => state.deleteContentFileAndState);
 
-  // State for the currently edited file's data (parsed structure)
-  const [currentFile, setCurrentFile] = useState<ParsedMarkdownFile | null>(null);
-  // State for the raw markdown content in the editor (includes frontmatter + body)
-  const [editorContent, setEditorContent] = useState<string>('');
+  const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
+  const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
+  const [currentFilePath, setCurrentFilePath] = useState<string>('');
   
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
   const [isNewFileMode, setIsNewFileMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [proposedSlugForNewFile, setProposedSlugForNewFile] = useState<string>('');
+  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("saved");
 
-  // Determine the target path from URL slugs
-  const targetPath = `content/${slugArray.join('/')}${slugArray.length > 0 ? '.md' : 'index.md'}`;
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
+    // This function needs access to component state like currentFrontmatter, siteId, etc.
+    // So, it's defined inside the component.
+    // The dependency array for its own useCallback will be crucial.
+
+    if (!currentFrontmatter || !siteId) {
+      if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
+      setAutoSaveStatus("error");
+      return;
+    }
+    if (!currentFrontmatter.title || !currentFrontmatter.title.trim()) {
+      if (!isAutosave) toast.error("Title is required to save.");
+      setAutoSaveStatus(isNewFileMode ? "unsaved" : "error");
+      return;
+    }
+
+    if (!isAutosave) setIsSaving(true);
+    setAutoSaveStatus("saving");
+
+    let filePathToSave = currentFilePath;
+    let finalSlug = proposedSlugForNewFile;
+
+    if (isNewFileMode) {
+      if (!finalSlug || !finalSlug.trim()) {
+        finalSlug = slugify(currentFrontmatter.title);
+      }
+      if (!finalSlug || !finalSlug.trim()) {
+        if (!isAutosave) toast.error("A valid slug could not be generated. Please provide a valid title or manually enter a slug.");
+        setAutoSaveStatus("unsaved");
+        if (!isAutosave) setIsSaving(false);
+        return;
+      }
+      
+      filePathToSave = `${parentPathForNewFile}/${finalSlug}.md`.replace(/\/\//g, '/');
+      
+      if (site?.contentFiles.some(f => f.path === filePathToSave)) {
+        if (!isAutosave) toast.error(`A file named "${finalSlug}.md" already exists. Please choose a different title or slug.`);
+        setAutoSaveStatus("error");
+        if (!isAutosave) setIsSaving(false);
+        return;
+      }
+    }
+
+    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, currentBodyContent);
+
+    try {
+      const success = await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave);
+      if (success) {
+        if (!isAutosave) toast.success(`Content "${currentFrontmatter.title}" saved successfully!`);
+        setHasUnsavedChanges(false);
+        setAutoSaveStatus("saved");
+        
+        if (isNewFileMode) {
+          setIsNewFileMode(false);
+          setCurrentFilePath(filePathToSave);
+          const newEditPathSegments = filePathToSave.replace(/^content\//, '').replace(/\.md$/, '');
+          router.replace(`/edit/${siteId}/content/${newEditPathSegments}`);
+        }
+      } else {
+        if (!isAutosave) toast.error("Failed to save: Invalid frontmatter. Check console.");
+        setAutoSaveStatus("error");
+      }
+    } catch (error) {
+      console.error("Error saving content:", error);
+      if (!isAutosave) toast.error(`Failed to save content: ${(error as Error).message}`);
+      setAutoSaveStatus("error");
+    } finally {
+      if (!isAutosave) setIsSaving(false);
+    }
+  }, [ // Dependencies for handleSaveContent
+    currentFrontmatter, siteId, currentFilePath, proposedSlugForNewFile, isNewFileMode, 
+    parentPathForNewFile, site?.contentFiles, currentBodyContent, 
+    addOrUpdateContentFileAction, router // Note: `site` can be just `site?.contentFiles` if that's all that's needed
+  ]);
+
+
+  const triggerAutoSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    if (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim())) {
+        setAutoSaveStatus("unsaved");
+        return;
+    }
+    if (!hasUnsavedChanges && autoSaveStatus !== "error") {
+        setAutoSaveStatus("saved");
+        return;
+    }
+
+    setAutoSaveStatus("unsaved");
+    autoSaveTimeoutRef.current = setTimeout(async () => {
+      if (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim())) {
+        console.log("Autosave for new file skipped: title or slug not ready.");
+        setAutoSaveStatus("unsaved");
+        return;
+      }
+      await handleSaveContent(true);
+    }, AUTOSAVE_DELAY);
+  }, [ // Dependencies for triggerAutoSave
+    isNewFileMode, hasUnsavedChanges, currentFrontmatter?.title, proposedSlugForNewFile, 
+    autoSaveStatus, handleSaveContent // Added autoSaveStatus and handleSaveContent
+  ]);
 
 
   useEffect(() => {
-    if (site) {
-      const existingFile = site.contentFiles.find(f => f.path === targetPath);
-      if (existingFile) {
-        setCurrentFile(existingFile);
-        setEditorContent(stringifyToMarkdown(existingFile.frontmatter, existingFile.content));
-        setIsNewFileMode(false);
-      } else {
-        // Setup for a new file if no existing file matches the path
-        const newSlug = slugArray.length > 0 ? slugArray[slugArray.length - 1] : 'index';
-        const defaultFrontmatter: MarkdownFrontmatter = { title: newSlug.replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase()) || 'New Page' };
-        const defaultBody = `# ${defaultFrontmatter.title}\n\nStart writing your content here.`;
-        
-        const newFilePlaceholder: ParsedMarkdownFile = {
-            slug: newSlug,
-            path: targetPath,
-            frontmatter: defaultFrontmatter,
-            content: defaultBody, // body content only
-        };
-        setCurrentFile(newFilePlaceholder);
-        setEditorContent(stringifyToMarkdown(newFilePlaceholder.frontmatter, newFilePlaceholder.content));
-        setIsNewFileMode(true);
-      }
-      setHasUnsavedChanges(false); // Reset unsaved changes flag when file loads/changes
-    }
-  }, [site, targetPath]); // Re-run when site data or targetPath changes
+    setIsLoading(true);
+    setHasUnsavedChanges(false);
+    setAutoSaveStatus("saved");
 
-  const handleEditorChange = useCallback((newRawMarkdown: string) => {
-    setEditorContent(newRawMarkdown);
+    if (site) {
+      if (isNewFileIntent) {
+        setIsNewFileMode(true);
+        setCurrentFrontmatter({
+          title: '',
+          date: new Date().toISOString().split('T')[0],
+          status: 'draft',
+          summary: '',
+          tags: [],
+        });
+        setCurrentBodyContent('');
+        setProposedSlugForNewFile('');
+        setCurrentFilePath('');
+        setIsLoading(false);
+      } else {
+        setIsNewFileMode(false);
+        const existingFile = site.contentFiles.find(f => f.path === targetPathForExistingFile);
+        if (existingFile) {
+          const fm = typeof existingFile.frontmatter === 'object' && existingFile.frontmatter !== null 
+                       ? existingFile.frontmatter 
+                       : { title: existingFile.slug };
+          setCurrentFrontmatter(fm as MarkdownFrontmatter);
+          setCurrentBodyContent(existingFile.content || '');
+          setCurrentFilePath(existingFile.path);
+          setProposedSlugForNewFile(existingFile.slug);
+        } else {
+          toast.error(`File not found: ${targetPathForExistingFile}`);
+          setCurrentFrontmatter(null);
+          setCurrentBodyContent('');
+        }
+        setIsLoading(false);
+      }
+    } else if (useAppStore.getState().isInitialized && siteId) {
+        toast.error(`Site with ID ${siteId} not found.`);
+        setCurrentFrontmatter(null);
+        setIsLoading(false);
+    }
+  }, [site, siteId, targetPathForExistingFile, isNewFileIntent]);
+
+
+  useEffect(() => {
+    // This effect should run whenever content changes that needs to be autosaved.
+    if (!isLoading && (currentFrontmatter || currentBodyContent) && hasUnsavedChanges) {
+      triggerAutoSave();
+    }
+    // Cleanup timeout on component unmount or when dependencies change
+    return () => {
+      if (autoSaveTimeoutRef.current) {
+        clearTimeout(autoSaveTimeoutRef.current);
+      }
+    };
+  }, [currentFrontmatter, currentBodyContent, isLoading, hasUnsavedChanges, triggerAutoSave]);
+
+
+  const handleFrontmatterChange = useCallback((newFrontmatter: MarkdownFrontmatter) => {
+    setCurrentFrontmatter(newFrontmatter);
     setHasUnsavedChanges(true);
+    setAutoSaveStatus("unsaved");
+    if (isNewFileMode && typeof newFrontmatter.title === 'string') {
+        setProposedSlugForNewFile(slugify(newFrontmatter.title));
+    }
+  }, [isNewFileMode]);
+
+  const handleBodyChange = useCallback((newBody: string) => {
+    setCurrentBodyContent(newBody);
+    setHasUnsavedChanges(true);
+    setAutoSaveStatus("unsaved");
   }, []);
 
-  const handleSaveContent = async () => {
-    if (!currentFile || !siteId) {
-        toast.error("Cannot save: File or site data is missing.");
+  const handleProposedSlugChange = useCallback((newSlug: string) => {
+    if (isNewFileMode) {
+        setProposedSlugForNewFile(slugify(newSlug));
+        setHasUnsavedChanges(true);
+        setAutoSaveStatus("unsaved");
+    }
+  }, [isNewFileMode]);
+
+
+  const handleDeleteContentFile = async () => {
+    if (isNewFileMode || !currentFilePath || !site || !currentFrontmatter) {
+        toast.info("Cannot delete an unsaved new file or if file path is missing.");
         return;
     }
-    setIsLoading(true);
     try {
-      // The editorContent (rawMarkdown) is passed to the store action
-      // The store action calls localSiteFs.saveContentFile, which handles parsing
-      await addOrUpdateContentFileAction(siteId, currentFile.path, editorContent);
-      
-      // After successful save, update currentFile state with potentially parsed data
-      // This is important if frontmatter was malformed and fixed by parser, or for new files.
-      const { frontmatter, content: bodyContent } = parseMarkdownString(editorContent);
-      setCurrentFile(prev => prev ? {...prev, frontmatter, content: bodyContent} : null);
-
-      toast.success(`Content for "${currentFile.frontmatter.title || currentFile.slug}" saved successfully!`);
-      setIsNewFileMode(false); // If it was a new file, it's now an existing file
-      setHasUnsavedChanges(false);
+        await deleteContentFileAction(siteId, currentFilePath);
+        toast.success(`File "${currentFrontmatter.title || currentFilePath}" deleted.`);
+        router.push(`/edit/${siteId}`); 
     } catch (error) {
-      // The parseMarkdownString can throw if frontmatter is invalid.
-      // The store action might also throw if localSiteFs fails.
-      console.error("Error saving content:", error);
-      toast.error(`Failed to save content: ${(error as Error).message}`);
-    } finally {
-      setIsLoading(false);
+        toast.error(`Failed to delete file: ${(error as Error).message}`);
+        console.error("Error deleting file:", error);
     }
   };
 
-  if (!site) {
-    return <p className="p-4">Loading site data or site not found...</p>;
+  const renderAutoSaveIndicator = () => {
+    switch (autoSaveStatus) {
+      case "saving":
+        return <><Cloud className="h-4 w-4 mr-1.5 animate-pulse text-blue-500" /> Saving...</>;
+      case "saved":
+        return <><CheckCircle className="h-4 w-4 mr-1.5 text-green-500" /> Saved</>;
+      case "unsaved":
+        return <><Save className="h-4 w-4 mr-1.5 text-amber-500" /> Unsaved changes</>;
+      case "error":
+        return <><AlertCircle className="h-4 w-4 mr-1.5 text-red-500" /> Save error!</>;
+      default:
+        return null;
+    }
+  };
+
+  // MOVED LOADING/ERROR RETURNS HERE, INSIDE THE FUNCTION BODY
+  if (isLoading) {
+    return <div className="p-6 flex justify-center items-center min-h-[calc(100vh-128px)]"><p>Loading editor...</p></div>;
   }
-  if (!currentFile) {
-     // This state occurs while useEffect is setting up currentFile
-     return <p className="p-4">Loading file data for {targetPath}...</p>;
+  if (!currentFrontmatter && !isNewFileMode && !isLoading) {
+    return (
+        <div className="p-6 text-center">
+            <h2 className="text-xl font-semibold mb-4">Content Not Found</h2>
+            <p className="text-muted-foreground mb-4">
+            The content for path &quot;{targetPathForExistingFile.replace('content/', '')}&quot; could not be loaded.
+            </p>
+            <Button asChild variant="outline">
+                <Link href={`/edit/${siteId}`}>Go to Site Editor Home</Link>
+            </Button>
+        </div>
+    );
+  }
+   if (!site && siteId && !isLoading) { 
+    return <div className="p-6 text-center"><p>Site data for ID &quot;{siteId}&quot; not available.</p></div>;
   }
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2">
-        <h1 className="text-2xl font-bold truncate" title={currentFile.frontmatter.title || currentFile.slug}>
-          {isNewFileMode ? 'Create: ' : 'Edit: '}
-          {currentFile.frontmatter.title || currentFile.slug}
-          {hasUnsavedChanges && <span className="text-destructive text-sm ml-2">*</span>}
-        </h1>
-        <Button onClick={handleSaveContent} disabled={isLoading || !hasUnsavedChanges}>
-          {isLoading ? 'Saving...' : 'Save Content'}
-        </Button>
-      </div>
-      <MarkdownEditor
-        key={currentFile.path} // Force re-mount if path changes, ensuring editor gets new initialValue
-        initialValue={editorContent}
-        onChange={handleEditorChange}
-      />
+    <div className="flex flex-row h-full">
+      <main className="flex-1 flex flex-col p-6 pr-0 overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2 shrink-0">
+          <h1 className="text-xl font-bold truncate">
+            {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || proposedSlugForNewFile || 'Content'}`}
+          </h1>
+          <div className="flex items-center gap-2">
+            <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">
+                {renderAutoSaveIndicator()}
+            </div>
+            {!isNewFileMode && currentFilePath && currentFrontmatter && (
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="outline" size="sm" className="text-destructive border-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/50">
+                            <Trash2 className="h-4 w-4 mr-1.5" /> Delete
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent> 
+                        <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Are you sure you want to delete &quot;{currentFrontmatter.title || currentFilePath}&quot;? This action cannot be undone.
+                        </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                        <AlertDialogCancel>Cancel</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">
+                            Yes, Delete File
+                        </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+            )}
+            <Button 
+              onClick={() => handleSaveContent(false)}
+              disabled={isSaving || (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim()))}
+              size="sm"
+              title={isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim()) ? "Enter a title to enable saving" : "Save changes"}
+            >
+              <Save className="h-4 w-4 mr-1.5" />
+              {isSaving ? 'Saving...' : 'Save Now'}
+            </Button>
+          </div>
+        </div>
+        {currentFrontmatter && (
+             <div className="flex-grow overflow-y-auto">
+                <MarkdownEditor
+                    key={currentFilePath || 'new-file-editor'}
+                    initialValue={currentBodyContent}
+                    onChange={handleBodyChange}
+                />
+            </div>
+        )}
+         {!currentFrontmatter && isNewFileMode && (
+            <div className="flex-grow flex items-center justify-center text-muted-foreground">
+                <p>Initializing new content editor...</p>
+            </div>
+        )}
+      </main>
+      {currentFrontmatter && (
+        <FrontmatterSidebar
+            frontmatter={currentFrontmatter}
+            onFrontmatterChange={handleFrontmatterChange}
+            isNewFileMode={isNewFileMode}
+            proposedSlug={proposedSlugForNewFile}
+            onProposedSlugChange={handleProposedSlugChange}
+        />
+      )}
     </div>
   );
 }
@@ -1647,17 +1986,21 @@ import { SiteConfigFile, LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter 
 import SiteConfigForm from '@/components/publishing/SiteConfigForm';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
-import { toast } from "sonner"; // For notifications
+import { toast } from "sonner";
 
 export default function CreateSitePage() {
   const router = useRouter();
-  const addSite = useAppStore((state) => state.addSite); // Get specific action
+  const addSite = useAppStore((state) => state.addSite);
 
   const [siteConfig, setSiteConfig] = useState<SiteConfigFile>({
     title: '',
     description: '',
-    // Initialize other optional fields if necessary
-    // style_hints: { font_family: 'sans-serif', theme: 'light' },
+    author: '',
+    // Initialize new style properties with defaults
+    font_family: 'sans-serif',
+    theme: 'light',
+    primary_color: '#007AFF',
+    collections: [],
   });
   const [isLoading, setIsLoading] = useState(false);
 
@@ -1673,33 +2016,35 @@ export default function CreateSitePage() {
     setIsLoading(true);
 
     const newSiteId = generateSiteId(siteConfig.title);
-
-    // Create a default index.md
     const defaultIndexFrontmatter: MarkdownFrontmatter = { title: 'Welcome' };
     const defaultIndexBody = `# Welcome to ${siteConfig.title}\n\nThis is your new site's homepage. Start editing!`;
     
     const defaultIndexFile: ParsedMarkdownFile = {
-        slug: 'index', // slug derived from filename (index.md)
+        slug: 'index',
         path: 'content/index.md',
         frontmatter: defaultIndexFrontmatter,
         content: defaultIndexBody,
     };
 
+    // Construct the config for newSiteData using the spread of siteConfig from state
+    // This ensures all fields, including the new top-level style fields, are included.
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
-      config: { // Ensure all required fields from SiteConfigFile are present
-        title: siteConfig.title.trim(),
-        description: siteConfig.description.trim(),
+      config: {
+        ...siteConfig, // Spread all current form values
+        title: siteConfig.title.trim(), // Ensure title is trimmed
+        description: siteConfig.description.trim(), // Ensure description is trimmed
         author: siteConfig.author?.trim() || '', // Handle optional author
-        style_hints: siteConfig.style_hints || {}, // Ensure style_hints is an object
+        // Ensure collections is an array if not set by form for some reason
+        collections: siteConfig.collections || [], 
       },
       contentFiles: [defaultIndexFile],
     };
 
     try {
-      await addSite(newSiteData); // This action in store now calls localSiteFs.saveSite
+      await addSite(newSiteData);
       toast.success(`Site "${siteConfig.title}" created locally!`);
-      router.push(`/edit/${newSiteId}`); // Navigate to the editor for the new site
+      router.push(`/edit/${newSiteId}/config`);
     } catch (error) {
       console.error("Error creating site:", error);
       toast.error("Failed to create site. Please try again.");
@@ -1978,65 +2323,62 @@ import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo } from 'react';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
-import MarkdownRenderer from '@/components/browsing/MarkdownRenderer';
-import { ParsedMarkdownFile, LocalSiteData } from '@/types';
+// MarkdownRenderer is no longer used directly here for the main content if we pre-render to string
+// import MarkdownRenderer from '@/components/browsing/MarkdownRenderer'; 
+import { marked } from 'marked'; // Use marked directly for rendering body to string
+import type { LocalSiteData, ParsedMarkdownFile as ParsedMarkdownFileType, SiteConfigFile } from '@/types';
 import { Button } from '@/components/ui/button';
 import { AlertTriangle, CalendarDays, ArrowRight, ListChecks, FolderOpen } from 'lucide-react';
-import { parseSiteIdentifier, ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
+import { cn } from '@/lib/utils'; // For combining classes
 
-interface CollectionListItem extends Omit<ParsedMarkdownFile, 'frontmatter'> {
-  frontmatter: ParsedMarkdownFile['frontmatter'] & {
+// Template partials for constructing the header and footer strings for preview
+// (These are NOT React components, they return HTML strings)
+import { renderHeader as renderThemeHeaderString } from '@/themes/default/partials/header';
+import { renderFooter as renderThemeFooterString } from '@/themes/default/partials/footer';
+import { renderArticleContent as renderThemeArticleString } from '@/themes/default/partials/article';
+import { renderCollectionListContent as renderThemeCollectionListString } from '@/themes/default/partials/collection';
+
+
+interface CollectionListItemReact extends Omit<ParsedMarkdownFileType, 'frontmatter' | 'content'> {
+  frontmatter: ParsedMarkdownFileType['frontmatter'] & {
     date?: string;
     title: string;
   };
   itemLink: string;
+  summaryOrContentTeaser: string; // For collection item preview
 }
 
-enum PageRenderType { // Renamed from PageType to avoid conflict if imported
-  Loading,
-  SinglePageDisplay,
-  CollectionListingDisplay,
-  NotFound,
-  Error,
-}
+enum PageRenderType { Loading, SinglePageDisplay, CollectionListingDisplay, NotFound, Error }
+
+const THEME_WRAPPER_CLASS = "signum-theme-default-wrapper"; // Consistent wrapper class
 
 export default function CatchAllSitePage() {
   const paramsHook = useParams();
-
   const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
   const [renderType, setRenderType] = useState<PageRenderType>(PageRenderType.Loading);
-  
-  const [singlePageContentFile, setSinglePageContentFile] = useState<ParsedMarkdownFile | null>(null);
-  const [collectionItems, setCollectionItems] = useState<CollectionListItem[]>([]);
-  const [collectionDisplayTitle, setCollectionDisplayTitle] = useState<string>(""); // For Collection Listing
-
+  const [pageHtmlContent, setPageHtmlContent] = useState<string>(""); // To store the fully rendered HTML string for the page
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading..."); // For document.title and UI headers
+  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading...");
   const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
 
   const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
   const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
 
   useEffect(() => {
+    // ... (fetching siteData logic remains the same as your last working version) ...
+    // When siteData and page type are determined, call a function to render HTML string
     setRenderType(PageRenderType.Loading);
-    setSinglePageContentFile(null); setCollectionItems([]); setErrorMessage(null); setPageMetaTitle("Loading...");
+    setPageHtmlContent(""); setErrorMessage(null); setPageMetaTitle("Loading...");
 
     const localParsedResult = parseSiteIdentifier(siteIdParamValue);
-    
-    if (!localParsedResult || (localParsedResult.isRemote && !localParsedResult.remoteBaseUrl)) {
-      setParsedPageIdentifier(null); setRenderType(PageRenderType.Error);
-      setErrorMessage(localParsedResult?.isRemote ? `Invalid remote URL: ${localParsedResult.cleanedIdOrUrl}` : "Site ID missing.");
-      setPageMetaTitle("Error");
-      return;
-    }
+    if (!localParsedResult) { /* ... error handling ... */ return; }
     setParsedPageIdentifier(localParsedResult);
 
-    let mounted = true;
-
-    async function processSiteContent(validParsedResult: ParsedSiteIdentifier) {
+    async function processAndRenderSiteContent(validParsedResult: ParsedSiteIdentifier) {
       let fetchedSiteData: LocalSiteData | null = null;
-      // ... (fetch siteData - same as before) ...
+      // ... Fetch siteData logic ...
       if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
         fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
         if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote: ${validParsedResult.remoteBaseUrl}.`);
@@ -2045,207 +2387,164 @@ export default function CatchAllSitePage() {
         if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
       }
 
-      if (!mounted) return;
       if (!fetchedSiteData) {
-        setSiteData(null); setRenderType(PageRenderType.Error);
-        setPageMetaTitle("Site Not Found");
-        return;
+        setSiteData(null); setRenderType(PageRenderType.Error); setPageMetaTitle("Site Not Found"); return;
       }
       setSiteData(fetchedSiteData);
 
-      const currentSlugPath = slugArray.join('/'); // e.g., "" or "about" or "blog" or "blog/my-post"
-      const contentFiles = fetchedSiteData.contentFiles.filter(f => !f.frontmatter.draft);
+      // --- Determine Page Type and Render HTML String ---
+      const currentSlugPath = slugArray.join('/');
+      const contentFiles = fetchedSiteData.contentFiles.filter(f => !f.frontmatter.draft && f.frontmatter.status !== 'draft');
+      const singlePagePath = `content/${currentSlugPath || 'index'}.md`.toLowerCase();
+      const directFileMatch = contentFiles.find(f => f.path.toLowerCase() === singlePagePath);
 
-      // --- Determine Render Type ---
-
-      // 1. Check for direct single page match (e.g., /about -> content/about.md; /blog/my-post -> content/blog/my-post.md)
-      const singlePagePath = `content/${currentSlugPath || 'index'}.md`;
-      const directFileMatch = contentFiles.find(f => f.path === singlePagePath);
+      const siteRootPathForLinks = `/${validParsedResult.rawParam}/`.replace(/\/\//g, '/');
+      const ssgNavLinks = getSsgNavLinks(fetchedSiteData, siteRootPathForLinks); // Use the same nav link logic as exporter
+      const themeHeaderHtml = renderThemeHeaderString(fetchedSiteData.config, ssgNavLinks, siteRootPathForLinks);
+      const themeFooterHtml = renderThemeFooterString(fetchedSiteData.config);
+      let mainContentHtml = "";
 
       if (directFileMatch) {
-        setSinglePageContentFile(directFileMatch);
-        setRenderType(PageRenderType.SinglePageDisplay);
+        mainContentHtml = renderThemeArticleString(directFileMatch);
         setPageMetaTitle(directFileMatch.frontmatter.title || "Untitled Page");
-        return;
-      }
-
-      // 2. If not a direct file, check if currentSlugPath refers to a folder
-      //    A folder is identified if there are files starting with `content/${currentSlugPath}/`
-      const itemsInThisFolder = contentFiles.filter(
-        f => f.path.startsWith(`content/${currentSlugPath}/`) && 
-             f.path !== `content/${currentSlugPath}/index.md` // Exclude index for listing
-      );
-      
-      if (itemsInThisFolder.length > 0) {
-        // This path is a folder containing items
-        if (itemsInThisFolder.length === 1 && !slugArray.some(s => s.endsWith('.md'))) { 
-            // Folder with exactly one non-draft .md file (and the URL doesn't look like it's trying to be a file itself)
-            // Treat this single file as the page for this folder slug.
-            const singleItemInFolder = itemsInThisFolder[0];
-            // Check if the URL intended to target this specific file or the folder
-            // If slugArray.join('/') is 'about' and file is 'content/about/page.md', render page.md
-            setSinglePageContentFile(singleItemInFolder);
-            setRenderType(PageRenderType.SinglePageDisplay);
-            setPageMetaTitle(singleItemInFolder.frontmatter.title || currentSlugPath.split('/').pop() || "Page");
-
-        } else {
-            // Folder with 2+ items, or 1 item where URL seems to target the folder for listing
-            const mappedItems: CollectionListItem[] = itemsInThisFolder
-            .map(file => ({
-                ...file,
-                frontmatter: {
-                title: file.frontmatter.title || file.slug,
-                date: file.frontmatter.date,
-                ...file.frontmatter,
-                },
-                itemLink: `/${validParsedResult.rawParam}/${file.path.replace(/^content\//, '').replace(/\.md$/, '')}`
-            }))
-            .sort((a, b) => {
-                if (a.frontmatter.date && b.frontmatter.date) {
-                return new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime();
-                }
-                return (a.frontmatter.title || '').localeCompare(b.frontmatter.title || '');
-            });
-
-            setCollectionItems(mappedItems);
-            const title = currentSlugPath.split('/').pop() || "Collection";
-            setCollectionDisplayTitle(title.charAt(0).toUpperCase() + title.slice(1));
-            setPageMetaTitle(collectionDisplayTitle); // Title for the listing page itself
-            setRenderType(PageRenderType.CollectionListingDisplay);
-        }
+        setRenderType(PageRenderType.SinglePageDisplay);
       } else {
-        // No direct file, no items in folder
-        setRenderType(PageRenderType.NotFound);
-        setErrorMessage(`Content not found at: "${currentSlugPath || 'homepage'}"`);
-        setPageMetaTitle("Page Not Found");
+        const itemsInThisFolder = contentFiles.filter(
+          f => f.path.toLowerCase().startsWith(`content/${currentSlugPath}/`.toLowerCase()) && 
+               f.path.toLowerCase() !== `content/${currentSlugPath}/index.md`.toLowerCase()
+        );
+        if (itemsInThisFolder.length > 0) {
+          // Collection Listing
+          const mappedItems: CollectionListItemReact[] = itemsInThisFolder
+            .map(file => {
+                const summary = file.frontmatter.summary || (marked.parse((file.content || '').substring(0, 180) + '...') as string);
+                return {
+                    ...file, // slug, path, frontmatter
+                    itemLink: `${siteRootPathForLinks}${file.path.replace(/^content\//i, '').replace(/\.md$/i, '')}`.replace(/\/\//g, '/'),
+                    summaryOrContentTeaser: summary,
+                };
+            })
+            .sort((a, b) => new Date(b.frontmatter.date || 0).getTime() - new Date(a.frontmatter.date || 0).getTime());
+
+          let collectionTitle = currentSlugPath.split('/').pop() || "Collection";
+          const collectionConfig = fetchedSiteData.config.collections?.find(c => c.path === currentSlugPath.split('/').pop());
+          if(collectionConfig?.nav_label) collectionTitle = collectionConfig.nav_label;
+          else collectionTitle = collectionTitle.charAt(0).toUpperCase() + collectionTitle.slice(1);
+          
+          const collectionIndexFile = contentFiles.find(f => f.path.toLowerCase() === `content/${currentSlugPath}/index.md`.toLowerCase());
+          const collectionIndexContentHtml = collectionIndexFile ? marked.parse(collectionIndexFile.content || '') as string : undefined;
+
+          mainContentHtml = renderThemeCollectionListString(collectionTitle, mappedItems, collectionIndexContentHtml);
+          setPageMetaTitle(collectionTitle);
+          setRenderType(PageRenderType.CollectionListingDisplay);
+        } else {
+          setRenderType(PageRenderType.NotFound);
+          setErrorMessage(`Content not found at: "${currentSlugPath || 'homepage'}"`);
+          setPageMetaTitle("Page Not Found");
+        }
       }
+      setPageHtmlContent(`${themeHeaderHtml}<main class="site-content">${mainContentHtml}</main>${themeFooterHtml}`);
     }
+    if (localParsedResult) processAndRenderSiteContent(localParsedResult);
+  }, [siteIdParamValue, slugArray]); // Dependencies
 
-    if (localParsedResult) { // Ensure localParsedResult is not null before calling
-        processSiteContent(localParsedResult);
+  useEffect(() => { /* ... document.title update ... */ 
+    if (renderType === PageRenderType.Loading) document.title = "Loading... | Signum";
+    else {
+        let title = pageMetaTitle;
+        if (siteData?.config?.title) title += ` | ${siteData.config.title}`;
+        else if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) title += ` | Signum`;
+        document.title = title;
     }
-    return () => { mounted = false; };
-  }, [siteIdParamValue, slugArray, collectionDisplayTitle]); // Added collectionDisplayTitle
-
-  useEffect(() => {
-    // ... (document.title update logic as before, using pageMetaTitle) ...
-    if (renderType === PageRenderType.Loading) {
-        document.title = "Loading... | Signum";
-        return;
-    }
-    let title = pageMetaTitle;
-    if (siteData?.config?.title) {
-        title += ` | ${siteData.config.title}`;
-    } else if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
-        title += ` | Signum`;
-    }
-    document.title = title;
   }, [renderType, pageMetaTitle, siteData]);
 
-  // --- Render logic based on renderType ---
+  // --- Dynamic classes and styles for the wrapper ---
+  const wrapperClasses = [THEME_WRAPPER_CLASS];
+  const wrapperStyles: React.CSSProperties = {};
+
+  if (siteData?.config) {
+    if (siteData.config.theme === 'dark') wrapperClasses.push('theme-dark');
+    else if (siteData.config.theme === 'auto') wrapperClasses.push('theme-auto');
+    else wrapperClasses.push('theme-light');
+
+    if (siteData.config.font_family === 'serif') {
+      wrapperClasses.push('font-serif');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-serif)';
+    } else if (siteData.config.font_family === 'monospace') {
+      wrapperClasses.push('font-mono');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-mono)';
+    } else {
+      wrapperClasses.push('font-sans');
+      wrapperStyles['--font-stack-active'] = 'var(--font-stack-sans)';
+    }
+    if (siteData.config.primary_color) {
+      wrapperStyles['--primary-color'] = siteData.config.primary_color;
+    }
+  }
+  
+  // --- Render logic ---
   if (renderType === PageRenderType.Loading) { /* ... loading UI ... */ }
-  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
   if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) { /* ... error/not found UI ... */ }
-  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) { /* ... single page render UI ... */ }
-  if (renderType === PageRenderType.CollectionListingDisplay) { /* ... collection listing render UI ... */ }
-  
-  // Re-add full render blocks for brevity, they are similar to previous version
-  // Make sure to use `singlePageContentFile` for single page and `collectionItems` for listing.
 
-  if (renderType === PageRenderType.Loading) {
+  // Main content render
+  return (
+    <div 
+      className={cn(wrapperClasses)} 
+      style={wrapperStyles}
+      dangerouslySetInnerHTML={{ __html: pageHtmlContent }} // Inject the themed HTML string
+    />
+  );
+}
+
+// Helper to get SSG Nav Links (can be moved to a shared util if siteExporter also uses identical logic)
+// Ensure this logic matches what siteExporter.ts uses for getSsgNavLinks
+function getSsgNavLinks(siteData: LocalSiteData, siteRootPath: string): NavLinkItem[] {
+    const navLinks: NavLinkItem[] = [];
+    const homePath = siteRootPath.endsWith('/') ? siteRootPath : `${siteRootPath}/`;
+    navLinks.push({ href: homePath, label: "Home", iconName: "home", isActive: false });
+    const collections = new Map<string, {label: string}>();
+    const topLevelPages = new Map<string, ParsedMarkdownFileType>();
+
+    siteData.contentFiles.forEach(file => {
+        if (file.frontmatter.draft || file.frontmatter.status === 'draft') return;
+        const relativePath = file.path.replace(/^content\//i, '');
+        const pathParts = relativePath.split('/');
+        if (pathParts.length > 1 && pathParts[0].toLowerCase() !== 'index.md') {
+            const collectionSlug = pathParts[0];
+            if (!collections.has(collectionSlug)) {
+                const collectionConfig = siteData.config.collections?.find(c => c.path === collectionSlug);
+                collections.set(collectionSlug, {
+                    label: collectionConfig?.nav_label || collectionSlug.charAt(0).toUpperCase() + collectionSlug.slice(1)
+                });
+            }
+        } else if (pathParts.length === 1 && relativePath.toLowerCase() !== 'index.md') {
+            const slug = relativePath.replace(/\.md$/i, '');
+            topLevelPages.set(slug, file);
+        }
+    });
+    topLevelPages.forEach((file, slug) => {
+        navLinks.push({
+            href: `${siteRootPath}${slug}`.replace(/\/\//g, '/'), // Live preview links to slugs, not .html
+            label: file.frontmatter.title || slug, iconName: "file-text", isActive: false,
+        });
+    });
+    collections.forEach((collectionData, collectionSlug) => {
+        navLinks.push({
+            href: `${siteRootPath}${collectionSlug}`.replace(/\/\//g, '/'), // Live preview links to folder slugs
+            label: collectionData.label, iconName: "folder", isActive: false,
+        });
+    });
+    return navLinks.filter((link, index, self) => index === self.findIndex((l) => (l.href === link.href)));
+ }
+
+// Placed loading/error returns at the end of the component for clarity
+// These are fallback displays if the main return isn't reached due to these states.
+if (renderType === PageRenderType.Loading) {
     return ( <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[300px]"><p>Loading content...</p></div> );
-  }
-
-  if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
+}
+const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
+if (renderType === PageRenderType.Error || renderType === PageRenderType.NotFound) {
     return ( <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center"> <div className="flex flex-col items-center"> <AlertTriangle className="h-12 w-12 text-destructive mb-4" /> <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1> <p className="text-muted-foreground max-w-md"> {errorMessage || "The requested content could not be loaded or found."} </p> <Button asChild variant="outline" className="mt-6"> <Link href={siteData ? siteHomeLinkForError : '/'}> {siteData ? 'Go to Site Home' : 'Go to Dashboard'} </Link> </Button> </div> </div> );
-  }
-
-  if (renderType === PageRenderType.SinglePageDisplay && singlePageContentFile) {
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <article className="prose dark:prose-invert lg:prose-xl max-w-none">
-          <header className="mb-8">
-              <h1 className="mb-2 text-4xl font-extrabold leading-tight tracking-tight lg:text-5xl">
-              {singlePageContentFile.frontmatter.title || "Untitled Page"}
-              </h1>
-              {singlePageContentFile.frontmatter.date && (
-              <p className="text-base font-medium text-muted-foreground">
-                  Published on: {new Date(singlePageContentFile.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-              </p>
-              )}
-          </header>
-          <MarkdownRenderer markdown={singlePageContentFile.content} />
-        </article>
-      </div>
-    );
-  }
-
-  if (renderType === PageRenderType.CollectionListingDisplay) {
-    return (
-      <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="mb-8 pb-4 border-b">
-          <div className="flex items-center space-x-3">
-              <FolderOpen className="h-10 w-10 text-primary" /> {/* Consistent Icon */}
-              <h1 className="text-4xl font-extrabold tracking-tight lg:text-5xl">
-              {collectionDisplayTitle}
-              </h1>
-          </div>
-          {siteData?.config.title && ( // Ensure siteData exists
-            <p className="text-lg text-muted-foreground mt-2">
-              From site: <Link href={parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/'} className="hover:underline text-primary font-medium">{siteData.config.title}</Link>
-            </p>
-          )}
-        </div>
-
-        {collectionItems.length === 0 && (
-          <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg bg-card">
-            <ListChecks className="mx-auto h-12 w-12 text-muted-foreground mb-4" />
-            <h2 className="text-xl font-semibold text-foreground mb-2">No Items Found</h2>
-            <p className="text-muted-foreground">
-              {errorMessage || `There are no items in this collection.`}
-            </p>
-          </div>
-        )}
-
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
-          {collectionItems.map((item) => {
-            // ... (item rendering - same as before) ...
-            const itemDate = item.frontmatter.date ? new Date(item.frontmatter.date) : null;
-            const isValidDate = itemDate && itemDate.getFullYear() > 1970;
-            return (
-              <article key={item.path} className="flex flex-col p-6 bg-card border border-border rounded-lg shadow-sm hover:shadow-lg transition-shadow">
-                <div className="flex-grow">
-                  <h2 className="text-xl font-semibold mb-2 leading-tight">
-                    <Link href={item.itemLink} className="hover:text-primary transition-colors">
-                      {item.frontmatter.title}
-                    </Link>
-                  </h2>
-                  {isValidDate && (
-                    <p className="text-xs text-muted-foreground mb-3 flex items-center">
-                      <CalendarDays className="h-3.5 w-3.5 mr-1.5 shrink-0" />
-                      {itemDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}
-                    </p>
-                  )}
-                  <p className="text-sm text-muted-foreground mb-4 line-clamp-4 leading-relaxed">
-                    {item.frontmatter.summary || item.content.substring(0, 180).replace(/#.*$/gm, '').replace(/[\*\`\[\]]/g, '').trim() + '...'}
-                  </p>
-                </div>
-                <div className="mt-auto">
-                  <Button variant="outline" size="sm" asChild>
-                    <Link href={item.itemLink}>
-                      View Item <ArrowRight className="h-4 w-4 ml-2" />
-                    </Link>
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      </div>
-    );
-  }
-  
-  return <div className="p-4 text-center">Unable to determine content type.</div>;
 }
 
 ================================================================================
@@ -2254,7 +2553,7 @@ File: stores/useAppStore.ts
 // src/stores/useAppStore.ts
 import { create } from 'zustand';
 // AppState is now updated in src/types/index.ts
-import { AppState, LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types'; 
+import { AppState, LocalSiteData, SiteConfigFile } from '@/types'; 
 import * as localSiteFs from '@/lib/localSiteFs';
 
 // The AppStore interface now correctly extends the modified AppState
@@ -2378,53 +2677,46 @@ File: components/publishing/MarkdownEditor.tsx
 'use client';
 
 import React, { useEffect, useRef, useState } from 'react';
-import { Textarea } from '@/components/ui/textarea'; // Assuming shadcn/ui Textarea
+import { Textarea } from '@/components/ui/textarea';
 
 interface MarkdownEditorProps {
-  initialValue: string; // The full raw markdown string (frontmatter + body)
-  onChange: (value: string) => void;
-  // Add other props like onSave, etc., if needed later
+  initialValue: string;
+  onChange: (bodyContent: string) => void;
 }
 
 export default function MarkdownEditor({ initialValue, onChange }: MarkdownEditorProps) {
-  // Use local state to manage the editor's content to avoid re-rendering
-  // the entire page on every keystroke if onChange prop causes parent re-renders.
-  // However, for controlled components, passing value directly from parent state is also common.
-  // Let's keep it simple for now and assume parent handles debouncing or performance if needed.
   const [currentValue, setCurrentValue] = useState(initialValue);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Update local state if initialValue prop changes (e.g., when a different file is loaded)
   useEffect(() => {
-    setCurrentValue(initialValue);
-  }, [initialValue]);
+    // Only update if initialValue truly differs from currentValue to avoid cursor jumps
+    // This is important if parent re-renders frequently but initialValue for editor hasn't changed
+    if (initialValue !== currentValue) {
+      setCurrentValue(initialValue);
+    }
+  }, [initialValue, currentValue]); // Added currentValue back as per ESLint, condition handles loops
 
   const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = event.target.value;
     setCurrentValue(newValue);
-    onChange(newValue); // Propagate change to parent immediately
+    onChange(newValue); 
   };
 
-  // Optional: Add keyboard shortcuts like Tab for indentation
   const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Tab') {
+    if (event.key === 'Tab' && !event.shiftKey) {
       event.preventDefault();
       const target = event.target as HTMLTextAreaElement;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-
-      // Insert tab character (or spaces)
-      const tab = '  '; // Use 2 spaces for a tab, adjust as needed
-      const newValue = currentValue.substring(0, start) + tab + currentValue.substring(end);
+      const { selectionStart, selectionEnd } = target;
+      const tab = '  ';
+      
+      const newValue = currentValue.substring(0, selectionStart) + tab + currentValue.substring(selectionEnd);
       
       setCurrentValue(newValue);
-      onChange(newValue); // Propagate change
+      onChange(newValue);
 
-      // Move cursor after inserted tab
-      // Needs a slight delay for the state update to reflect in the DOM
       setTimeout(() => {
         if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + tab.length;
+          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = selectionStart + tab.length;
         }
       }, 0);
     }
@@ -2435,40 +2727,15 @@ export default function MarkdownEditor({ initialValue, onChange }: MarkdownEdito
       ref={textareaRef}
       value={currentValue}
       onChange={handleChange}
-      onKeyDown={handleKeyDown} // Add tab support
+      onKeyDown={handleKeyDown}
       placeholder={
-`---
-title: Your Post Title
-date: YYYY-MM-DD 
-# Add other frontmatter fields here, e.g.:
-# tags: ["tag1", "tag2"]
-# summary: "A brief summary of your post."
-# draft: false
----
+`# Your Main Heading
 
-# Your Main Heading
-
-Start writing your Markdown content here. 
-Use standard Markdown syntax.
-
-- Create lists
-- **Bold text**
-- *Italic text*
-- [Links](https://example.com)
-- \`Inline code\`
-
-\`\`\`javascript
-// Code blocks
-function hello() {
-  console.log("Hello, Signum!");
-}
-\`\`\`
-`}
-      className="w-full flex-1 font-mono text-sm min-h-[calc(100vh-250px)] 
+Start writing your Markdown content here.`}
+      className="w-full flex-1 font-mono text-sm min-h-[calc(100%-50px)] 
                  p-4 border rounded-md shadow-sm 
-                 focus-visible:ring-1 focus-visible:ring-ring" 
-      // Adjust min-h as needed based on your layout's header/footer/button heights
-      // Added some basic styling matching typical input fields
+                 focus-visible:ring-1 focus-visible:ring-ring"
+      // Adjusted min-height assuming parent provides fixed height for overall editor area
     />
   );
 }
@@ -2481,18 +2748,19 @@ File: components/publishing/FileTree.tsx
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { TreeNode } from '@/lib/fileTreeUtils';
-import { ChevronRight, Folder, FileText, FolderOpen } from 'lucide-react';
+import { type TreeNode } from '@/lib/fileTreeUtils';
+import { ChevronRight, Folder, FileText as FileTextIcon, FolderOpen, PlusSquare, FolderPlus as FolderPlusIcon } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils'; // For conditional class names (from shadcn/ui setup)
+import { cn } from '@/lib/utils';
+// import { useRouter } from 'next/navigation'; // Can be used if needed
 
 interface FileTreeProps {
   nodes: TreeNode[];
-  baseEditPath: string; // e.g., /edit/siteId/content
-  currentOpenFile?: string; // Full path of the currently open file, e.g., "content/posts/my-post.md"
-  onNodeClick?: (node: TreeNode) => void; // For handling clicks if not navigation
-  onFileCreate?: (parentPath: string) => void; // Callback to create file in parentPath
-  onFolderCreate?: (parentPath: string) => void; // Callback to create folder in parentPath
+  baseEditPath: string;
+  currentOpenFile?: string;
+  onNodeClick?: (node: TreeNode) => void;
+  onFileCreate: (parentPath: string) => void;
+  onFolderCreate: (parentPath: string) => void;
 }
 
 interface FileTreeNodeProps {
@@ -2500,85 +2768,86 @@ interface FileTreeNodeProps {
   baseEditPath: string;
   currentOpenFile?: string;
   onNodeClick?: (node: TreeNode) => void;
-  onFileCreate?: (parentPath: string) => void;
-  onFolderCreate?: (parentPath: string) => void;
+  onFileCreate: (parentPath: string) => void;
+  onFolderCreate: (parentPath: string) => void;
   level: number;
 }
 
 const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({ 
     node, baseEditPath, currentOpenFile, onNodeClick, onFileCreate, onFolderCreate, level 
 }) => {
-  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); // Folders default open for now
+  const [isOpen, setIsOpen] = useState(node.type === 'folder' ? true : false); 
+  // const router = useRouter(); // Use if direct navigation is needed beyond Link
 
   const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation if clicking on chevron
+    e.stopPropagation();
     if (node.type === 'folder') {
       setIsOpen(!isOpen);
     }
   };
 
-  const Icon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileText;
-  const indent = level * 16; // 16px per level
+  const NodeIcon = node.type === 'folder' ? (isOpen ? FolderOpen : Folder) : FileTextIcon;
+  const indent = level * 16;
 
-  // Path for editing: remove 'content/' prefix and '.md' suffix for files
-  const editSlug = node.path.startsWith('content/') ? node.path.substring('content/'.length) : node.path;
-  const finalEditSlug = node.type === 'file' ? editSlug.replace(/\.md$/, '') : editSlug;
-  const editHref = node.type === 'file' ? `${baseEditPath}/${finalEditSlug}` : '#'; // Folders are not directly editable via link for now
+  const editSlugOrPathSegment = node.path.startsWith('content/') 
+    ? node.path.substring('content/'.length) 
+    : node.path;
+  
+  const finalEditSlug = node.type === 'file' 
+    ? editSlugOrPathSegment.replace(/\.md$/, '') 
+    : editSlugOrPathSegment; // For folders, this is the path segment
+
+  const editHref = `${baseEditPath}/${finalEditSlug}`;
 
   const isSelected = node.type === 'file' && node.path === currentOpenFile;
 
-  const handleNodeClick = () => {
-    if (onNodeClick) {
-      onNodeClick(node);
-    }
-    if (node.type === 'folder' && !onNodeClick) { // Default behavior if no onNodeClick for folder
-        setIsOpen(!isOpen);
-    }
-  };
+  // Removed unused handleNodeClickInternal
 
   return (
     <div className="text-sm">
       <div
-        onClick={handleNodeClick}
         className={cn(
-            "flex items-center py-1.5 pr-2 rounded-md hover:bg-muted cursor-pointer group",
+            "flex items-center py-1.5 pr-1 rounded-md hover:bg-muted group relative",
             isSelected && "bg-accent text-accent-foreground hover:bg-accent/90"
         )}
         style={{ paddingLeft: `${indent}px` }}
       >
         {node.type === 'folder' && (
           <ChevronRight
-            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", isOpen && "rotate-90")}
-            onClick={handleToggle} // Allow toggling by clicking chevron
+            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90")}
+            onClick={handleToggle}
           />
         )}
-        <Icon className={cn("h-4 w-4 mr-2 shrink-0", node.type === 'folder' ? 'text-blue-500' : 'text-gray-500')} />
-        {node.type === 'file' ? (
-            <Link href={editHref} className="truncate flex-grow" title={node.name}>
-                {node.name.replace(/\.md$/, '')}
-            </Link>
-        ) : (
-            <span className="truncate flex-grow font-medium" title={node.name}>{node.name}</span>
-        )}
+        {!node.type && <div className="w-5 shrink-0"></div>} {/* Adjusted for alignment */}
+        
+        <NodeIcon className={cn("h-4 w-4 mr-1.5 shrink-0", node.type === 'folder' ? 'text-amber-500' : 'text-sky-500')} />
+        
+        <Link href={editHref} className="truncate flex-grow" title={node.name}>
+            {node.name}
+        </Link>
 
-        {/* Action buttons (visible on hover over the node's div) - Basic Example */}
-        {node.type === 'folder' && (
-            <div className="ml-auto hidden group-hover:flex items-center gap-1">
-                {onFileCreate && (
-                    <Button variant="ghost" size="sm" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
-                        <FileText className="h-3 w-3" />
+        <div className="ml-auto hidden group-hover:flex items-center gap-0.5 absolute right-1 top-1/2 -translate-y-1/2 bg-muted p-0.5 rounded shadow-sm">
+            {node.type === 'folder' && (
+                <>
+                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New File in Folder" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
+                        <PlusSquare className="h-3.5 w-3.5" />
                     </Button>
-                )}
-                {onFolderCreate && (
-                     <Button variant="ghost" size="sm" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
-                        <Folder className="h-3 w-3" />
+                    <Button variant="ghost" size="icon" className="h-6 w-6" title="New Subfolder" onClick={(e) => { e.stopPropagation(); onFolderCreate(node.path); }}>
+                        <FolderPlusIcon className="h-3.5 w-3.5" />
                     </Button>
-                )}
-            </div>
-        )}
+                </>
+            )}
+            {/* Example for file actions (e.g., delete)
+            {node.type === 'file' && (
+                <Button variant="ghost" size="icon" className="h-6 w-6" title="Delete File" onClick={(e) => { e.stopPropagation(); console.log('delete file:', node.path); }}>
+                    <Trash2 className="h-3.5 w-3.5 text-destructive" />
+                </Button>
+            )}
+            */}
+        </div>
       </div>
       {node.type === 'folder' && isOpen && node.children && node.children.length > 0 && (
-        <div className="pl-0"> {/* No extra padding here, handled by node's style */}
+        <div className="pl-0">
           {node.children.map(childNode => (
             <FileOrFolderNode 
                 key={childNode.id} 
@@ -2594,7 +2863,7 @@ const FileOrFolderNode: React.FC<FileTreeNodeProps> = ({
         </div>
       )}
       {node.type === 'folder' && isOpen && (!node.children || node.children.length === 0) && (
-        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16}px` }}>
+        <div className="py-1 pr-2 text-xs text-muted-foreground" style={{ paddingLeft: `${indent + 16 + 4 + 16 + 4}px` }}> {/* Adjusted padding */}
             (empty)
         </div>
       )}
@@ -2642,7 +2911,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select"; // Assuming shadcn/ui Select
+} from "@/components/ui/select";
 
 interface SiteConfigFormProps {
   initialConfig: SiteConfigFile;
@@ -2651,7 +2920,7 @@ interface SiteConfigFormProps {
 
 export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteConfigFormProps) {
   
-  // Generic handler for top-level config fields
+  // Generic handler for top-level config fields (including new style fields)
   const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     onConfigChange({ 
@@ -2660,36 +2929,36 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
     });
   }, [initialConfig, onConfigChange]);
 
-  // Specific handler for style_hints (which are nested)
-  const handleStyleHintChange = useCallback((e: React.ChangeEvent<HTMLInputElement> | string, name: keyof NonNullable<SiteConfigFile['style_hints']>) => {
-    let value: string;
-    if (typeof e === 'string') {
-        value = e; // For Select components that return string value directly
-    } else {
-        value = e.target.value;
-    }
-
+  // Specific handler for Select components which return value directly
+  const handleSelectChange = useCallback((name: keyof SiteConfigFile, value: string) => {
     onConfigChange({
       ...initialConfig,
-      style_hints: {
-        ...initialConfig.style_hints, // Spread existing style_hints
-        [name]: value,
-      },
+      [name]: value,
     });
   }, [initialConfig, onConfigChange]);
 
-  const currentConfig = initialConfig; // Use initialConfig directly as it's updated by parent
+
+  // Handler specifically for the primary_color text input to ensure it also updates the color picker
+  // and for the color picker to update the text input.
+  const handlePrimaryColorChange = useCallback((value: string) => {
+    onConfigChange({
+        ...initialConfig,
+        primary_color: value,
+    });
+  }, [initialConfig, onConfigChange]);
+
+
+  const currentConfig = initialConfig;
 
   return (
     <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
-      {/* General Site Information */}
       <fieldset className="space-y-4 border p-4 rounded-md">
         <legend className="text-lg font-semibold px-1">General Information</legend>
         <div>
           <Label htmlFor="title" className="block text-sm font-medium text-foreground mb-1">Site Title *</Label>
           <Input
             id="title"
-            name="title"
+            name="title" // Corresponds to SiteConfigFile key
             value={currentConfig.title || ''}
             onChange={handleChange}
             placeholder="My Awesome Signum Blog"
@@ -2703,7 +2972,7 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
           <Label htmlFor="description" className="block text-sm font-medium text-foreground mb-1">Site Description</Label>
           <Textarea
             id="description"
-            name="description"
+            name="description" // Corresponds to SiteConfigFile key
             value={currentConfig.description || ''}
             onChange={handleChange}
             placeholder="A short and catchy description of what your site is about."
@@ -2717,7 +2986,7 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
           <Label htmlFor="author" className="block text-sm font-medium text-foreground mb-1">Author Name</Label>
           <Input
             id="author"
-            name="author"
+            name="author" // Corresponds to SiteConfigFile key
             value={currentConfig.author || ''}
             onChange={handleChange}
             placeholder="John Doe"
@@ -2727,16 +2996,15 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
         </div>
       </fieldset>
 
-      {/* Style Hints */}
       <fieldset className="space-y-4 border p-4 rounded-md">
         <legend className="text-lg font-semibold px-1">Appearance</legend>
         <div>
-          <Label htmlFor="style_font_family" className="block text-sm font-medium text-foreground mb-1">Font Family</Label>
+          <Label htmlFor="font_family" className="block text-sm font-medium text-foreground mb-1">Font Family</Label>
           <Select
-            value={currentConfig.style_hints?.font_family || 'sans-serif'}
-            onValueChange={(value) => handleStyleHintChange(value, 'font_family')}
+            value={currentConfig.font_family || 'sans-serif'}
+            onValueChange={(value) => handleSelectChange('font_family', value)}
           >
-            <SelectTrigger id="style_font_family" className="w-full mt-1">
+            <SelectTrigger id="font_family" className="w-full mt-1">
               <SelectValue placeholder="Select font family" />
             </SelectTrigger>
             <SelectContent>
@@ -2749,12 +3017,12 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
         </div>
 
         <div>
-          <Label htmlFor="style_theme" className="block text-sm font-medium text-foreground mb-1">Color Theme</Label>
+          <Label htmlFor="theme" className="block text-sm font-medium text-foreground mb-1">Color Theme</Label>
           <Select
-            value={currentConfig.style_hints?.theme || 'light'}
-            onValueChange={(value) => handleStyleHintChange(value, 'theme')}
+            value={currentConfig.theme || 'light'}
+            onValueChange={(value) => handleSelectChange('theme', value)}
           >
-            <SelectTrigger id="style_theme" className="w-full mt-1">
+            <SelectTrigger id="theme" className="w-full mt-1">
               <SelectValue placeholder="Select color theme" />
             </SelectTrigger>
             <SelectContent>
@@ -2763,43 +3031,178 @@ export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteCo
               <SelectItem value="auto">System Preference</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground mt-1">Select the preferred color scheme. 'System' will adapt to user's OS settings.</p>
+          <p className="text-xs text-muted-foreground mt-1">Select the preferred color scheme. &apos;System&apos; will adapt to user&apos;s OS settings.</p>
         </div>
         
         <div>
-          <Label htmlFor="style_primary_color" className="block text-sm font-medium text-foreground mb-1">Primary Accent Color</Label>
+          <Label htmlFor="primary_color_text_input" className="block text-sm font-medium text-foreground mb-1">Primary Accent Color</Label>
           <div className="flex items-center space-x-2 mt-1">
             <Input
-              id="style_primary_color_text"
-              name="primary_color_text" // Different name to avoid conflict if used elsewhere
+              id="primary_color_text_input"
+              name="primary_color" // Corresponds to SiteConfigFile key
               type="text"
-              value={currentConfig.style_hints?.primary_color || '#007AFF'}
-              onChange={(e) => handleStyleHintChange(e, 'primary_color')}
+              value={currentConfig.primary_color || '#007AFF'}
+              onChange={(e) => handlePrimaryColorChange(e.target.value)} // Use dedicated handler
               placeholder="#007AFF"
               className="block w-full"
-              pattern="^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$" // Basic hex color pattern
+              pattern="^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
             />
             <Input
-              id="style_primary_color_picker"
-              name="primary_color_picker"
+              id="primary_color_picker" // Different ID for the picker itself
+              name="primary_color_picker_input" // Not directly tied to SiteConfigFile key
               type="color"
-              value={currentConfig.style_hints?.primary_color || '#007AFF'}
-              onChange={(e) => handleStyleHintChange(e, 'primary_color')}
-              className="h-10 w-12 p-1 cursor-pointer border-input" // Match height of text input
+              value={currentConfig.primary_color || '#007AFF'}
+              onChange={(e) => handlePrimaryColorChange(e.target.value)} // Use dedicated handler
+              className="h-10 w-12 p-1 cursor-pointer border-input rounded-md"
             />
           </div>
           <p className="text-xs text-muted-foreground mt-1">Choose an accent color (e.g., for links). Use a hex value like #RRGGBB.</p>
         </div>
       </fieldset>
-
-      {/* Add more fieldsets for other configuration sections as needed */}
-      {/* For example:
-      <fieldset className="space-y-4 border p-4 rounded-md">
-        <legend className="text-lg font-semibold px-1">Advanced Settings</legend>
-        <p className="text-sm text-muted-foreground">Future advanced settings will go here.</p>
-      </fieldset>
-      */}
     </form>
+  );
+}
+
+================================================================================
+
+File: components/publishing/FrontmatterSidebar.tsx
+// src/components/publishing/FrontmatterSidebar.tsx
+'use client';
+
+import React from 'react';
+import type { MarkdownFrontmatter } from '@/types'; // Use 'type' import
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { slugify } from '@/lib/utils';
+
+interface FrontmatterSidebarProps {
+  frontmatter: MarkdownFrontmatter;
+  onFrontmatterChange: (newFrontmatter: MarkdownFrontmatter) => void;
+  isNewFileMode: boolean;
+  proposedSlug: string;
+  onProposedSlugChange?: (newSlug: string) => void;
+}
+
+export default function FrontmatterSidebar({
+  frontmatter,
+  onFrontmatterChange,
+  isNewFileMode,
+  proposedSlug,
+  onProposedSlugChange,
+}: FrontmatterSidebarProps) {
+  
+  const handleChange = (
+    field: keyof MarkdownFrontmatter, 
+    value: string | string[] | undefined // Allow undefined for optional fields like date
+  ) => {
+    const newFrontmatterData = { ...frontmatter, [field]: value };
+    
+    if (field === 'title' && isNewFileMode && onProposedSlugChange && typeof value === 'string') {
+        onProposedSlugChange(slugify(value));
+    }
+    
+    onFrontmatterChange(newFrontmatterData);
+  };
+
+  const handleTagsChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const tagsString = e.target.value;
+    const tagsArray = tagsString.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+    handleChange('tags', tagsArray);
+  };
+
+  return (
+    <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
+      <h2 className="text-lg font-semibold border-b pb-2">Metadata</h2>
+
+      <div>
+        <Label htmlFor="fm-title" className="block text-sm font-medium mb-1">Title *</Label>
+        <Input
+          id="fm-title"
+          type="text"
+          value={frontmatter.title || ''}
+          onChange={(e) => handleChange('title', e.target.value)}
+          placeholder="Enter post title"
+          required
+          className="mt-1"
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="fm-slug" className="block text-sm font-medium mb-1">Slug (URL part)</Label>
+        <Input
+          id="fm-slug"
+          type="text"
+          value={proposedSlug}
+          readOnly={!isNewFileMode || !onProposedSlugChange}
+          onChange={(e) => isNewFileMode && onProposedSlugChange && onProposedSlugChange(e.target.value)}
+          placeholder="auto-generated-from-title"
+          className="mt-1 bg-muted/50 border-dashed"
+        />
+        {isNewFileMode && <p className="text-xs text-muted-foreground mt-1">Auto-generated. Editable before first save.</p>}
+        {!isNewFileMode && <p className="text-xs text-muted-foreground mt-1">Slug is fixed after creation.</p>}
+      </div>
+
+      <div>
+        <Label htmlFor="fm-date" className="block text-sm font-medium mb-1">Date</Label>
+        <Input
+          id="fm-date"
+          type="date"
+          value={frontmatter.date ? frontmatter.date.split('T')[0] : ''}
+          onChange={(e) => handleChange('date', e.target.value ? new Date(e.target.value).toISOString().split('T')[0] : undefined)}
+          className="mt-1"
+        />
+         <p className="text-xs text-muted-foreground mt-1">Format: YYYY-MM-DD. Defaults to today for new files.</p>
+      </div>
+
+      <div>
+        <Label htmlFor="fm-status" className="block text-sm font-medium mb-1">Status</Label>
+        <Select
+          value={frontmatter.status || 'draft'}
+          onValueChange={(value) => handleChange('status', value as 'draft' | 'published')}
+        >
+          <SelectTrigger id="fm-status" className="w-full mt-1">
+            <SelectValue placeholder="Select status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="draft">Draft</SelectItem>
+            <SelectItem value="published">Published</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      
+      <div>
+        <Label htmlFor="fm-summary" className="block text-sm font-medium mb-1">Summary</Label>
+        <Textarea
+          id="fm-summary"
+          value={frontmatter.summary || ''}
+          onChange={(e) => handleChange('summary', e.target.value)}
+          placeholder="A brief summary of the content (optional)."
+          rows={3}
+          className="mt-1"
+        />
+      </div>
+
+      <div>
+        <Label htmlFor="fm-tags" className="block text-sm font-medium mb-1">Tags</Label>
+        <Input
+          id="fm-tags"
+          type="text"
+          value={(frontmatter.tags || []).join(', ')}
+          onChange={handleTagsChange}
+          placeholder="tag1, another-tag, keyword"
+          className="mt-1"
+        />
+        <p className="text-xs text-muted-foreground mt-1">Comma-separated list of tags.</p>
+      </div>
+    </aside>
   );
 }
 
@@ -3736,30 +4139,380 @@ export function parseSiteIdentifier(siteIdParam: string | string[] | undefined):
 
 ================================================================================
 
+File: lib/siteExporter.ts
+// src/lib/siteExporter.ts
+import { LocalSiteData, ParsedMarkdownFile, SiteConfigFile } from '@/types';
+import { renderPageLayout } from '@/themes/default/layout';
+import { renderHeader } from '@/themes/default/partials/header';
+import { renderFooter } from '@/themes/default/partials/footer';
+import { renderArticleContent } from '@/themes/default/partials/article';
+import { renderCollectionListContent, type CollectionItemForTemplate } from '@/themes/default/partials/collection';
+import { marked } from 'marked';
+import yaml from 'js-yaml';
+import JSZip from 'jszip';
+import { slugify } from './utils';
+import type { NavLinkItem } from '@/types';
+import { stringifyToMarkdown } from './markdownParser';
+
+const SIGNUM_DIR = '_signum';
+const CONTENT_DIR_IN_SIGNUM = `${SIGNUM_DIR}/content`;
+const CSS_DIR_EXPORT = 'css';
+const JS_DIR_EXPORT = 'js';
+
+interface GeneratedFile {
+  path: string;
+  content: string | Uint8Array;
+}
+
+function escapeForXml(str: string | undefined): string {
+    if (str === undefined || str === null) return '';
+    return String(str).replace(/[<>&"']/g, function (match) {
+        switch (match) {
+            case '<': return '<';
+            case '>': return '>';
+            case '&': return '&';
+            case '"': return '"';
+            case "'": return "'";
+            default: return match;
+        }
+    });
+}
+
+// This function needs to be robust and mirror live navigation logic as closely as possible
+function getSsgNavLinks(siteData: LocalSiteData, siteRootPath: string): NavLinkItem[] {
+    const navLinks: NavLinkItem[] = [];
+    const homePath = siteRootPath.endsWith('/') ? siteRootPath : `${siteRootPath}/`;
+    navLinks.push({ href: homePath, label: "Home", iconName: "home", isActive: false });
+
+    const collections = new Map<string, {label: string}>(); // Simplified for nav link generation
+    const topLevelPages = new Map<string, ParsedMarkdownFile>();
+
+    siteData.contentFiles.forEach(file => {
+        if (file.frontmatter.draft || file.frontmatter.status === 'draft') return;
+        
+        const relativePath = file.path.replace(/^content\//i, ''); // Case insensitive replace
+        const pathParts = relativePath.split('/');
+        
+        if (pathParts.length > 1 && pathParts[0].toLowerCase() !== 'index.md') {
+            const collectionSlug = pathParts[0];
+            if (!collections.has(collectionSlug)) {
+                const collectionConfig = siteData.config.collections?.find(c => c.path.toLowerCase() === collectionSlug.toLowerCase());
+                collections.set(collectionSlug, {
+                    label: collectionConfig?.nav_label || collectionSlug.charAt(0).toUpperCase() + collectionSlug.slice(1)
+                });
+            }
+        } else if (pathParts.length === 1 && relativePath.toLowerCase() !== 'index.md') {
+            const slug = relativePath.replace(/\.md$/i, '');
+            topLevelPages.set(slug, file);
+        }
+    });
+
+    topLevelPages.forEach((file, slug) => {
+        navLinks.push({
+            href: `${siteRootPath}${slug}.html`.replace(/\/\//g, '/'),
+            label: file.frontmatter.title || slug,
+            iconName: "file-text", 
+            isActive: false,
+        });
+    });
+
+    collections.forEach((collectionData, collectionSlug) => {
+        navLinks.push({
+            href: `${siteRootPath}${collectionSlug}/index.html`.replace(/\/\//g, '/'),
+            label: collectionData.label,
+            iconName: "folder",
+            isActive: false,
+        });
+    });
+    
+    return navLinks.filter((link, index, self) => 
+        index === self.findIndex((l) => (l.href === link.href))
+    );
+}
+
+
+export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
+  const zip = new JSZip();
+  const generatedFiles: GeneratedFile[] = [];
+  const siteRootPathForLinks = '/'; 
+
+  console.log("[Exporter] Starting site export process...");
+
+  const publicContentFiles = siteData.contentFiles.filter(
+    (f) => !f.frontmatter.draft && f.frontmatter.status !== 'draft'
+  );
+
+  const ssgNavLinks = getSsgNavLinks(siteData, siteRootPathForLinks);
+  const siteHeaderHtml = renderHeader(siteData.config, ssgNavLinks, siteRootPathForLinks);
+  const siteFooterHtml = renderFooter(siteData.config);
+
+  const filesByCollection: Record<string, ParsedMarkdownFile[]> = {};
+  const topLevelPages: ParsedMarkdownFile[] = [];
+  
+  publicContentFiles.forEach((file) => {
+      const pathParts = file.path.replace(/^content\//i, '').split('/');
+      if (pathParts.length > 1 && pathParts[0].toLowerCase() !== 'index.md') {
+          const collectionName = pathParts[0];
+          if (!filesByCollection[collectionName]) filesByCollection[collectionName] = [];
+          if (pathParts[pathParts.length -1].toLowerCase() !== 'index.md') {
+              filesByCollection[collectionName].push(file);
+          }
+      } else {
+          topLevelPages.push(file);
+      }
+  });
+
+  console.log(`[Exporter] Found ${topLevelPages.length} top-level pages and ${Object.keys(filesByCollection).length} collections.`);
+
+  // Generate single pages (and site index.html)
+  for (const file of topLevelPages) {
+    const articleMainContentHtml = renderArticleContent(file); // Uses partial
+    const pageHtml = renderPageLayout(
+        siteData.config, 
+        file.frontmatter.title || file.slug, 
+        siteHeaderHtml, 
+        articleMainContentHtml, 
+        siteFooterHtml
+    );
+    
+    const exportPath = (file.path.toLowerCase() === 'content/index.md') 
+        ? 'index.html' 
+        : `${file.path.replace(/^content\//i, '').replace(/\.md$/i, '')}.html`;
+    generatedFiles.push({ path: exportPath, content: pageHtml });
+    console.log(`[Exporter] Generated HTML for: ${exportPath}`);
+  }
+
+  // Generate collection pages
+  for (const collectionName in filesByCollection) {
+    const items = filesByCollection[collectionName];
+    items.sort((a, b) => { 
+        const dateA = a.frontmatter.date ? new Date(a.frontmatter.date).getTime() : 0;
+        const dateB = b.frontmatter.date ? new Date(b.frontmatter.date).getTime() : 0;
+        if(dateA === 0 && dateB === 0) return (a.frontmatter.title || '').localeCompare(b.frontmatter.title || '');
+        return dateB - dateA; 
+    });
+
+    const collectionItemsForTemplate: CollectionItemForTemplate[] = items.map(item => {
+        const itemPathSegment = item.path.replace(/^content\//i, '').replace(/\.md$/i, '');
+        // Generate teaser: use summary, or first ~150 chars of content (plaintext)
+        let teaser = item.frontmatter.summary || '';
+        if (!teaser) {
+            const plainTextContent = (item.content || '').replace(/<[^>]+>/gm, '').replace(/\s+/g, ' ').trim(); // Basic strip HTML
+            teaser = plainTextContent.substring(0, 150) + (plainTextContent.length > 150 ? '...' : '');
+        }
+        return {
+            slug: item.slug, // Pass slug through
+            path: item.path, // Pass path through
+            frontmatter: item.frontmatter, // Pass frontmatter through
+            itemLink: `${siteRootPathForLinks}${itemPathSegment}.html`.replace(/\/\//g,'/'),
+            summaryOrContentTeaser: escapeForXml(teaser), // Escape the teaser for HTML
+        };
+    });
+
+    const collectionIndexFile = publicContentFiles.find(
+        f => f.path.toLowerCase() === `content/${collectionName}/index.md`.toLowerCase()
+    );
+    let collectionIndexBodyHtmlRendered = '';
+    let collectionPageTitle = collectionName.charAt(0).toUpperCase() + collectionName.slice(1);
+    const collectionConfig = siteData.config.collections?.find(c => c.path.toLowerCase() === collectionName.toLowerCase());
+    if(collectionConfig?.nav_label) collectionPageTitle = collectionConfig.nav_label;
+
+    if (collectionIndexFile) {
+        collectionPageTitle = collectionIndexFile.frontmatter.title || collectionPageTitle;
+        collectionIndexBodyHtmlRendered = marked.parse(collectionIndexFile.content || '') as string;
+    }
+    
+    const collectionListMainContentHtml = renderCollectionListContent(
+      collectionPageTitle, 
+      collectionItemsForTemplate,
+      collectionIndexBodyHtmlRendered 
+    );
+    
+    const fullCollectionPageHtml = renderPageLayout(
+        siteData.config, 
+        collectionPageTitle, 
+        siteHeaderHtml, 
+        collectionListMainContentHtml, 
+        siteFooterHtml
+    );
+    generatedFiles.push({ path: `${collectionName}/index.html`, content: fullCollectionPageHtml });
+    console.log(`[Exporter] Generated HTML for collection index: ${collectionName}/index.html`);
+
+    // Generate individual item pages within collections
+    for (const item of items) { 
+      const articleMainContentHtml = renderArticleContent(item); // Use partial
+      const itemPageHtml = renderPageLayout(
+          siteData.config, 
+          item.frontmatter.title || item.slug, 
+          siteHeaderHtml, 
+          articleMainContentHtml, 
+          siteFooterHtml
+      );
+      const itemExportPath = item.path.replace(/^content\//i, '').replace(/\.md$/i, '.html');
+      generatedFiles.push({ path: itemExportPath, content: itemPageHtml });
+      console.log(`[Exporter] Generated HTML for collection item: ${itemExportPath}`);
+    }
+  }
+
+  // --- Asset Copying (CSS & JS) ---
+  const themeStylePath = '/themes/default/style.css';
+  const themeScriptPath = '/themes/default/scripts.js';
+  try { 
+    console.log(`[Exporter] Fetching theme CSS from: ${themeStylePath}`);
+    const styleCssResponse = await fetch(themeStylePath);
+    if (!styleCssResponse.ok) throw new Error(`Failed to fetch style.css (${styleCssResponse.status})`);
+    const styleCssContent = await styleCssResponse.text();
+    if (styleCssContent.toLowerCase().includes('<!doctype html>')) {
+        console.error(`[Exporter] Fetched HTML instead of CSS from ${themeStylePath}. Check file exists in /public and no route conflict.`);
+    } else {
+        generatedFiles.push({ path: `${CSS_DIR_EXPORT}/style.css`, content: styleCssContent });
+        console.log(`[Exporter] Added ${CSS_DIR_EXPORT}/style.css to bundle.`);
+    }
+  } catch (e) { console.warn(`[Exporter] CSS fetch error:`, e); }
+
+  try { 
+    console.log(`[Exporter] Fetching theme JS from: ${themeScriptPath}`);
+    const scriptsJsResponse = await fetch(themeScriptPath);
+    if (!scriptsJsResponse.ok) throw new Error(`Failed to fetch scripts.js (${scriptsJsResponse.status})`);
+    const scriptsJsContent = await scriptsJsResponse.text();
+     if (scriptsJsContent.toLowerCase().includes('<!doctype html>')) {
+        console.error(`[Exporter] Fetched HTML instead of JS from ${themeScriptPath}. Check file exists in /public and no route conflict.`);
+    } else {
+        generatedFiles.push({ path: `${JS_DIR_EXPORT}/scripts.js`, content: scriptsJsContent });
+        console.log(`[Exporter] Added ${JS_DIR_EXPORT}/scripts.js to bundle.`);
+    }
+  } catch (e) { console.warn(`[Exporter] JS fetch error:`, e); }
+
+  // --- _signum Data Packaging ---
+    const siteYamlContent = yaml.dump(siteData.config);
+    generatedFiles.push({ path: `${SIGNUM_DIR}/site.yaml`, content: siteYamlContent });
+    console.log(`[Exporter] Added ${SIGNUM_DIR}/site.yaml`);
+
+    for (const file of siteData.contentFiles) { 
+        const rawMarkdown = stringifyToMarkdown(file.frontmatter, file.content);
+        generatedFiles.push({ path: `${SIGNUM_DIR}/${file.path}`, content: rawMarkdown });
+    }
+    console.log(`[Exporter] Added ${siteData.contentFiles.length} raw content files to ${SIGNUM_DIR}/content`);
+    
+    // Manifest generation
+    const manifest = {
+        siteId: siteData.siteId.replace(/^remote-/, ''),
+        title: siteData.config.title,
+        description: siteData.config.description,
+        lastUpdatedSite: new Date().toISOString(),
+        generatorVersion: 'SignumClient/0.1.0',
+        entries: publicContentFiles.map(file => {
+            let htmlPath = '';
+            const relativePathNoExt = file.path.replace(/^content\//i, '').replace(/\.md$/i, '');
+            const pathParts = file.path.replace(/^content\//i, '').split('/');
+
+            if (file.path.toLowerCase() === 'content/index.md') {
+                htmlPath = 'index.html';
+            } else if (pathParts.length > 1 && pathParts[pathParts.length - 1].toLowerCase() === 'index.md') {
+                htmlPath = `${pathParts.slice(0, -1).join('/')}/index.html`;
+            } else {
+                htmlPath = `${relativePathNoExt}.html`;
+            }
+            htmlPath = htmlPath.replace(/^\//, '').replace(/\/\//g, '/'); // Clean path
+
+            return {
+                type: file.path.toLowerCase().endsWith('index.md') ? 'collection_index' : 'page',
+                status: file.frontmatter.status || 'published',
+                sourcePath: `${SIGNUM_DIR}/${file.path}`, 
+                htmlPath: htmlPath,
+                url: `${siteRootPathForLinks}${htmlPath}`.replace(/\/\//g,'/'), // Relative URL path
+                title: file.frontmatter.title, 
+                date: file.frontmatter.date, 
+                slug: file.slug,
+            };
+        }),
+    };
+    generatedFiles.push({ path: `${SIGNUM_DIR}/manifest.json`, content: JSON.stringify(manifest, null, 2) });
+    console.log(`[Exporter] Generated ${SIGNUM_DIR}/manifest.json`);
+
+    const signumIndexHtml = `<!DOCTYPE html><html><head><title>Signum Site Data</title><meta charset="utf-8"><style>body{font-family: sans-serif; padding: 2em; text-align: center;} h1{color: #333;} p{color:#555;}</style></head><body><h1>This is a Signum Site</h1><p>This <code>_signum</code> directory contains the raw source data and manifest for this website, intended for use by Signum clients and compatible tools.</p><p><a href="https://signum.dev" target="_blank" rel="noopener">Learn more about Signum</a> (hypothetical link)</p></body></html>`;
+    generatedFiles.push({ path: `${SIGNUM_DIR}/index.html`, content: signumIndexHtml });
+
+  // --- RSS and Sitemap ---
+  // Placeholder for siteBaseUrl - this should ideally come from siteConfig
+  const siteBaseUrlForFeeds = `http://${slugify(siteData.config.title || 'example-site').substring(0,30)}.com`; 
+
+  const rssItems = publicContentFiles
+      .filter(f => f.path.toLowerCase() !== 'content/index.md' && !f.path.toLowerCase().endsWith('/index.md'))
+      .sort((a,b) => new Date(b.frontmatter.date || 0).getTime() - new Date(a.frontmatter.date || 0).getTime())
+      .slice(0, 20) // Limit RSS items
+      .map(file => {
+      const entryInManifest = manifest.entries.find(e => e.sourcePath === `${SIGNUM_DIR}/${file.path}`);
+      // Ensure URL is absolute for RSS
+      const absoluteUrl = new URL((entryInManifest?.url || '').replace(/^\//, ''), siteBaseUrlForFeeds).href;
+      return `
+          <item>
+          <title>${escapeForXml(file.frontmatter.title || 'Untitled')}</title>
+          <link>${escapeForXml(absoluteUrl)}</link>
+          <guid isPermaLink="true">${escapeForXml(absoluteUrl)}</guid>
+          <pubDate>${file.frontmatter.date ? new Date(file.frontmatter.date).toUTCString() : new Date().toUTCString()}</pubDate>
+          <description>${escapeForXml(file.frontmatter.summary || (file.content || '').substring(0, 200).replace(/<[^>]+>/gm, '').replace(/\s+/g, ' ').trim() + '...')}</description>
+          </item>`;
+      }).join('');
+
+  const rssFeedLink = new URL('rss.xml', siteBaseUrlForFeeds).href;
+  const channelLink = siteBaseUrlForFeeds.endsWith('/') ? siteBaseUrlForFeeds : `${siteBaseUrlForFeeds}/`;
+
+  const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(siteData.config.title)}</title><link>${escapeForXml(channelLink)}</link><description>${escapeForXml(siteData.config.description || '')}</description><language>en-us</language><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${escapeForXml(rssFeedLink)}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
+  generatedFiles.push({ path: 'rss.xml', content: rssFeed });
+  console.log(`[Exporter] Generated rss.xml`);
+
+  const sitemapUrls = manifest.entries.map(entry => {
+      const absoluteUrl = new URL(entry.url.replace(/^\//, ''), siteBaseUrlForFeeds).href;
+      const lastMod = entry.date ? entry.date.split('T')[0] : new Date().toISOString().split('T')[0];
+      return `<url><loc>${escapeForXml(absoluteUrl)}</loc><lastmod>${lastMod}</lastmod></url>`;
+  }).join('');
+
+  const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
+  generatedFiles.push({ path: 'sitemap.xml', content: sitemapXml });
+  console.log(`[Exporter] Generated sitemap.xml`);
+
+  // --- Final Zip Generation ---
+  console.log(`[Exporter] Adding ${generatedFiles.length} files to Zip archive...`);
+  generatedFiles.forEach(file => {
+    zip.file(file.path, file.content);
+  });
+
+  console.log("[Exporter] Generating Zip blob...");
+  return zip.generateAsync({ type: 'blob' });
+}
+
+================================================================================
+
 File: lib/utils.ts
 // src/lib/utils.ts
 import { type ClassValue, clsx } from "clsx"
 import { twMerge } from "tailwind-merge"
 
-export function cn(...inputs: ClassValue[]) { // EXPORTED
+export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-// NOT EXPORTED by default in the common shadcn/ui utils.ts
 export function slugify(text: string): string {
+  if (!text) return '';
   return text
     .toString()
+    .normalize('NFKD') // Normalize accented characters
     .toLowerCase()
     .trim()
-    .replace(/\s+/g, '-') 
-    .replace(/[^\w-]+/g, '') 
-    .replace(/--+/g, '-'); 
+    .replace(/\s+/g, '-') // Replace spaces with -
+    .replace(/[^\w-]+/g, '') // Remove all non-word chars except -
+    .replace(/--+/g, '-'); // Replace multiple - with single -
 }
 
-// NOT EXPORTED by default
 export function generateSiteId(title: string): string {
-  const randomString = Math.random().toString(36).substring(2, 7);
-  return `${slugify(title)}-${randomString}`;
+  // Keep the random part short to avoid overly long site IDs
+  const randomString = Math.random().toString(36).substring(2, 7); 
+  const slugBase = slugify(title);
+  // Truncate slugBase if it's too long to keep siteId reasonable
+  const maxBaseLength = 50; 
+  const truncatedSlugBase = slugBase.substring(0, maxBaseLength);
+  return `${truncatedSlugBase}-${randomString}`;
 }
 
 ================================================================================
@@ -3907,24 +4660,18 @@ File: lib/fileTreeUtils.ts
 import { ParsedMarkdownFile } from '@/types';
 
 export interface TreeNode {
-  id: string; // Full path, unique
-  name: string; // File or folder name
+  id: string;
+  name: string; // This will now be title or filename
   type: 'file' | 'folder';
-  path: string; // Full path from 'content/' root
+  path: string;
   children?: TreeNode[];
-  fileData?: ParsedMarkdownFile; // Only for 'file' type
+  fileData?: ParsedMarkdownFile;
 }
 
-/**
- * Converts a flat list of ParsedMarkdownFile into a hierarchical TreeNode structure.
- * Assumes paths are relative to a 'content/' root implicitly.
- */
 export function buildFileTree(files: ParsedMarkdownFile[]): TreeNode[] {
   const root: TreeNode = { id: 'content', name: 'content', type: 'folder', path: 'content', children: [] };
 
   files.forEach(file => {
-    // file.path is like "content/posts/my-post.md"
-    // We want path segments relative to "content/"
     const relativePath = file.path.startsWith('content/') ? file.path.substring('content/'.length) : file.path;
     const segments = relativePath.split('/').filter(s => s !== '');
     
@@ -3938,69 +4685,64 @@ export function buildFileTree(files: ParsedMarkdownFile[]): TreeNode[] {
       let childNode = currentNode.children?.find(child => child.path === fullPath);
 
       if (!childNode) {
-        if (isLastSegment && segment.endsWith('.md')) { // It's a file
+        const nodeName = (isLastSegment && file.frontmatter?.title) 
+          ? file.frontmatter.title // Use title for files if available
+          : segment.endsWith('.md') ? segment.replace(/\.md$/, '') : segment; // Fallback to segment name (filename without .md for files)
+
+        if (isLastSegment && segment.endsWith('.md')) {
           childNode = {
             id: fullPath,
-            name: segment,
+            name: nodeName, // Use title or filename
             type: 'file',
             path: fullPath,
             fileData: file,
           };
-        } else { // It's a folder
+        } else {
           childNode = {
             id: fullPath,
-            name: segment,
+            name: nodeName, // Folder name
             type: 'folder',
             path: fullPath,
             children: [],
           };
         }
         currentNode.children?.push(childNode);
-        currentNode.children?.sort((a,b) => { // Sort: folders first, then alphabetically
+        currentNode.children?.sort((a,b) => {
             if (a.type === 'folder' && b.type === 'file') return -1;
             if (a.type === 'file' && b.type === 'folder') return 1;
             return a.name.localeCompare(b.name);
         });
+      } else if (childNode.type === 'file' && childNode.fileData?.frontmatter?.title && childNode.name !== childNode.fileData.frontmatter.title) {
+        // Update name if title changed
+        childNode.name = childNode.fileData.frontmatter.title;
       }
-      // If it's a folder, move into it for the next segment
+
+
       if (childNode.type === 'folder') {
         currentNode = childNode;
       }
     });
   });
 
-  return root.children || []; // Return children of the implicit 'content' root
+  return root.children || [];
 }
 
-/**
- * Gets the parent path from a given path.
- * e.g., "content/posts/foo.md" -> "content/posts"
- * e.g., "content/posts" -> "content"
- * e.g., "content" -> "" (or a root marker)
- */
+// getParentPath, getNameFromPath, isValidName remain the same
 export function getParentPath(path: string): string {
-  if (!path || path === 'content') return 'content'; // Or handle root differently
+  if (!path || path === 'content') return 'content';
   const parts = path.split('/');
   parts.pop();
   return parts.join('/') || 'content';
 }
 
-/**
- * Gets the name (file or folder name) from a path.
- */
 export function getNameFromPath(path: string): string {
   if (!path) return '';
   return path.substring(path.lastIndexOf('/') + 1);
 }
 
-/**
- * Validates a new file or folder name.
- * Basic validation: no slashes, not empty, common invalid chars.
- */
 export function isValidName(name: string): boolean {
     if (!name || name.trim() === '') return false;
     if (name.includes('/') || name.includes('\\')) return false;
-    // Add more checks for invalid characters like < > : " | ? *
     const invalidChars = /[<>:"|?*]/;
     if (invalidChars.test(name)) return false;
     return true;
@@ -4011,8 +4753,8 @@ export function isValidName(name: string): boolean {
 File: lib/localSiteFs.ts
 // src/lib/localSiteFs.ts
 import { LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types';
-import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
-import yaml from 'js-yaml';
+import { parseMarkdownString } from './markdownParser';
+//import yaml from 'js-yaml';
 
 
 const LOCAL_STORAGE_KEY = 'signum-sites-data';
@@ -4133,6 +4875,778 @@ export async function deleteContentFile(siteId: string, filePath: string): Promi
 export async function listSiteIds(): Promise<string[]> {
   const sites = _readAllSitesFromStorage();
   return Promise.resolve(sites.map(s => s.siteId));
+}
+
+================================================================================
+
+File: themes/default/utils.ts
+// src/themes/default/utils.ts
+export function escapeHtml(unsafe: any): string {
+  if (typeof unsafe !== 'string') {
+    if (unsafe === null || unsafe === undefined) return '';
+    unsafe = String(unsafe);
+  }
+  return unsafe
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, '"')
+    .replace(/'/g, "'");
+}
+
+================================================================================
+
+File: themes/default/templates.ts
+// src/themes/default/templates.ts
+import type { SiteConfigFile, ParsedMarkdownFile, NavLinkItem } from '@/types';
+
+// ... (escapeHtml, renderHeader, renderFooter, renderArticle, renderCollectionList, renderCollectionItem)
+// Ensure these other functions don't expect siteConfig.style_hints if they used it before.
+// For example, renderHeader might have used primary_color from style_hints. Now it doesn't.
+
+function escapeHtml(unsafe: any): string {
+  if (typeof unsafe !== 'string') {
+    if (unsafe === null || unsafe === undefined) return '';
+    unsafe = String(unsafe);
+  }
+  return unsafe
+    .replace(/&/g, "&")
+    .replace(/</g, "<")
+    .replace(/>/g, ">")
+    .replace(/"/g, '"')
+    .replace(/'/g, "'");
+}
+
+export function renderHeader(siteConfig: SiteConfigFile, navLinks: NavLinkItem[], siteRootPath: string): string {
+  const siteTitle = escapeHtml(siteConfig?.title || 'Signum Site');
+  const navItemsHtml = navLinks.map(link => `
+    <li class="${link.isActive ? 'active' : ''}" style="${link.isActive && siteConfig.primary_color ? `border-bottom-color: ${escapeHtml(siteConfig.primary_color)};` : '' /* Example usage */}">
+      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}" style="${siteConfig.primary_color ? `color: var(--nav-link-color, ${escapeHtml(siteConfig.primary_color)});` : ''}">
+        ${link.iconName ? `<!-- Icon: ${escapeHtml(link.iconName)} -->` : ''}
+        <span>${escapeHtml(link.label)}</span>
+      </a>
+    </li>
+  `).join('');
+
+  return `
+    <header class="site-header">
+      <div class="container">
+        <a href="${escapeHtml(siteRootPath)}" class="site-title-link">
+          <h1 class="site-title">${siteTitle}</h1>
+        </a>
+        <nav class="site-nav">
+          <ul>
+            ${navItemsHtml}
+          </ul>
+        </nav>
+      </div>
+    </header>
+  `;
+}
+
+export function renderFooter(siteConfig: SiteConfigFile): string {
+  const year = new Date().getFullYear();
+  const author = siteConfig.author ? `<p>By ${escapeHtml(siteConfig.author)}</p>` : '';
+  return `
+    <footer class="site-footer">
+      <div class="container">
+        ${author}
+        <p>© ${year} ${escapeHtml(siteConfig.title || 'Signum Site')}. Powered by Signum.</p>
+      </div>
+    </footer>
+  `;
+}
+
+
+export function renderPageLayout(
+  siteConfig: SiteConfigFile,
+  fullBodyContentHtml: string, 
+  pageTitle: string,
+): string {
+  const siteTitle = escapeHtml(siteConfig?.title || 'Signum Site');
+  const effectivePageTitle = pageTitle ? `${escapeHtml(pageTitle)} | ${siteTitle}` : siteTitle;
+
+  let htmlClass = '';
+  if (siteConfig.theme === 'dark') htmlClass = 'theme-dark'; // Access directly
+  if (siteConfig.theme === 'auto') htmlClass = 'theme-auto';
+
+  let htmlStyle = '';
+  if (siteConfig.font_family) { // Access directly
+    htmlStyle += `font-family: "${siteConfig.font_family.replace(/"/g, '\\"')}";`;
+  }
+  if (siteConfig.primary_color) { // Access directly
+    htmlStyle += `--primary-color: ${escapeHtml(siteConfig.primary_color)};`;
+  }
+
+  return `
+<!DOCTYPE html>
+<html lang="en"${htmlClass ? ` class="${htmlClass}"` : ''}${htmlStyle ? ` style="${htmlStyle}"` : ''}>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${effectivePageTitle}</title>
+  <meta name="description" content="${escapeHtml(siteConfig.description || '')}">
+  ${siteConfig.author ? `<meta name="author" content="${escapeHtml(siteConfig.author)}">` : ''}
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+  <div class="site-container">
+    ${fullBodyContentHtml}
+  </div>
+  <script src="/js/scripts.js"></script>
+</body>
+</html>
+  `;
+}
+
+export function renderArticle(fileData: ParsedMarkdownFile): string {
+  const title = escapeHtml(fileData.frontmatter.title || 'Untitled Page');
+  const date = fileData.frontmatter.date 
+    ? new Date(fileData.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) 
+    : '';
+  const bodyHtmlPlaceholder = `<!-- SSG would render markdown body here: ${escapeHtml(fileData.content.substring(0,50))}... -->`;
+
+  return `
+    <article class="post">
+      <header class="post-header">
+        <h1>${title}</h1>
+        ${date ? `<p class="post-date">Published on: ${date}</p>` : ''}
+        ${fileData.frontmatter.summary ? `<p class="post-summary">${escapeHtml(fileData.frontmatter.summary)}</p>` : ''}
+      </header>
+      <div class="post-content">
+        ${bodyHtmlPlaceholder}
+      </div>
+    </article>
+  `;
+}
+
+interface CollectionListItemForTemplate extends Omit<ParsedMarkdownFile, 'frontmatter'> {
+  frontmatter: ParsedMarkdownFile['frontmatter'] & {
+    date?: string;
+    title: string;
+  };
+  itemLink: string;
+}
+
+export function renderCollectionItem(item: CollectionListItemForTemplate): string {
+  const title = escapeHtml(item.frontmatter.title || 'Untitled Item');
+  const date = item.frontmatter.date 
+    ? new Date(item.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+  const summary = escapeHtml(item.frontmatter.summary || item.content.substring(0, 150).replace(/#.*$/gm, '').replace(/[\*\`\[\]]/g, '').trim() + '...');
+
+  return `
+    <li class="collection-item">
+      <article>
+        <h2 class="collection-item-title"><a href="${escapeHtml(item.itemLink)}">${title}</a></h2>
+        ${date ? `<p class="collection-item-date">${date}</p>` : ''}
+        ${summary ? `<p class="collection-item-summary">${summary}</p>` : ''}
+        <a href="${escapeHtml(item.itemLink)}" class="collection-item-readmore">Read More</a>
+      </article>
+    </li>
+  `;
+}
+
+export function renderCollectionList(
+  collectionTitle: string, 
+  items: CollectionListItemForTemplate[], 
+  siteConfig: SiteConfigFile 
+): string {
+  const itemsHtml = items.map(item => renderCollectionItem(item)).join('');
+
+  return `
+    <section class="collection">
+      <header class="collection-header">
+        <h1>${escapeHtml(collectionTitle)}</h1>
+      </header>
+      ${items.length > 0 ? `<ul class="collection-list">${itemsHtml}</ul>` : '<p>No items in this collection.</p>'}
+    </section>
+  `;
+}
+
+================================================================================
+
+File: themes/default/layout.ts
+// src/themes/default/layout.ts
+import { SiteConfigFile } from '@/types';
+import { renderHead } from './partials/head'; // Assuming head.ts is in the same directory or correct path
+import { escapeHtml } from './utils';     // Assuming utils.ts is in ../
+
+export function renderPageLayout(
+  siteConfig: SiteConfigFile,
+  pageTitle: string,
+  headerHtml: string,
+  mainContentHtml: string, // This will be the output of renderArticleContent or renderCollectionListContent
+  footerHtml: string
+): string {
+  
+  const htmlClassesArray: string[] = [];
+  const htmlStylesArray: string[] = [];
+
+  // Theme Class
+  if (siteConfig.theme === 'dark') htmlClassesArray.push('theme-dark');
+  else if (siteConfig.theme === 'auto') htmlClassesArray.push('theme-auto');
+  else htmlClassesArray.push('theme-light'); // Default if not specified or invalid
+
+  // Font Stack Class & CSS Variable
+  if (siteConfig.font_family === 'serif') {
+    htmlClassesArray.push('font-serif');
+    // --font-stack-active is now primarily set via class in style.css, 
+    // but can be overridden here if needed or for browsers not fully supporting complex :root var inheritance.
+    // htmlStylesArray.push(`--font-stack-active: var(--font-stack-serif);`); 
+  } else if (siteConfig.font_family === 'monospace') {
+    htmlClassesArray.push('font-mono');
+    // htmlStylesArray.push(`--font-stack-active: var(--font-stack-mono);`);
+  } else { // Default to sans-serif
+    htmlClassesArray.push('font-sans');
+    // htmlStylesArray.push(`--font-stack-active: var(--font-stack-sans);`);
+  }
+  
+  // Primary Color CSS Variable
+  if (siteConfig.primary_color) {
+    // This variable is defined on :root in style.css, this inline style overrides it.
+    htmlStylesArray.push(`--primary-color: ${escapeHtml(siteConfig.primary_color)};`);
+  }
+
+  const htmlClassAttribute = htmlClassesArray.length > 0 ? ` class="${htmlClassesArray.join(' ')}"` : '';
+  const htmlStyleAttribute = htmlStylesArray.length > 0 ? ` style="${htmlStylesArray.join(' ')}"` : '';
+
+  const headContent = renderHead(siteConfig, pageTitle);
+
+  return `<!DOCTYPE html>
+<html lang="en"${htmlClassAttribute}${htmlStyleAttribute}>
+${headContent}
+<body>
+  <div class="site-container"> {/* This class is styled by theme.css */}
+    ${headerHtml}
+    <main class="site-content"> {/* This class is styled by theme.css */}
+      ${mainContentHtml} {/* This will already have .prose if it's article/collection */}
+    </main>
+    ${footerHtml}
+  </div>
+  <script src="/js/scripts.js"></script> {/* Path in exported bundle */}
+</body>
+</html>
+  `;
+}
+
+================================================================================
+
+File: themes/default/scripts.js
+// src/themes/default/scripts.js
+// This file will be used for the *exported static site*.
+// It can contain JavaScript for simple interactions like a mobile menu toggle.
+
+// Example: Mobile menu toggle
+// (This is a very basic example and assumes specific HTML structure from templates)
+document.addEventListener('DOMContentLoaded', () => {
+  // const menuToggle = document.querySelector('.mobile-menu-toggle'); // Hypothetical selector
+  // const siteNav = document.querySelector('.site-nav ul');          // Hypothetical selector
+
+  // if (menuToggle && siteNav) {
+  //   menuToggle.addEventListener('click', () => {
+  //     siteNav.classList.toggle('active');
+  //   });
+  // }
+  console.log("Signum default theme scripts loaded.");
+});
+
+================================================================================
+
+File: themes/default/style.css
+/* src/themes/default/style.css */
+/* This file will be used for the *exported static site*. */
+/* The live client preview uses globals.css and Tailwind. */
+
+:root {
+  /* Default primary color, overridden by <html style="--primary-color: #..."> if set in site config */
+  --primary-color: #007AFF; 
+  --text-color: #333;
+  --background-color: #fff;
+  --link-color: var(--primary-color);
+  --header-bg: #f4f4f4;
+  --header-text: #333;
+  --footer-text: #777;
+  --border-color: #ddd;
+  --muted-text: #666;
+}
+
+/* Example: Applying dark theme styles if a class is added to <html> by renderPageLayout */
+html.theme-dark { /* Class set by renderPageLayout if siteConfig.theme is 'dark' */
+  --text-color: #f0f0f0;
+  --background-color: #222;
+  --link-color: #6cb6ff; /* Lighter blue for dark mode */
+  --primary-color: #6cb6ff; /* Ensure primary color also adapts or is distinct */
+  --header-bg: #333;
+  --header-text: #f0f0f0;
+  --footer-text: #aaa;
+  --border-color: #555;
+  --muted-text: #bbb;
+}
+
+/* System preference can also be handled via prefers-color-scheme */
+@media (prefers-color-scheme: dark) {
+  html.theme-auto { /* Class set by renderPageLayout if siteConfig.theme is 'auto' */
+    --text-color: #f0f0f0;
+    --background-color: #222;
+    --link-color: #6cb6ff;
+    --primary-color: #6cb6ff;
+    --header-bg: #333;
+    --header-text: #f0f0f0;
+    --footer-text: #aaa;
+    --border-color: #555;
+    --muted-text: #bbb;
+  }
+}
+
+
+body {
+  /* font-family is set directly on <html> tag by renderPageLayout */
+  line-height: 1.65;
+  margin: 0;
+  padding: 0;
+  background-color: var(--background-color);
+  color: var(--text-color);
+  font-size: 16px; /* Base font size */
+}
+
+.site-container {
+  max-width: 800px; /* Adjust as needed */
+  margin: 0 auto;
+  padding: 20px 20px 40px 20px; /* Added more bottom padding */
+}
+
+.site-header {
+  background-color: var(--header-bg);
+  padding: 1rem 0;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 30px; /* Increased spacing */
+}
+
+.site-header .container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  max-width: 800px; /* Match .site-container */
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.site-title {
+  font-size: 1.8em;
+  margin: 0;
+  font-weight: 700;
+}
+.site-title-link {
+  text-decoration: none;
+  color: var(--header-text);
+}
+.site-title-link:hover {
+  color: var(--primary-color);
+}
+
+.site-nav ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+}
+
+.site-nav li {
+  margin-left: 20px; /* Increased spacing */
+}
+
+.site-nav a {
+  text-decoration: none;
+  color: var(--header-text);
+  font-weight: 500;
+  padding-bottom: 4px; /* For border alignment */
+  border-bottom: 2px solid transparent;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+.site-nav a:hover {
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+.site-nav li.active a { /* Assuming 'active' class is set by JS or template */
+  font-weight: 700;
+  color: var(--primary-color);
+  border-bottom-color: var(--primary-color);
+}
+
+.site-content {
+  /* Main content area placeholder */
+}
+
+.site-footer {
+  text-align: center;
+  padding: 30px 0;
+  margin-top: 50px; /* Increased spacing */
+  border-top: 1px solid var(--border-color);
+  font-size: 0.9em;
+  color: var(--footer-text);
+}
+.site-footer p {
+    margin: 0.5em 0;
+}
+
+/* General Content Typography & Elements */
+a {
+  color: var(--link-color);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 1.8em;
+  margin-bottom: 0.8em;
+  line-height: 1.3;
+  font-weight: 700;
+}
+h1 { font-size: 2.2em; }
+h2 { font-size: 1.8em; }
+h3 { font-size: 1.5em; }
+h4 { font-size: 1.2em; }
+
+p {
+  margin-bottom: 1.2em;
+}
+
+ul, ol {
+  margin-bottom: 1.2em;
+  padding-left: 1.8em;
+}
+li {
+  margin-bottom: 0.5em;
+}
+
+blockquote {
+  margin: 1.5em 0;
+  padding: 0.5em 1.5em;
+  border-left: 4px solid var(--primary-color);
+  background-color: var(--header-bg); /* Slight background for blockquotes */
+  color: var(--muted-text);
+  font-style: italic;
+}
+blockquote p {
+    margin-bottom: 0.5em;
+}
+
+pre {
+  background-color: #f9f9f9; /* Keep code blocks light even in dark mode for readability, or adjust */
+  color: #333;
+  padding: 1em;
+  overflow-x: auto;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 0.9em;
+  margin: 1.5em 0;
+}
+html.theme-dark pre, html.theme-auto:has(body[style*="dark"]) pre { /* Example of specific dark mode for pre */
+    background-color: #2d2d2d;
+    color: #ccc;
+    border-color: #444;
+}
+
+
+code { /* Inline code */
+  font-family: monospace; /* Ensure this matches selected monospace if user chose that */
+  background-color: rgba(0,0,0,0.05);
+  padding: 0.2em 0.4em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+html.theme-dark code, html.theme-auto:has(body[style*="dark"]) code {
+    background-color: rgba(255,255,255,0.1);
+}
+
+pre code { /* Code inside pre blocks should not have extra background */
+  background-color: transparent;
+  padding: 0;
+  font-size: inherit; /* Inherit pre's font size */
+}
+
+hr {
+    border: none;
+    border-top: 1px solid var(--border-color);
+    margin: 2em 0;
+}
+
+/* Post specific styles */
+.post {
+  margin-bottom: 40px;
+}
+.post-header {
+    margin-bottom: 1.5em;
+    padding-bottom: 1em;
+    border-bottom: 1px solid var(--border-color);
+}
+.post-header h1 {
+  font-size: 2.5em; /* Larger for post titles */
+  margin-top: 0; /* No top margin for main post title */
+  margin-bottom: 0.2em;
+}
+.post-date {
+  color: var(--muted-text);
+  font-size: 0.9em;
+  margin-bottom: 1em;
+}
+.post-summary {
+  font-style: italic;
+  color: var(--muted-text);
+  margin-bottom: 1.5em;
+  font-size: 1.1em;
+}
+.post-content {
+  /* Typography above generally applies */
+}
+
+
+/* Collection list styles */
+.collection {
+  /* Styles for collection container */
+}
+.collection-header h1 {
+  font-size: 2.2em; /* Consistent with post title */
+  margin-bottom: 1em;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 0.5em;
+}
+.collection-index-content { /* For content/collection/index.md body */
+    margin-bottom: 2em;
+}
+
+.collection-list {
+  list-style: none;
+  padding: 0;
+}
+.collection-item {
+  margin-bottom: 30px;
+  padding-bottom: 20px;
+  border-bottom: 1px dotted var(--border-color);
+}
+.collection-item:last-child {
+    border-bottom: none;
+}
+.collection-item-title {
+  font-size: 1.6em;
+  margin-bottom: 0.3em;
+  font-weight: 600;
+}
+.collection-item-title a {
+  text-decoration: none;
+  color: var(--text-color); /* Use main text color for titles */
+}
+.collection-item-title a:hover {
+  color: var(--primary-color);
+}
+.collection-item-date {
+  font-size: 0.85em;
+  color: var(--muted-text);
+  margin-bottom: 0.5em;
+}
+.collection-item-summary {
+  font-size: 0.95em;
+  color: var(--text-color); /* Regular text color for summary */
+  opacity: 0.9;
+  margin-bottom: 1em;
+}
+.collection-item-readmore {
+  display: inline-block;
+  font-size: 0.9em;
+  text-decoration: none;
+  font-weight: 600;
+  color: var(--primary-color);
+}
+.collection-item-readmore:hover {
+    text-decoration: underline;
+}
+
+/* Prose styles for markdown content - can be basic or more elaborate */
+.prose {
+    /* Basic prose styling can go here if not relying on Tailwind's @tailwindcss/typography in the exported site */
+}
+
+================================================================================
+
+File: themes/default/partials/article.ts
+// src/themes/default/partials/article.ts
+import { ParsedMarkdownFile } from '@/types';
+import { escapeHtml } from '../utils';
+import { marked } from 'marked';
+
+export function renderArticleContent(fileData: ParsedMarkdownFile): string {
+  const title = escapeHtml(fileData.frontmatter.title || 'Untitled Page');
+  const date = fileData.frontmatter.date 
+    ? new Date(fileData.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) 
+    : '';
+  const markdownBodyHtml = marked.parse(fileData.content || '') as string;
+
+  // The .prose class will provide Tailwind-like typography for elements within.
+  return `
+<article class="post prose"> {/* Added .prose class here */}
+  <header class="post-header"> {/* Specific styling for post headers in theme.css */}
+    <h1>${title}</h1> {/* Will be styled by .prose h1 */}
+    ${date ? `<p class="post-date">${date}</p>` : ''}
+    ${fileData.frontmatter.summary ? `<p class="post-summary">${escapeHtml(fileData.frontmatter.summary)}</p>` : ''}
+  </header>
+  <div class="post-content"> {/* This div is mostly for semantic grouping if needed */}
+    ${markdownBodyHtml} {/* Markdown elements (p, ul, etc.) will be styled by .prose */}
+  </div>
+</article>
+  `;
+}
+
+================================================================================
+
+File: themes/default/partials/collection.ts
+// src/themes/default/partials/collection.ts
+import { ParsedMarkdownFile } from '@/types'; // SiteConfigFile removed as it's not used here
+import { escapeHtml } from '../utils';
+//import { marked } from 'marked'; // For teaser generation if needed
+
+// This interface is used by renderCollectionListContent when preparing items
+export interface CollectionItemForTemplate extends Omit<ParsedMarkdownFile, 'frontmatter' | 'content'> {
+  frontmatter: ParsedMarkdownFile['frontmatter'] & {
+    date?: string;
+    title: string;
+  };
+  itemLink: string;
+  summaryOrContentTeaser: string;
+}
+
+// Renders a single item in a list - this itself doesn't need .prose, but its contents will be.
+export function renderCollectionItemContent(item: CollectionItemForTemplate): string {
+  const title = escapeHtml(item.frontmatter.title || 'Untitled Item');
+  const date = item.frontmatter.date 
+    ? new Date(item.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+    : '';
+
+  // The summaryOrContentTeaser is already HTML (from marked if it was content) or plain text.
+  // If it's HTML, .prose on a parent will style its p tags etc.
+  // If it's plain text, the <p class="collection-item-summary"> will be styled.
+  return `
+<li class="collection-item"> {/* Styled by theme.css */}
+  <article>
+    <h2 class="collection-item-title"><a href="${escapeHtml(item.itemLink)}">${title}</a></h2>
+    ${date ? `<p class="collection-item-date">${date}</p>` : ''}
+    ${item.summaryOrContentTeaser ? `<div class="collection-item-summary prose-sm">${item.summaryOrContentTeaser}</div>` : ''} {/* Wrap teaser in a div with prose styling if it's HTML, or let p tag be styled by .collection-item-summary */}
+    <a href="${escapeHtml(item.itemLink)}" class="collection-item-readmore">Read More →</a>
+  </article>
+</li>
+  `;
+}
+// Note on prose-sm: If your .prose styles are designed for main content, you might want smaller
+// typography for summaries. Tailwind Typography offers .prose-sm, .prose-lg etc. You could
+// define a .prose-sm variant in your theme.css for smaller text in summaries.
+// For now, .collection-item-summary will handle basic text styling.
+
+// Renders the overall list of collection items.
+export function renderCollectionListContent(
+  collectionTitle: string, 
+  items: CollectionItemForTemplate[], 
+  collectionIndexContentHtml?: string // HTML from the collection's own index.md page
+): string {
+  const itemsHtml = items.map(item => renderCollectionItemContent(item)).join('');
+
+  // The main collection section gets .prose.
+  // The collectionIndexContentHtml (from index.md) will be styled by this.
+  // Individual collection-items are styled by their own classes, but text within them (like summaries if they are <p>)
+  // will inherit from the main .prose or have specific styling.
+  return `
+<section class="collection prose"> {/* Added .prose class here for overall styling */}
+  <header class="collection-header">
+    <h1>${escapeHtml(collectionTitle)}</h1> {/* Styled by .prose h1 */}
+  </header>
+  ${collectionIndexContentHtml ? `<div class="collection-index-content">${collectionIndexContentHtml}</div>` : ''} {/* Content from collection's index.md */}
+  ${items.length > 0 ? `<ul class="collection-list">${itemsHtml}</ul>` : '<p>No items in this collection.</p>'}
+</section>
+  `;
+}
+
+================================================================================
+
+File: themes/default/partials/head.ts
+// src/themes/default/partials/head.ts
+import { SiteConfigFile } from '@/types';
+import { escapeHtml } from '../utils';
+
+export function renderHead(siteConfig: SiteConfigFile, pageTitle: string): string {
+  const siteTitle = escapeHtml(siteConfig.title || 'Signum Site');
+  const effectivePageTitle = pageTitle ? `${escapeHtml(pageTitle)} | ${siteTitle}` : siteTitle;
+
+  // Note: The actual classes (font-*, theme-*) and style variables (--primary-color, --font-stack-active)
+  // are applied to the <html> tag by renderPageLayout in layout.ts.
+  // This head template just includes meta tags and the CSS link.
+
+  return `
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${effectivePageTitle}</title>
+  <meta name="description" content="${escapeHtml(siteConfig.description || '')}">
+  ${siteConfig.author ? `<meta name="author" content="${escapeHtml(siteConfig.author)}">` : ''}
+  <link rel="stylesheet" href="/css/style.css"> {/* Path in exported bundle */}
+</head>
+  `;
+}
+
+================================================================================
+
+File: themes/default/partials/footer.ts
+// src/themes/default/partials/footer.ts
+import { SiteConfigFile } from '@/types';
+import { escapeHtml } from '../utils';
+
+export function renderFooter(siteConfig: SiteConfigFile): string {
+  const year = new Date().getFullYear();
+  const author = siteConfig.author ? `<p class="site-author">By ${escapeHtml(siteConfig.author)}</p>` : '';
+  return `
+<footer class="site-footer">
+  <div class="container"> {/* .container class defined in theme.css */}
+    ${author}
+    <p>© ${year} ${escapeHtml(siteConfig.title || 'Signum Site')}. Powered by Signum.</p>
+  </div>
+</footer>
+  `;
+}
+
+================================================================================
+
+File: themes/default/partials/header.ts
+// src/themes/default/partials/header.ts
+import { SiteConfigFile, NavLinkItem } from '@/types';
+import { escapeHtml } from '../utils';
+
+export function renderHeader(siteConfig: SiteConfigFile, navLinks: NavLinkItem[], siteRootPath: string): string {
+  const siteTitle = escapeHtml(siteConfig.title || 'Signum Site');
+  
+  const navItemsHtml = navLinks.map(link => `
+    <li class="${link.isActive ? 'active' : ''}"> {/* .active class can be styled in theme.css */}
+      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}">
+        ${link.iconName ? `<!-- Icon: ${escapeHtml(link.iconName)} -->` : ''}
+        <span>${escapeHtml(link.label)}</span>
+      </a>
+    </li>
+  `).join('');
+
+  return `
+<header class="site-header">
+  <div class="container"> {/* .container class defined in theme.css */}
+    <a href="${escapeHtml(siteRootPath)}" class="site-title-link">
+      <span class="site-title">${siteTitle}</span>
+    </a>
+    <nav class="site-nav">
+      <ul>
+        ${navItemsHtml}
+      </ul>
+    </nav>
+    ${/* <button class="mobile-menu-toggle">Menu</button> <-- Structure for JS if needed */''}
+  </div>
+</header>
+  `;
 }
 
 ================================================================================

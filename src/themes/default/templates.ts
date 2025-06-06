@@ -1,29 +1,39 @@
 // src/themes/default/templates.ts
 import type { SiteConfigFile, ParsedMarkdownFile, NavLinkItem } from '@/types';
 
-// ... (escapeHtml, renderHeader, renderFooter, renderArticle, renderCollectionList, renderCollectionItem)
-// Ensure these other functions don't expect siteConfig.style_hints if they used it before.
-// For example, renderHeader might have used primary_color from style_hints. Now it doesn't.
-
-function escapeHtml(unsafe: any): string {
-  if (typeof unsafe !== 'string') {
-    if (unsafe === null || unsafe === undefined) return '';
-    unsafe = String(unsafe);
+/**
+ * A type-safe function to escape HTML special characters.
+ * It now correctly handles the 'unknown' type by first checking if the
+ * input is a string before attempting to use string methods.
+ * @param unsafe The input value, which can be of any type.
+ * @returns A string with HTML special characters replaced by their entities.
+ */
+function escapeHtml(unsafe: unknown): string {
+  if (typeof unsafe === 'string') {
+    return unsafe
+      .replace(/&/g, "&")
+      .replace(/</g, "<")
+      .replace(/>/g, ">")
+      .replace(/"/g, '"')
+      .replace(/'/g, "'");
   }
-  return unsafe
-    .replace(/&/g, "&")
-    .replace(/</g, "<")
-    .replace(/>/g, ">")
-    .replace(/"/g, '"')
-    .replace(/'/g, "'");
+  if (unsafe === null || unsafe === undefined) {
+      return '';
+  }
+  // If it's not a string but is some other type (like a number), convert it to a string and then escape.
+  return String(unsafe)
+      .replace(/&/g, "&")
+      .replace(/</g, "<")
+      .replace(/>/g, ">")
+      .replace(/"/g, '"')
+      .replace(/'/g, "'");
 }
 
 export function renderHeader(siteConfig: SiteConfigFile, navLinks: NavLinkItem[], siteRootPath: string): string {
   const siteTitle = escapeHtml(siteConfig?.title || 'Signum Site');
   const navItemsHtml = navLinks.map(link => `
-    <li class="${link.isActive ? 'active' : ''}" style="${link.isActive && siteConfig.primary_color ? `border-bottom-color: ${escapeHtml(siteConfig.primary_color)};` : '' /* Example usage */}">
-      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}" style="${siteConfig.primary_color ? `color: var(--nav-link-color, ${escapeHtml(siteConfig.primary_color)});` : ''}">
-        ${link.iconName ? `<!-- Icon: ${escapeHtml(link.iconName)} -->` : ''}
+    <li class="${link.isActive ? 'active' : ''}">
+      <a href="${escapeHtml(link.href)}" title="${escapeHtml(link.label)}">
         <span>${escapeHtml(link.label)}</span>
       </a>
     </li>
@@ -58,7 +68,6 @@ export function renderFooter(siteConfig: SiteConfigFile): string {
   `;
 }
 
-
 export function renderPageLayout(
   siteConfig: SiteConfigFile,
   fullBodyContentHtml: string, 
@@ -68,14 +77,14 @@ export function renderPageLayout(
   const effectivePageTitle = pageTitle ? `${escapeHtml(pageTitle)} | ${siteTitle}` : siteTitle;
 
   let htmlClass = '';
-  if (siteConfig.theme === 'dark') htmlClass = 'theme-dark'; // Access directly
+  if (siteConfig.theme === 'dark') htmlClass = 'theme-dark';
   if (siteConfig.theme === 'auto') htmlClass = 'theme-auto';
 
   let htmlStyle = '';
-  if (siteConfig.font_family) { // Access directly
+  if (siteConfig.font_family) {
     htmlStyle += `font-family: "${siteConfig.font_family.replace(/"/g, '\\"')}";`;
   }
-  if (siteConfig.primary_color) { // Access directly
+  if (siteConfig.primary_color) {
     htmlStyle += `--primary-color: ${escapeHtml(siteConfig.primary_color)};`;
   }
 
@@ -105,7 +114,7 @@ export function renderArticle(fileData: ParsedMarkdownFile): string {
   const date = fileData.frontmatter.date 
     ? new Date(fileData.frontmatter.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) 
     : '';
-  const bodyHtmlPlaceholder = `<!-- SSG would render markdown body here: ${escapeHtml(fileData.content.substring(0,50))}... -->`;
+  const bodyHtmlPlaceholder = `<!-- SSG will render markdown body here -->`;
 
   return `
     <article class="post">
@@ -150,8 +159,7 @@ export function renderCollectionItem(item: CollectionListItemForTemplate): strin
 
 export function renderCollectionList(
   collectionTitle: string, 
-  items: CollectionListItemForTemplate[], 
-  siteConfig: SiteConfigFile 
+  items: CollectionListItemForTemplate[]
 ): string {
   const itemsHtml = items.map(item => renderCollectionItem(item)).join('');
 

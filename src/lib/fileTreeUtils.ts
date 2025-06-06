@@ -1,91 +1,72 @@
 // src/lib/fileTreeUtils.ts
-import { ParsedMarkdownFile } from '@/types';
+import { ParsedMarkdownFile, SiteConfigFile, NavItem } from '@/types';
 
 export interface TreeNode {
   id: string;
-  name: string; // This will now be title or filename
-  type: 'file' | 'folder';
-  path: string;
+  name: string;
+  type: 'file' | 'folder' | 'collection';
+  path: string; // The content-relative path (e.g., 'about/team' or 'posts')
   children?: TreeNode[];
   fileData?: ParsedMarkdownFile;
 }
 
-export function buildFileTree(files: ParsedMarkdownFile[]): TreeNode[] {
-  const root: TreeNode = { id: 'content', name: 'content', type: 'folder', path: 'content', children: [] };
-
-  files.forEach(file => {
-    const relativePath = file.path.startsWith('content/') ? file.path.substring('content/'.length) : file.path;
-    const segments = relativePath.split('/').filter(s => s !== '');
+/**
+ * Recursively builds a UI tree node from a navigation item config.
+ * @param item The NavItem from the site config.
+ * @param allItems A flat list of all NavItems to resolve children.
+ * @param config The full site config, for looking up collection labels.
+ * @param files The full list of site files, for looking up page titles.
+ * @returns A single TreeNode with its children, if any.
+ */
+const buildNode = (item: NavItem, allItems: NavItem[], config: SiteConfigFile, files: ParsedMarkdownFile[]): TreeNode => {
+  let node: TreeNode;
+  if (item.type === 'collection' || item.type === 'folder') {
+    const collectionConfig = config.collections?.find(c => c.path === item.path);
+    const fullPath = `content/${item.path}`;
     
-    let currentNode = root;
+    // Find children by checking which items have this item's path as their direct parent
+    const childrenItems = allItems.filter(child => 
+        child.path.startsWith(`${item.path}/`) && 
+        child.path.split('/').length === item.path.split('/').length + 1
+    );
+    childrenItems.sort((a, b) => a.order - b.order);
 
-    segments.forEach((segment, index) => {
-      const isLastSegment = index === segments.length - 1;
-      const segmentPath = segments.slice(0, index + 1).join('/');
-      const fullPath = `content/${segmentPath}`;
-
-      let childNode = currentNode.children?.find(child => child.path === fullPath);
-
-      if (!childNode) {
-        const nodeName = (isLastSegment && file.frontmatter?.title) 
-          ? file.frontmatter.title // Use title for files if available
-          : segment.endsWith('.md') ? segment.replace(/\.md$/, '') : segment; // Fallback to segment name (filename without .md for files)
-
-        if (isLastSegment && segment.endsWith('.md')) {
-          childNode = {
-            id: fullPath,
-            name: nodeName, // Use title or filename
-            type: 'file',
-            path: fullPath,
-            fileData: file,
-          };
-        } else {
-          childNode = {
-            id: fullPath,
-            name: nodeName, // Folder name
-            type: 'folder',
-            path: fullPath,
-            children: [],
-          };
-        }
-        currentNode.children?.push(childNode);
-        currentNode.children?.sort((a,b) => {
-            if (a.type === 'folder' && b.type === 'file') return -1;
-            if (a.type === 'file' && b.type === 'folder') return 1;
-            return a.name.localeCompare(b.name);
-        });
-      } else if (childNode.type === 'file' && childNode.fileData?.frontmatter?.title && childNode.name !== childNode.fileData.frontmatter.title) {
-        // Update name if title changed
-        childNode.name = childNode.fileData.frontmatter.title;
-      }
+    node = {
+      id: fullPath,
+      name: collectionConfig?.nav_label || item.path.split('/').pop() || item.path,
+      type: item.type,
+      path: fullPath,
+      children: childrenItems.map(child => buildNode(child, allItems, config, files)),
+    };
+  } else { // type === 'page'
+    const fullPath = `content/${item.path}.md`;
+    const file = files.find(f => f.path === fullPath);
+    node = {
+      id: fullPath,
+      name: file?.frontmatter.title || item.path.split('/').pop() || item.path,
+      type: 'file',
+      path: fullPath,
+      fileData: file,
+      children: [], // Files cannot have children
+    };
+  }
+  return node;
+};
 
 
-      if (childNode.type === 'folder') {
-        currentNode = childNode;
-      }
-    });
-  });
-
-  return root.children || [];
-}
-
-// getParentPath, getNameFromPath, isValidName remain the same
-export function getParentPath(path: string): string {
-  if (!path || path === 'content') return 'content';
-  const parts = path.split('/');
-  parts.pop();
-  return parts.join('/') || 'content';
-}
-
-export function getNameFromPath(path: string): string {
-  if (!path) return '';
-  return path.substring(path.lastIndexOf('/') + 1);
-}
-
-export function isValidName(name: string): boolean {
-    if (!name || name.trim() === '') return false;
-    if (name.includes('/') || name.includes('\\')) return false;
-    const invalidChars = /[<>:"|?*]/;
-    if (invalidChars.test(name)) return false;
-    return true;
+/**
+ * Builds a fully hierarchical tree of nodes based on the declarative `nav_items` array.
+ * @param config The site's configuration file.
+ * @param files An array of all parsed markdown files.
+ * @returns An array of top-level TreeNode objects.
+ */
+export function buildFileTree(config: SiteConfigFile, files: ParsedMarkdownFile[]): TreeNode[] {
+  const navItems = config.nav_items || [];
+  
+  // Filter for top-level items only (path does not contain a '/')
+  const topLevelItems = navItems.filter(item => !item.path.includes('/'));
+  topLevelItems.sort((a, b) => a.order - b.order);
+  
+  // Recursively build the tree starting from the top-level items
+  return topLevelItems.map(item => buildNode(item, navItems, config, files));
 }
