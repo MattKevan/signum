@@ -3,7 +3,7 @@
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { type TreeNode } from '@/lib/fileTreeUtils';
+import { type StructureNode } from '@/types';
 import { Folder, FileText as FileTextIcon, PlusSquare, GripVertical, ChevronRight, FolderGit2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -12,75 +12,84 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } 
 import { CSS } from '@dnd-kit/utilities';
 
 interface FileTreeProps {
-  nodes: TreeNode[];
+  nodes: StructureNode[];
   baseEditPath: string;
   activePath?: string;
   onFileCreate: (parentPath: string) => void;
-  onStructureChange: (nodes: TreeNode[]) => void;
+  onStructureChange: (nodes: StructureNode[]) => void;
 }
 
-interface FileTreeNodeProps extends FileTreeProps {
-  node: TreeNode;
+interface FileTreeNodeProps extends Omit<FileTreeProps, 'nodes'> {
+  node: StructureNode;
 }
 
-const SortableNode: React.FC<FileTreeNodeProps> = ({ node, nodes, baseEditPath, activePath, onFileCreate, onStructureChange }) => {
-    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: node.id });
+// A single sortable tree node.
+const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activePath, onFileCreate, onStructureChange }) => {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: node.path });
     const [isOpen, setIsOpen] = useState(true);
     
     const style = { transform: CSS.Transform.toString(transform), transition };
 
-    const isFolderType = node.type === 'folder' || node.type === 'collection';
-
+    const isFolderType = node.type === 'collection' || (node.type === 'page' && node.children && node.children.length > 0);
     const href = node.type === 'collection'
-        ? `${baseEditPath}/collection/${node.path.replace('content/', '')}`
-        : node.type === 'file'
-        ? `${baseEditPath}/content/${node.path.replace('content/', '').replace('.md', '')}`
-        : '#';
+        ? `${baseEditPath}/collection/${node.slug}`
+        : `${baseEditPath}/content/${node.slug}`; // All pages, including folder indexes, go to content editor.
 
-    const isSelected = activePath === node.path || (isFolderType && activePath?.startsWith(node.path));
+    const isSelected = activePath === node.path;
+    const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'page' && node.children && node.children.length > 0 ? FolderGit2 : FileTextIcon);
 
-    const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'folder' ? FolderGit2 : FileTextIcon);
+    // This handler is for when the children of THIS node are reordered.
+    const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
+        onStructureChange([{ ...node, children: reorderedChildren }]);
+    };
 
     return (
         <div ref={setNodeRef} style={style} className="flex flex-col">
-            <div className="flex items-center group w-full">
+            <div className="flex items-center group w-full my-0.5">
                 <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none">
                     <GripVertical className="h-4 w-4 text-muted-foreground/50" />
                 </div>
                 <div className={cn("flex-grow flex items-center py-1.5 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
                     {isFolderType && (
-                        <ChevronRight className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90", !node.children?.length && "invisible")} onClick={() => setIsOpen(!isOpen)} />
+                        <ChevronRight 
+                            className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90", !node.children?.length && "invisible")} 
+                            onClick={() => setIsOpen(!isOpen)} 
+                        />
                     )}
                     <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-amber-500' : 'text-sky-500', !isFolderType && 'ml-5')} />
                     
-                    <Link href={href} className="truncate flex-grow mx-1.5" title={node.name} onClick={(e) => { if (href === '#') e.preventDefault() }}>
-                        {node.name}
+                    <Link href={href} className="truncate flex-grow mx-1.5" title={node.title}>
+                        {node.title}
                     </Link>
 
-                    <div className="ml-auto hidden group-hover:flex items-center gap-0.5 absolute right-1 top-1/2 -translate-y-1/2 bg-muted p-0.5 rounded shadow-sm">
-                        {isFolderType && (
+                    {isFolderType && (
+                        <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button variant="ghost" size="icon" className="h-6 w-6" title="New File" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
                                 <PlusSquare className="h-3.5 w-3.5" />
                             </Button>
-                        )}
-                    </div>
+                        </div>
+                    )}
                 </div>
             </div>
             {isFolderType && isOpen && node.children && node.children.length > 0 && (
                 <div className="pl-6">
-                    <FileTree nodes={node.children} baseEditPath={baseEditPath} activePath={activePath} onFileCreate={onFileCreate} onStructureChange={(newChildren) => {
-                        const newParentNode = { ...node, children: newChildren };
-                        const newNodes = nodes.map(n => n.id === node.id ? newParentNode : n);
-                        onStructureChange(newNodes);
-                    }} />
+                    {/* Recursive call to FileTree for nested items */}
+                    <FileTree
+                        nodes={node.children}
+                        baseEditPath={baseEditPath}
+                        activePath={activePath}
+                        onFileCreate={onFileCreate}
+                        onStructureChange={handleChildrenStructureChange}
+                    />
                 </div>
             )}
         </div>
     );
 };
 
+// The main FileTree component that sets up the DndContext.
 export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate, onStructureChange }: FileTreeProps) {
-  const nodeIds = useMemo(() => nodes.map(n => n.id), [nodes]);
+  const nodeIds = useMemo(() => nodes.map(n => n.path), [nodes]);
 
   if (!nodes || nodes.length === 0) {
     return <p className="p-2 text-sm text-muted-foreground">(No content files yet)</p>;
@@ -92,7 +101,15 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
         const oldIndex = nodeIds.indexOf(active.id as string);
         const newIndex = nodeIds.indexOf(over.id as string);
         if (oldIndex !== -1 && newIndex !== -1) {
-            onStructureChange(arrayMove(nodes, oldIndex, newIndex));
+            const reorderedNodes = arrayMove(nodes, oldIndex, newIndex);
+            // Re-assign navOrder based on the new array index for items that should be in nav.
+            const updatedNavOrderNodes = reorderedNodes.map((node, index) => {
+                if (node.navOrder !== undefined) {
+                    return { ...node, navOrder: index };
+                }
+                return node;
+            });
+            onStructureChange(updatedNavOrderNodes);
         }
     }
   };
@@ -100,9 +117,21 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
   return (
     <DndContext collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={nodeIds} strategy={verticalListSortingStrategy}>
-            <div className="space-y-0.5">
+            <div className="space-y-0">
                 {nodes.map(node => (
-                    <SortableNode key={node.id} node={node} nodes={nodes} baseEditPath={baseEditPath} activePath={activePath} onFileCreate={onFileCreate} onStructureChange={onStructureChange} />
+                    <SortableNode 
+                        key={node.path} 
+                        node={node} 
+                        baseEditPath={baseEditPath} 
+                        activePath={activePath} 
+                        onFileCreate={onFileCreate} 
+                        onStructureChange={(updatedChildNode) => {
+                            // This gets called from the recursive FileTree's onStructureChange
+                            // It finds the parent and replaces it with the one containing the reordered children
+                            const newNodes = nodes.map(n => n.path === updatedChildNode[0].path ? updatedChildNode[0] : n);
+                            onStructureChange(newNodes);
+                        }}
+                    />
                 ))}
             </div>
         </SortableContext>

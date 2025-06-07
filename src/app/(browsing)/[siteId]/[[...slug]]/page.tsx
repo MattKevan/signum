@@ -10,15 +10,11 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
 import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
 import { generateNavLinks } from '@/lib/navigationUtils';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { renderHeader as renderThemeHeaderString } from '@/themes/default/partials/header';
-import { renderFooter as renderThemeFooterString } from '@/themes/default/partials/footer';
+import { renderPageLayout } from '@/themes/default/layout';
 
 enum PageRenderState { Loading, Display, NotFound, Error }
-
-const THEME_WRAPPER_CLASS = "signum-theme-default-wrapper"; // Consistent wrapper class
 
 export default function CatchAllSitePage() {
   const paramsHook = useParams();
@@ -34,15 +30,10 @@ export default function CatchAllSitePage() {
 
   useEffect(() => {
     setRenderState(PageRenderState.Loading);
-    setPageHtmlContent(""); 
-    setErrorMessage(null); 
-    setPageMetaTitle("Loading...");
-
     const localParsedResult = parseSiteIdentifier(siteIdParamValue);
     if (!localParsedResult) {
         setErrorMessage("Invalid site identifier in URL.");
         setRenderState(PageRenderState.Error);
-        setPageMetaTitle("Error");
         return;
     }
     setParsedPageIdentifier(localParsedResult);
@@ -60,23 +51,26 @@ export default function CatchAllSitePage() {
       if (!fetchedSiteData) {
         setSiteData(null); 
         setRenderState(PageRenderState.Error); 
-        setPageMetaTitle("Site Not Found"); 
         return;
       }
       setSiteData(fetchedSiteData);
 
-      // --- Use shared resolvers for content and navigation ---
       const resolution = resolvePageContent(fetchedSiteData, slugArray);
-      const siteRootPathForLinks = `/${validParsedResult.rawParam}/`.replace(/\/\//g, '/');
+      const siteRootPathForLinks = `/${validParsedResult.rawParam}`;
       const navLinks = generateNavLinks(fetchedSiteData, {isStaticExport: false, siteRootPath: siteRootPathForLinks});
       
-      const themeHeaderHtml = renderThemeHeaderString(fetchedSiteData.config, navLinks, siteRootPathForLinks);
-      const themeFooterHtml = renderThemeFooterString(fetchedSiteData.config);
-
       switch (resolution.type) {
         case PageType.SinglePage:
         case PageType.CollectionListing:
-          setPageHtmlContent(`${themeHeaderHtml}<main class="site-content">${resolution.mainContentHtml}</main>${themeFooterHtml}`);
+          // THIS IS THE CORRECTED CALL
+          const fullPageHtml = renderPageLayout(
+            fetchedSiteData.manifest,
+            fetchedSiteData.manifest.theme.config,
+            resolution.pageTitle || 'Untitled',
+            navLinks,
+            resolution.mainContentHtml || ''
+          );
+          setPageHtmlContent(fullPageHtml);
           setPageMetaTitle(resolution.pageTitle || 'Untitled');
           setRenderState(PageRenderState.Display);
           break;
@@ -96,61 +90,30 @@ export default function CatchAllSitePage() {
         document.title = "Loading... | Signum";
     } else {
         let title = pageMetaTitle;
-        if (siteData?.config?.title) title += ` | ${siteData.config.title}`;
+        if (siteData?.manifest?.title) title += ` | ${siteData.manifest.title}`;
         document.title = title;
     }
   }, [renderState, pageMetaTitle, siteData]);
 
-  const wrapperClasses = [THEME_WRAPPER_CLASS];
-  const wrapperStyles: React.CSSProperties = {};
-
-  if (siteData?.config) {
-    if (siteData.config.theme === 'dark') wrapperClasses.push('theme-dark');
-    else if (siteData.config.theme === 'auto') wrapperClasses.push('theme-auto');
-    else wrapperClasses.push('theme-light');
-
-    if (siteData.config.font_family === 'serif') {
-      wrapperClasses.push('font-serif');
-    } else if (siteData.config.font_family === 'monospace') {
-      wrapperClasses.push('font-mono');
-    } else {
-      wrapperClasses.push('font-sans');
-    }
-    if (siteData.config.primary_color) {
-      wrapperStyles['--primary-color'] = siteData.config.primary_color;
-    }
-  }
-  
-  // --- Render logic ---
   if (renderState === PageRenderState.Loading) {
-    return <div className="container mx-auto px-4 py-8 flex justify-center items-center min-h-[300px]"><p>Loading content...</p></div>;
+    return <div className="container mx-auto p-8"><p>Loading content...</p></div>;
   }
 
   const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
   if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
       return (
-        <div className="container mx-auto px-4 py-8 sm:px-6 lg:px-8 text-center">
-            <div className="flex flex-col items-center">
-                <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
-                <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
-                <p className="text-muted-foreground max-w-md">
-                    {errorMessage || "The requested content could not be loaded or found."}
-                </p>
-                <Button asChild variant="outline" className="mt-6">
-                    <Link href={siteData ? siteHomeLinkForError : '/'}>
-                        {siteData ? 'Go to Site Home' : 'Go to Dashboard'}
-                    </Link>
-                </Button>
-            </div>
+        <div className="container mx-auto p-8 text-center">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
+          <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>
+          <Button asChild variant="outline" className="mt-6">
+              <Link href={siteData ? siteHomeLinkForError : '/'}>
+                  {siteData ? 'Go to Site Home' : 'Go to Dashboard'}
+              </Link>
+          </Button>
         </div>
       );
   }
 
-  return (
-    <div 
-      className={cn(wrapperClasses)} 
-      style={wrapperStyles}
-      dangerouslySetInnerHTML={{ __html: pageHtmlContent }}
-    />
-  );
+  return <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />;
 }

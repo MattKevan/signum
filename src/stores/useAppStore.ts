@@ -1,107 +1,147 @@
 // src/stores/useAppStore.ts
 import { create } from 'zustand';
-import { AppState, LocalSiteData, SiteConfigFile, NavItem } from '@/types'; 
+import { AppState, LocalSiteData, Manifest, StructureNode } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
+import { parseMarkdownString } from '@/lib/markdownParser';
+
+// Helper function to recursively traverse the structure tree and apply updates.
+const mapStructure = (nodes: StructureNode[], predicate: (node: StructureNode) => boolean, transform: (node: StructureNode) => StructureNode): StructureNode[] => {
+  return nodes.map(node => {
+    if (predicate(node)) {
+      node = transform(node);
+    }
+    if (node.children) {
+      node.children = mapStructure(node.children, predicate, transform);
+    }
+    return node;
+  });
+};
+
+// Helper function to recursively find and remove a node from the tree.
+const filterStructure = (nodes: StructureNode[], predicate: (node: StructureNode) => boolean): StructureNode[] => {
+  return nodes.filter(predicate).map(node => {
+    if (node.children) {
+      node.children = filterStructure(node.children, predicate);
+    }
+    return node;
+  });
+};
 
 interface AppStore extends AppState {
   isInitialized: boolean;
   initialize: () => Promise<void>;
-  updateSiteStructure: (siteId: string, navItems: NavItem[]) => Promise<void>;
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, isNewFile?: boolean) => Promise<boolean>;
 }
 
 export const useAppStore = create<AppStore>()(
   (set, get) => ({
-    sites: [], 
+    sites: [],
     isInitialized: false,
 
     initialize: async () => {
-        if (get().isInitialized) return;
-        try {
-            const sites = await localSiteFs.loadAllSites();
-            set({ sites, isInitialized: true });
-        } catch (error) {
-            console.error("Failed to initialize app store from localSiteFs:", error);
-            set({ sites: [], isInitialized: true });
-        }
+      if (get().isInitialized) return;
+      try {
+        const sites = await localSiteFs.loadAllSites();
+        set({ sites, isInitialized: true });
+      } catch (error) {
+        console.error("Failed to initialize app store from localSiteFs:", error);
+        set({ sites: [], isInitialized: true });
+      }
     },
 
     addSite: async (newSiteData: LocalSiteData) => {
-        try {
-            await localSiteFs.saveSite(newSiteData);
-            set((state) => ({ sites: [...state.sites, newSiteData] }));
-        } catch (error) {
-            console.error("Failed to add site:", error);
-            throw error;
-        }
+      try {
+        await localSiteFs.saveSite(newSiteData);
+        set((state) => ({ sites: [...state.sites, newSiteData] }));
+      } catch (error) {
+        console.error("Failed to add site:", error);
+        throw error;
+      }
     },
 
-    updateSiteConfig: async (siteId: string, config: SiteConfigFile) => {
-        try {
-            await localSiteFs.saveSiteConfig(siteId, config);
-            set((state) => ({
-                sites: state.sites.map((s) => (s.siteId === siteId ? { ...s, config } : s)),
-            }));
-        } catch (error) {
-            console.error(`Failed to update site config for ${siteId}:`, error);
-            throw error;
-        }
-    },
-    
-    updateSiteStructure: async (siteId: string, newNavItems: NavItem[]) => {
-      const site = get().sites.find(s => s.siteId === siteId);
-      if (!site) return;
-      
-      // The logic for moving files when nesting is complex and will be a future enhancement.
-      // For now, this action correctly saves the new order and structure of nav_items.
-      const newConfig = { ...site.config, nav_items: newNavItems };
-      await get().updateSiteConfig(siteId, newConfig);
+    // REPLACES updateSiteConfig and updateSiteStructure
+    updateManifest: async (siteId: string, newManifest: Manifest) => {
+      try {
+        await localSiteFs.saveManifest(siteId, newManifest);
+        set((state) => ({
+          sites: state.sites.map((s) => (s.siteId === siteId ? { ...s, manifest: newManifest } : s)),
+        }));
+      } catch (error) {
+        console.error(`Failed to update manifest for ${siteId}:`, error);
+        throw error;
+      }
     },
 
-    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, isNewFile: boolean = false): Promise<boolean> => {
+    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string): Promise<boolean> => {
       try {
         const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
+        if (!savedFile) return false;
+
+        const site = get().sites.find(s => s.siteId === siteId);
+        if (!site) return false;
         
-        if (savedFile) {
-          set((state) => {
-            const sitesWithUpdate = state.sites.map((s) => {
-              if (s.siteId === siteId) {
-                const contentFiles = [...s.contentFiles];
-                const existingFileIndex = contentFiles.findIndex(f => f.path === filePath);
-                if (existingFileIndex > -1) {
-                  contentFiles[existingFileIndex] = savedFile;
-                } else {
-                  contentFiles.push(savedFile);
-                }
+        const isNewFile = !site.contentFiles.some(f => f.path === filePath);
+        
+        // Update contentFiles in state
+        const updatedContentFiles = isNewFile
+          ? [...site.contentFiles, savedFile]
+          : site.contentFiles.map(f => f.path === filePath ? savedFile : f);
 
-                if (isNewFile && !filePath.endsWith('index.md')) {
-                  const path = filePath.replace('content/', '').replace('.md', '');
-                  const newNavItem: NavItem = {
+        // Update manifest.structure
+        const { frontmatter } = parseMarkdownString(rawMarkdownContent);
+        let manifest_changed = false;
+        let newStructure = site.manifest.structure;
+
+        if (isNewFile) {
+            // Find parent and insert new node
+            const parentPath = filePath.substring(0, filePath.lastIndexOf('/'));
+            manifest_changed = true;
+            let parentFoundAndUpdated = false;
+
+            newStructure = mapStructure(newStructure, (node) => node.path === parentPath, (parentNode) => {
+                const children = parentNode.children || [];
+                children.push({
                     type: 'page',
-                    path: path,
-                    order: s.config.nav_items?.length || 0,
-                  };
-
-                  const newNavItems = [...(s.config.nav_items || []), newNavItem];
-                  const newConfig = { ...s.config, nav_items: newNavItems };
-                  
-                  localSiteFs.saveSiteConfig(siteId, newConfig);
-                  return { ...s, config: newConfig, contentFiles };
-                }
-                
-                return { ...s, contentFiles };
-              }
-              return s;
+                    title: frontmatter.title,
+                    path: filePath,
+                    slug: savedFile.slug,
+                });
+                parentFoundAndUpdated = true;
+                return { ...parentNode, children };
             });
-            return { sites: sitesWithUpdate };
-          });
-          return true;
+
+            // If parent isn't in tree (e.g., top-level file), add to root
+            if (!parentFoundAndUpdated && parentPath === 'content') {
+                 newStructure.push({
+                    type: 'page',
+                    title: frontmatter.title,
+                    path: filePath,
+                    slug: savedFile.slug,
+                });
+            }
+
         } else {
-            console.warn(`Content file was not saved for site ${siteId}, path ${filePath}`);
-            return false;
+            // Find existing node and update its title if it changed
+            newStructure = mapStructure(newStructure, node => node.path === filePath, node => {
+                if (node.title !== frontmatter.title) {
+                    manifest_changed = true;
+                    return { ...node, title: frontmatter.title };
+                }
+                return node;
+            });
         }
+        
+        // Persist changes
+        set(state => ({
+            sites: state.sites.map(s => s.siteId === siteId ? { ...s, contentFiles: updatedContentFiles } : s),
+        }));
+
+        if (manifest_changed) {
+            await get().updateManifest(siteId, { ...site.manifest, structure: newStructure });
+        }
+
+        return true;
       } catch (error) {
-        console.error(`Failed to add or update content file ${filePath} for site ${siteId}:`, error);
+        console.error(`Failed to add/update file ${filePath}:`, error);
         throw error;
       }
     },
@@ -121,6 +161,14 @@ export const useAppStore = create<AppStore>()(
     deleteContentFileAndState: async (siteId: string, filePath: string) => {
         try {
             await localSiteFs.deleteContentFile(siteId, filePath);
+            const site = get().sites.find(s => s.siteId === siteId);
+            if (!site) return;
+
+            // Remove node from manifest structure
+            const newStructure = filterStructure(site.manifest.structure, node => node.path !== filePath);
+            await get().updateManifest(siteId, { ...site.manifest, structure: newStructure });
+
+            // Remove file from contentFiles in state
             set(state => ({
                 sites: state.sites.map(s => {
                     if (s.siteId === siteId) {
@@ -133,6 +181,25 @@ export const useAppStore = create<AppStore>()(
             console.error(`Failed to delete content file ${filePath} from site ${siteId}:`, error);
             throw error;
         }
+    },
+
+     addNewCollection: async (siteId: string, name: string, slug: string) => {
+      const site = get().sites.find(s => s.siteId === siteId);
+      if (!site) return;
+
+      const newCollectionNode: StructureNode = {
+        type: 'collection',
+        title: name.trim(),
+        path: `content/${slug}`,
+        slug: slug,
+        children: [],
+        navOrder: site.manifest.structure.length, // Add to the end of the top-level nav
+      };
+      
+      const newStructure = [...site.manifest.structure, newCollectionNode];
+      const newManifest = { ...site.manifest, structure: newStructure };
+      
+      await get().updateManifest(siteId, newManifest);
     },
 
     getSiteById: (siteId: string): LocalSiteData | undefined => {

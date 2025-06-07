@@ -1,8 +1,7 @@
 // src/lib/localSiteFs.ts
-import { LocalSiteData, SiteConfigFile, ParsedMarkdownFile } from '@/types';
-import { parseMarkdownString } from './markdownParser';
-//import yaml from 'js-yaml';
 
+import { LocalSiteData, Manifest, ParsedMarkdownFile } from '@/types';
+import { parseMarkdownString } from './markdownParser';
 
 const LOCAL_STORAGE_KEY = 'signum-sites-data';
 
@@ -34,14 +33,10 @@ export async function loadAllSites(): Promise<LocalSiteData[]> {
   return Promise.resolve(_readAllSitesFromStorage());
 }
 
-/**
- * Gets a specific site by its ID from local storage.
- * Returns LocalSiteData or null if not found.
- */
-export async function getSiteById(siteId: string): Promise<LocalSiteData | null> { // CHANGED RETURN TYPE
+export async function getSiteById(siteId: string): Promise<LocalSiteData | null> {
   const sites = _readAllSitesFromStorage();
   const site = sites.find(s => s.siteId === siteId);
-  return Promise.resolve(site || null); // Ensure it returns null if not found
+  return Promise.resolve(site || null);
 }
 
 export async function saveSite(siteData: LocalSiteData): Promise<void> {
@@ -63,14 +58,15 @@ export async function deleteSite(siteId: string): Promise<void> {
   return Promise.resolve();
 }
 
-export async function saveSiteConfig(siteId: string, config: SiteConfigFile): Promise<void> {
+// REPLACES saveSiteConfig
+export async function saveManifest(siteId: string, manifest: Manifest): Promise<void> {
   const sites = _readAllSitesFromStorage();
   const siteIndex = sites.findIndex(s => s.siteId === siteId);
   if (siteIndex > -1) {
-    sites[siteIndex].config = config;
+    sites[siteIndex].manifest = manifest;
     _writeAllSitesToStorage(sites);
   } else {
-    console.warn(`Site with ID ${siteId} not found for saving config.`);
+    throw new Error(`Site with ID ${siteId} not found for saving manifest.`);
   }
   return Promise.resolve();
 }
@@ -79,27 +75,26 @@ export async function saveContentFile(siteId: string, path: string, rawMarkdownC
   const sites = _readAllSitesFromStorage();
   const siteIndex = sites.findIndex(s => s.siteId === siteId);
   if (siteIndex > -1) {
-    try { // Add try-catch for parseMarkdownString
-        const { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
-        const fileSlug = path.substring(path.lastIndexOf('/') + 1).replace('.md', '');
-        const newOrUpdatedFile: ParsedMarkdownFile = {
+    try {
+      const { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+      const fileSlug = path.substring(path.lastIndexOf('/') + 1).replace('.md', '');
+      const newOrUpdatedFile: ParsedMarkdownFile = {
         slug: fileSlug,
         path: path,
         frontmatter: frontmatter,
         content: content,
-        };
-        const contentFileIndex = sites[siteIndex].contentFiles.findIndex(f => f.path === path);
-        if (contentFileIndex > -1) {
+      };
+      const contentFileIndex = sites[siteIndex].contentFiles.findIndex(f => f.path === path);
+      if (contentFileIndex > -1) {
         sites[siteIndex].contentFiles[contentFileIndex] = newOrUpdatedFile;
-        } else {
+      } else {
         sites[siteIndex].contentFiles.push(newOrUpdatedFile);
-        }
-        _writeAllSitesToStorage(sites);
-        return Promise.resolve(newOrUpdatedFile);
+      }
+      _writeAllSitesToStorage(sites);
+      return Promise.resolve(newOrUpdatedFile);
     } catch (parseError) {
-        console.error(`Error parsing markdown for ${path} in site ${siteId}:`, parseError);
-        // Potentially throw or return undefined to indicate failure at a higher level
-        return Promise.resolve(undefined); 
+      console.error(`Error parsing markdown for ${path} in site ${siteId}:`, parseError);
+      return Promise.resolve(undefined);
     }
   } else {
     console.warn(`Site with ID ${siteId} not found for saving content file.`);
@@ -117,9 +112,4 @@ export async function deleteContentFile(siteId: string, filePath: string): Promi
     console.warn(`Site with ID ${siteId} not found for deleting content file.`);
   }
   return Promise.resolve();
-}
-
-export async function listSiteIds(): Promise<string[]> {
-  const sites = _readAllSitesFromStorage();
-  return Promise.resolve(sites.map(s => s.siteId));
 }

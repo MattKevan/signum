@@ -1,5 +1,5 @@
 // src/lib/pageResolver.ts
-import { LocalSiteData } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
 import { marked } from 'marked';
 import { renderArticleContent } from '@/themes/default/partials/article';
 import { renderCollectionListContent, type CollectionItemForTemplate } from '@/themes/default/partials/collection';
@@ -18,82 +18,109 @@ export interface PageResolutionResult {
 }
 
 /**
- * Resolves a given path to its corresponding page type and rendered content.
+ * Recursively finds a node in the structure tree that matches the slug path.
+ * @param nodes The structure nodes to search.
+ * @param slugSegments The remaining URL slug parts.
+ * @returns The matched StructureNode or null.
+ */
+function findNodeBySlugPath(nodes: StructureNode[], slugSegments: string[]): StructureNode | null {
+  if (!slugSegments || slugSegments.length === 0) {
+    // We are at the root, looking for the index page.
+    return nodes.find(node => node.slug === 'index') || null;
+  }
+
+  const currentSlug = slugSegments[0];
+  const remainingSlugs = slugSegments.slice(1);
+
+  const foundNode = nodes.find(node => node.slug === currentSlug);
+
+  if (!foundNode) {
+    return null;
+  }
+  
+  if (remainingSlugs.length === 0) {
+    return foundNode; // Found the target node.
+  }
+
+  if (foundNode.children) {
+    // Continue searching in the children.
+    return findNodeBySlugPath(foundNode.children, remainingSlugs);
+  }
+
+  return null; // Path continues but no children to search.
+}
+
+
+/**
+ * Resolves a given URL slug path to its corresponding page type and rendered content.
  * This is the single source of truth for what content appears at a specific URL.
+ * It now traverses the hierarchical manifest.structure.
  *
  * @param siteData The full LocalSiteData object.
  * @param slugArray The URL path segments (e.g., ['blog', 'my-first-post']).
- * @returns A PageResolutionResult object containing the page type and its rendered HTML content.
+ * @returns A PageResolutionResult object.
  */
 export function resolvePageContent(
   siteData: LocalSiteData,
   slugArray: string[]
 ): PageResolutionResult {
-  const publicContentFiles = siteData.contentFiles.filter(
-    (f) => !f.frontmatter.draft && f.frontmatter.status !== 'draft'
-  );
-
-  const currentSlugPath = slugArray.join('/');
   
-  // 1. Check for a direct single page match (e.g., /about -> content/about.md)
-  const singlePagePath = `content/${currentSlugPath || 'index'}.md`.toLowerCase();
-  const directFileMatch = publicContentFiles.find(f => f.path.toLowerCase() === singlePagePath);
-  if (directFileMatch) {
+  const targetNode = findNodeBySlugPath(siteData.manifest.structure, slugArray);
+
+  if (!targetNode) {
     return {
-      type: PageType.SinglePage,
-      mainContentHtml: renderArticleContent(directFileMatch),
-      pageTitle: directFileMatch.frontmatter.title || directFileMatch.slug,
+      type: PageType.NotFound,
+      errorMessage: `Content not found at path: "${slugArray.join('/') || 'homepage'}"`,
     };
   }
 
-  // 2. If not a single page, check if the path corresponds to a configured collection
-  const navItem = siteData.config.nav_items?.find(item => item.path === currentSlugPath);
-  if (navItem && navItem.type === 'collection') {
-    const collectionConfig = siteData.config.collections?.find(c => c.path === currentSlugPath);
-    const collectionTitle = collectionConfig?.nav_label || currentSlugPath.charAt(0).toUpperCase() + currentSlugPath.slice(1);
-    const collectionDescription = collectionConfig?.description ? marked.parse(collectionConfig.description) as string : undefined;
+  if (targetNode.type === 'page') {
+    const pageFile = siteData.contentFiles.find(f => f.path === targetNode.path);
+    if (!pageFile) {
+        return { type: PageType.NotFound, errorMessage: `Manifest references "${targetNode.path}" but file is missing.` };
+    }
+    return {
+      type: PageType.SinglePage,
+      mainContentHtml: renderArticleContent(pageFile),
+      pageTitle: targetNode.title,
+    };
+  }
 
-    const itemsInThisFolder = publicContentFiles.filter(
-      f => f.path.toLowerCase().startsWith(`content/${currentSlugPath}/`.toLowerCase()) &&
-           !f.path.toLowerCase().endsWith('/index.md')
-    );
-
-    // Sort items based on collection config
-    itemsInThisFolder.sort((a, b) => {
-        const sortBy = collectionConfig?.sort_by || 'date';
-        const sortOrder = collectionConfig?.sort_order === 'asc' ? 1 : -1;
-        
+  if (targetNode.type === 'collection') {
+    const itemsInCollection = (targetNode.children || []).map(childNode => {
+      return siteData.contentFiles.find(f => f.path === childNode.path);
+    }).filter((file): file is ParsedMarkdownFile => !!file);
+    
+    // Sort items based on the collection's config (now on the node itself).
+    itemsInCollection.sort((a, b) => {
+        const sortBy = targetNode.sortBy || 'date';
+        const sortOrder = targetNode.sortOrder === 'asc' ? 1 : -1;
         if (sortBy === 'title') {
             return (a.frontmatter.title.localeCompare(b.frontmatter.title)) * sortOrder;
         }
-        // Default to date sorting
         const dateA = new Date(a.frontmatter.date || 0).getTime();
         const dateB = new Date(b.frontmatter.date || 0).getTime();
-        return (dateA - dateB) * sortOrder;
+        return (dateB - dateA) * sortOrder; // Note: Defaulting to date descending.
     });
 
-    const mappedItems: CollectionItemForTemplate[] = itemsInThisFolder
-      .map(file => {
-          const itemPathSegment = file.path.replace(/^content\//i, '').replace(/\.md$/i, '');
-          const summary = file.frontmatter.summary || (marked.parse((file.content || '').substring(0, 180) + '...') as string);
-          return {
-              ...file,
-              itemLink: `./${itemPathSegment.split('/').pop()}.html`,
-              summaryOrContentTeaser: summary,
-          };
-      });
+    const mappedItems: CollectionItemForTemplate[] = itemsInCollection.map(file => ({
+      ...file,
+      itemLink: `./${file.slug}.html`,
+      summaryOrContentTeaser: file.frontmatter.summary || (marked.parse((file.content || '').substring(0, 180) + '...') as string),
+    }));
+
+    const collectionDescriptionHtml = targetNode.description ? marked.parse(targetNode.description) as string : undefined;
 
     return {
       type: PageType.CollectionListing,
-      // Pass the description from the config to the renderer
-      mainContentHtml: renderCollectionListContent(collectionTitle, mappedItems, collectionDescription),
-      pageTitle: collectionTitle,
+      mainContentHtml: renderCollectionListContent(targetNode.title, mappedItems, collectionDescriptionHtml),
+      pageTitle: targetNode.title,
     };
   }
 
-  // 3. If no match, return NotFound
+  // Fallback for an unknown node type.
   return {
     type: PageType.NotFound,
-    errorMessage: `Content not found at path: "${currentSlugPath || 'homepage'}"`,
+    errorMessage: `Unknown content type for path: "${slugArray.join('/')}"`,
   };
 }

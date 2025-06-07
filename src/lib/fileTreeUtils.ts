@@ -1,72 +1,54 @@
 // src/lib/fileTreeUtils.ts
-import { ParsedMarkdownFile, SiteConfigFile, NavItem } from '@/types';
+import { StructureNode } from '@/types';
 
-export interface TreeNode {
-  id: string;
-  name: string;
-  type: 'file' | 'folder' | 'collection';
-  path: string; // The content-relative path (e.g., 'about/team' or 'posts')
-  children?: TreeNode[];
-  fileData?: ParsedMarkdownFile;
+/**
+ * Finds a node in a structure tree by its exact `path`.
+ * @param nodes The array of nodes to search within.
+ * @param path The path of the node to find (e.g., "content/blog/first-post.md").
+ * @returns The found StructureNode or undefined.
+ */
+export function findNodeByPath(nodes: StructureNode[], path: string): StructureNode | undefined {
+  for (const node of nodes) {
+    if (node.path === path) {
+      return node;
+    }
+    if (node.children) {
+      const found = findNodeByPath(node.children, path);
+      if (found) {
+        return found;
+      }
+    }
+  }
+  return undefined;
 }
 
 /**
- * Recursively builds a UI tree node from a navigation item config.
- * @param item The NavItem from the site config.
- * @param allItems A flat list of all NavItems to resolve children.
- * @param config The full site config, for looking up collection labels.
- * @param files The full list of site files, for looking up page titles.
- * @returns A single TreeNode with its children, if any.
+ * Recursively traverses the structure tree and collects all nodes that are pages.
+ * @param nodes The array of nodes to traverse.
+ * @returns A flat array of all page-type StructureNodes.
  */
-const buildNode = (item: NavItem, allItems: NavItem[], config: SiteConfigFile, files: ParsedMarkdownFile[]): TreeNode => {
-  let node: TreeNode;
-  if (item.type === 'collection' || item.type === 'folder') {
-    const collectionConfig = config.collections?.find(c => c.path === item.path);
-    const fullPath = `content/${item.path}`;
-    
-    // Find children by checking which items have this item's path as their direct parent
-    const childrenItems = allItems.filter(child => 
-        child.path.startsWith(`${item.path}/`) && 
-        child.path.split('/').length === item.path.split('/').length + 1
-    );
-    childrenItems.sort((a, b) => a.order - b.order);
-
-    node = {
-      id: fullPath,
-      name: collectionConfig?.nav_label || item.path.split('/').pop() || item.path,
-      type: item.type,
-      path: fullPath,
-      children: childrenItems.map(child => buildNode(child, allItems, config, files)),
-    };
-  } else { // type === 'page'
-    const fullPath = `content/${item.path}.md`;
-    const file = files.find(f => f.path === fullPath);
-    node = {
-      id: fullPath,
-      name: file?.frontmatter.title || item.path.split('/').pop() || item.path,
-      type: 'file',
-      path: fullPath,
-      fileData: file,
-      children: [], // Files cannot have children
-    };
+export function flattenStructureToPages(nodes: StructureNode[]): StructureNode[] {
+  let pages: StructureNode[] = [];
+  for (const node of nodes) {
+    // A 'page' type node can represent a single file or a folder with an index.md. Both are pages.
+    if (node.type === 'page') {
+      pages.push(node);
+    }
+    // Recursively search in children, regardless of parent type.
+    if (node.children) {
+      pages = pages.concat(flattenStructureToPages(node.children));
+    }
   }
-  return node;
-};
-
+  return pages;
+}
 
 /**
- * Builds a fully hierarchical tree of nodes based on the declarative `nav_items` array.
- * @param config The site's configuration file.
- * @param files An array of all parsed markdown files.
- * @returns An array of top-level TreeNode objects.
+ * Gets the parent directory path for a given file path.
+ * e.g., "content/blog/post.md" -> "content/blog"
+ * @param path The full path of a file or folder.
+ * @returns The path of the parent directory.
  */
-export function buildFileTree(config: SiteConfigFile, files: ParsedMarkdownFile[]): TreeNode[] {
-  const navItems = config.nav_items || [];
-  
-  // Filter for top-level items only (path does not contain a '/')
-  const topLevelItems = navItems.filter(item => !item.path.includes('/'));
-  topLevelItems.sort((a, b) => a.order - b.order);
-  
-  // Recursively build the tree starting from the top-level items
-  return topLevelItems.map(item => buildNode(item, navItems, config, files));
+export function getParentPath(path: string): string {
+  if (!path.includes('/')) return 'content';
+  return path.substring(0, path.lastIndexOf('/'));
 }

@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
-import { SiteConfigFile, LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, Manifest } from '@/types'; // Import Manifest
 import SiteConfigForm from '@/components/publishing/SiteConfigForm';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
@@ -14,58 +14,73 @@ export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
 
-  const [siteConfig, setSiteConfig] = useState<SiteConfigFile>({
+  // Initialize a default, new Manifest object
+  const [manifest, setManifest] = useState<Manifest>({
+    siteId: '', // Will be generated on submit
+    generatorVersion: 'SignumClient/0.5.0',
     title: '',
     description: '',
     author: '',
-    // Initialize new style properties with defaults
-    font_family: 'sans-serif',
-    theme: 'light',
-    primary_color: '#007AFF',
-    collections: [],
+    theme: {
+      name: 'default',
+      config: {
+        font_family: 'sans-serif',
+        color_scheme: 'light',
+        primary_color: '#007AFF',
+      },
+    },
+    structure: [], // Starts empty
   });
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleConfigChange = (newConfig: SiteConfigFile) => {
-    setSiteConfig(newConfig);
+  const handleManifestChange = (newManifest: Manifest) => {
+    setManifest(newManifest);
   };
 
   const handleSubmit = async () => {
-    if (!siteConfig.title.trim()) {
+    if (!manifest.title.trim()) {
       toast.error('Site title is required.');
       return;
     }
     setIsLoading(true);
 
-    const newSiteId = generateSiteId(siteConfig.title);
-    const defaultIndexFrontmatter: MarkdownFrontmatter = { title: 'Welcome' };
-    const defaultIndexBody = `# Welcome to ${siteConfig.title}\n\nThis is your new site's homepage. Start editing!`;
+    const newSiteId = generateSiteId(manifest.title);
     
+    // Create the default index.md file
+    const defaultIndexFrontmatter: MarkdownFrontmatter = { title: 'Welcome' };
+    const defaultIndexBody = `# Welcome to ${manifest.title}\n\nThis is your new site's homepage. Start editing!`;
     const defaultIndexFile: ParsedMarkdownFile = {
         slug: 'index',
         path: 'content/index.md',
         frontmatter: defaultIndexFrontmatter,
         content: defaultIndexBody,
     };
+    
+    // Create the initial structure node for the index file
+    const indexStructureNode = {
+        type: 'page' as const,
+        title: 'Welcome',
+        path: 'content/index.md',
+        slug: 'index',
+        navOrder: 0,
+    };
 
-    // Construct the config for newSiteData using the spread of siteConfig from state
-    // This ensures all fields, including the new top-level style fields, are included.
+    // Construct the final data to be saved
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
-      config: {
-        ...siteConfig, // Spread all current form values
-        title: siteConfig.title.trim(), // Ensure title is trimmed
-        description: siteConfig.description.trim(), // Ensure description is trimmed
-        author: siteConfig.author?.trim() || '', // Handle optional author
-        // Ensure collections is an array if not set by form for some reason
-        collections: siteConfig.collections || [], 
+      manifest: {
+        ...manifest,
+        siteId: newSiteId, // Add the generated ID to the manifest
+        title: manifest.title.trim(),
+        description: manifest.description.trim(),
+        structure: [indexStructureNode], // Add the root index page to the structure
       },
       contentFiles: [defaultIndexFile],
     };
 
     try {
       await addSite(newSiteData);
-      toast.success(`Site "${siteConfig.title}" created locally!`);
+      toast.success(`Site "${manifest.title}" created locally!`);
       router.push(`/edit/${newSiteId}/config`);
     } catch (error) {
       console.error("Error creating site:", error);
@@ -83,7 +98,10 @@ export default function CreateSitePage() {
           Back to Dashboard
         </Button>
       </div>
-      <SiteConfigForm initialConfig={siteConfig} onConfigChange={handleConfigChange} />
+      <SiteConfigForm 
+        initialManifest={manifest} 
+        onManifestChange={handleManifestChange} 
+      />
       <Button onClick={handleSubmit} disabled={isLoading} className="mt-6 w-full sm:w-auto">
         {isLoading ? 'Creating...' : 'Create Site Locally'}
       </Button>

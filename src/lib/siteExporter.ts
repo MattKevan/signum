@@ -1,164 +1,117 @@
 // src/lib/siteExporter.ts
-import { LocalSiteData } from '@/types';
+import { LocalSiteData, StructureNode } from '@/types';
 import JSZip from 'jszip';
-import { slugify } from './utils';
-import { stringifyToMarkdown } from './markdownParser';
-import { generateNavLinks } from './navigationUtils';
-import { resolvePageContent, PageType } from './pageResolver';
+import { slugify } from '@/lib/utils'; // CORRECTED PATH
+import { stringifyToMarkdown } from '@/lib/markdownParser'; // CORRECTED PATH
+import { generateNavLinks } from '@/lib/navigationUtils'; // CORRECTED PATH
+import { resolvePageContent, PageType } from '@/lib/pageResolver'; // CORRECTED PATH
 import { renderPageLayout } from '@/themes/default/layout';
-import { renderHeader } from '@/themes/default/partials/header';
-import { renderFooter } from '@/themes/default/partials/footer';
-import { Manifest } from '@/types';
+import { flattenStructureToPages } from '@/lib/fileTreeUtils'; // CORRECTED PATH
 
 const SIGNUM_DIR = '_signum';
 const CSS_DIR_EXPORT = 'css';
 const JS_DIR_EXPORT = 'js';
 
-interface GeneratedFile {
-  path: string;
-  content: string | Uint8Array;
-}
-
 function escapeForXml(str: string | undefined): string {
     if (str === undefined || str === null) return '';
-    return String(str).replace(/[<>&"']/g, function (match) {
-        switch (match) {
-            case '<': return '<';
-            case '>': return '>';
-            case '&': return '&';
-            case '"': return '"';
-            case "'": return "'";
-            default: return match;
-        }
+    return String(str).replace(/[&<>"']/g, (match) => {
+        return { '<': '<', '>': '>', '&': '&', '"': '"', "'": "'" }[match] || match;
     });
+}
+
+async function generateHtmlForStructure(
+  siteData: LocalSiteData,
+  nodes: StructureNode[],
+  currentPath: string = ''
+): Promise<{ path: string; content: string }[]> {
+  let files: { path: string; content: string }[] = [];
+  const navLinks = generateNavLinks(siteData, { isStaticExport: true, siteRootPath: '/' });
+
+  for (const node of nodes) {
+    const slugArray = (currentPath ? `${currentPath}/${node.slug}` : node.slug).split('/').filter(s => s !== 'index');
+    const resolution = resolvePageContent(siteData, slugArray);
+    
+    if (resolution.type === PageType.SinglePage || resolution.type === PageType.CollectionListing) {
+      const isIndex = node.slug === 'index' || node.type === 'collection';
+      
+      const pathSegments = currentPath.split('/').filter(Boolean);
+      pathSegments.push(node.slug);
+
+      const exportPath = isIndex 
+        ? `${pathSegments.join('/')}/index.html`
+        : `${pathSegments.join('/')}.html`;
+
+      const cleanedExportPath = exportPath.replace(/^index\//, '');
+
+      const fullHtml = renderPageLayout(
+          siteData.manifest,
+          siteData.manifest.theme.config,
+          resolution.pageTitle || 'Untitled',
+          navLinks,
+          resolution.mainContentHtml || ''
+      );
+      files.push({ path: cleanedExportPath, content: fullHtml });
+    }
+
+    if (node.children) {
+      const childFiles = await generateHtmlForStructure(siteData, node.children, `${currentPath}/${node.slug}`.replace(/^index/, '').replace(/\/index/,''));
+      files = files.concat(childFiles);
+    }
+  }
+  return files;
 }
 
 export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
   const zip = new JSZip();
-  const generatedFiles: GeneratedFile[] = [];
-  const siteRootPathForLinks = '/'; 
 
-  console.log("[Exporter] Starting site export process...");
+  const htmlFiles = await generateHtmlForStructure(siteData, siteData.manifest.structure);
+  htmlFiles.forEach(file => zip.file(file.path, file.content));
 
-  const publicContentFiles = siteData.contentFiles.filter(
-    (f) => !f.frontmatter.draft && f.frontmatter.status !== 'draft'
-  );
-
-  // --- Generate HTML pages ---
-  const navLinks = generateNavLinks(siteData, { isStaticExport: true, siteRootPath: siteRootPathForLinks });
-  const siteHeaderHtml = renderHeader(siteData.config, navLinks, siteRootPathForLinks);
-  const siteFooterHtml = renderFooter(siteData.config);
-  
-  const pathsToRender = new Set<string>();
-  publicContentFiles.forEach(file => {
-      const path = file.path.replace(/^content\//, '').replace(/\.md$/, '');
-      if (path === 'index') {
-          pathsToRender.add(''); // Root index
-      } else {
-          pathsToRender.add(path); // Single page
-          // Add parent collection path
-          const segments = path.split('/');
-          if (segments.length > 1) {
-              pathsToRender.add(segments[0]);
-          }
-      }
-  });
-
-  for (const path of pathsToRender) {
-    const slugArray = path.split('/').filter(Boolean);
-    const resolution = resolvePageContent(siteData, slugArray);
-    
-    if (resolution.type === PageType.SinglePage || resolution.type === PageType.CollectionListing) {
-        const fullHtml = renderPageLayout(
-            siteData.config,
-            resolution.pageTitle || 'Untitled',
-            siteHeaderHtml,
-            resolution.mainContentHtml || '',
-            siteFooterHtml
-        );
-        const exportPath = path ? (resolution.type === PageType.CollectionListing ? `${path}/index.html` : `${path}.html`) : 'index.html';
-        generatedFiles.push({ path: exportPath, content: fullHtml });
-        console.log(`[Exporter] Generated HTML for: ${exportPath}`);
-    }
+  const themeStylePath = `/themes/default/style.css`;
+  const styleCssResponse = await fetch(themeStylePath);
+  if (styleCssResponse.ok) {
+      zip.file(`${CSS_DIR_EXPORT}/style.css`, await styleCssResponse.text());
   }
 
-  // --- Asset Copying (CSS & JS) ---
-  const themeStylePath = '/themes/default/style.css';
-  try { 
-    const styleCssResponse = await fetch(themeStylePath);
-    if (styleCssResponse.ok) {
-        generatedFiles.push({ path: `${CSS_DIR_EXPORT}/style.css`, content: await styleCssResponse.text() });
-    }
-  } catch (e) { console.warn(`[Exporter] CSS fetch error:`, e); }
-  
-  const themeScriptPath = '/themes/default/scripts.js';
-  try { 
-    const scriptsJsResponse = await fetch(themeScriptPath);
-    if (scriptsJsResponse.ok) {
-        generatedFiles.push({ path: `${JS_DIR_EXPORT}/scripts.js`, content: await scriptsJsResponse.text() });
-    }
-  } catch (e) { console.warn(`[Exporter] JS fetch error:`, e); }
+  const themeScriptPath = `/themes/default/scripts.js`;
+  const scriptsJsResponse = await fetch(themeScriptPath);
+  if (scriptsJsResponse.ok) {
+      zip.file(`${JS_DIR_EXPORT}/scripts.js`, await scriptsJsResponse.text());
+  }
 
-  // --- _signum Data Packaging ---
+  zip.file(`${SIGNUM_DIR}/manifest.json`, JSON.stringify(siteData.manifest, null, 2));
+  
   siteData.contentFiles.forEach(file => {
       const rawMarkdown = stringifyToMarkdown(file.frontmatter, file.content);
-      generatedFiles.push({ path: `${SIGNUM_DIR}/${file.path}`, content: rawMarkdown });
+      zip.file(`${SIGNUM_DIR}/${file.path}`, rawMarkdown);
   });
-
-  // --- Manifest, RSS, Sitemap Generation ---
-  const manifest: Manifest = {
-    siteId: siteData.siteId.replace(/^remote-/, ''),
-    generatorVersion: 'SignumClient/0.1.0',
-    config: siteData.config,
-    entries: publicContentFiles.map(file => {
-      let htmlPath: string;
-      const relativePathNoExt = file.path.replace(/^content\//i, '').replace(/\.md$/i, '');
-      const pathParts = relativePathNoExt.split('/');
-      if (relativePathNoExt === 'index') {
-          htmlPath = 'index.html';
-      } else if (file.path.toLowerCase().endsWith('/index.md')) {
-          htmlPath = `${pathParts.slice(0, -1).join('/')}/index.html`;
-      } else {
-          htmlPath = `${relativePathNoExt}.html`;
-      }
-      return {
-          type: file.path.toLowerCase().endsWith('/index.md') ? 'collection_index' : 'page',
-          status: file.frontmatter.status || 'published',
-          sourcePath: `${SIGNUM_DIR}/${file.path}`,
-          htmlPath: htmlPath,
-          url: `${siteRootPathForLinks}${htmlPath}`.replace(/\/\//g, '/'),
-          title: file.frontmatter.title,
-          date: file.frontmatter.date,
-          slug: file.slug,
-      };
-    }),
-  };
-  generatedFiles.push({ path: `${SIGNUM_DIR}/manifest.json`, content: JSON.stringify(manifest, null, 2) });
-
-  const signumIndexHtml = `<!DOCTYPE html><html><head><title>Signum Site Data</title></head><body><h1>Signum Site Data</h1><p>This directory contains raw source data for this website.</p></body></html>`;
-  generatedFiles.push({ path: `${SIGNUM_DIR}/index.html`, content: signumIndexHtml });
-
-  const siteBaseUrlForFeeds = `http://${slugify(siteData.config.title || 'example')}.com`;
-  const rssItems = manifest.entries
-      .filter(e => e.type === 'page' && e.date)
-      .sort((a,b) => new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime())
-      .slice(0, 20)
-      .map(entry => {
-          const absoluteUrl = new URL(entry.url.replace(/^\//, ''), siteBaseUrlForFeeds).href;
-          const fileData = siteData.contentFiles.find(f => f.slug === entry.slug);
-          return `<item><title>${escapeForXml(entry.title)}</title><link>${escapeForXml(absoluteUrl)}</link><guid isPermaLink="true">${escapeForXml(absoluteUrl)}</guid><pubDate>${new Date(entry.date!).toUTCString()}</pubDate><description>${escapeForXml(fileData?.frontmatter.summary || '')}</description></item>`;
-      }).join('');
-  const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(siteData.config.title)}</title><link>${siteBaseUrlForFeeds}</link><description>${escapeForXml(siteData.config.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrlForFeeds).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
-  generatedFiles.push({ path: 'rss.xml', content: rssFeed });
   
-  const sitemapUrls = manifest.entries.map(entry => `<url><loc>${new URL(entry.url.replace(/^\//, ''), siteBaseUrlForFeeds).href}</loc><lastmod>${(entry.date || new Date().toISOString()).split('T')[0]}</lastmod></url>`).join('');
-  const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
-  generatedFiles.push({ path: 'sitemap.xml', content: sitemapXml });
+  const allPages = flattenStructureToPages(siteData.manifest.structure);
+  const siteBaseUrl = `https://${slugify(siteData.manifest.title || 'example')}.com`;
 
-  // --- Final Zip Generation ---
-  generatedFiles.forEach(file => {
-    zip.file(file.path, file.content);
-  });
+  const rssItems = allPages
+    .map(p => ({ node: p, file: siteData.contentFiles.find(f => f.path === p.path) }))
+    .filter(item => item.file && item.file.frontmatter.date)
+    .sort((a,b) => new Date(b.file!.frontmatter.date!).getTime() - new Date(a.file!.frontmatter.date!).getTime())
+    .slice(0, 20)
+    .map(item => {
+        const { node, file } = item;
+        const relativeUrl = node.slug === 'index' ? '/' : node.path.replace('content/','').replace('.md','.html');
+        const url = new URL(relativeUrl, siteBaseUrl).href;
+        return `<item><title>${escapeForXml(node.title)}</title><link>${url}</link><guid>${url}</guid><pubDate>${new Date(file!.frontmatter.date!).toUTCString()}</pubDate><description>${escapeForXml(file!.frontmatter.summary || '')}</description></item>`;
+    }).join('');
+
+  const rssFeed = `<rss version="2.0"><channel><title>${escapeForXml(siteData.manifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(siteData.manifest.description)}</description>${rssItems}</channel></rss>`;
+  zip.file('rss.xml', rssFeed);
+
+  const sitemapUrls = allPages.map(node => {
+      const file = siteData.contentFiles.find(f => f.path === node.path);
+      const relativeUrl = node.slug === 'index' ? '/' : node.path.replace('content/','').replace('.md','.html');
+      const url = new URL(relativeUrl, siteBaseUrl).href;
+      return `<url><loc>${url}</loc><lastmod>${(file?.frontmatter.date || new Date().toISOString()).split('T')[0]}</lastmod></url>`;
+  }).join('');
+  const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
+  zip.file('sitemap.xml', sitemapXml);
 
   return zip.generateAsync({ type: 'blob' });
 }

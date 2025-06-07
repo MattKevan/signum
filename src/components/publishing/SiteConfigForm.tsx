@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useCallback } from 'react';
-import { SiteConfigFile } from '@/types';
+import { Manifest, ThemeConfig } from '@/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,149 +15,130 @@ import {
 } from "@/components/ui/select";
 
 interface SiteConfigFormProps {
-  initialConfig: SiteConfigFile;
-  onConfigChange: (config: SiteConfigFile) => void;
+  // Now receives the entire manifest
+  initialManifest: Manifest;
+  onManifestChange: (manifest: Manifest) => void;
 }
 
-export default function SiteConfigForm({ initialConfig, onConfigChange }: SiteConfigFormProps) {
+export default function SiteConfigForm({ initialManifest, onManifestChange }: SiteConfigFormProps) {
   
-  // Generic handler for top-level config fields (including new style fields)
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+  // Handles changes to top-level manifest properties like title, description, author
+  const handleRootChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    onConfigChange({ 
-      ...initialConfig, 
+    onManifestChange({ 
+      ...initialManifest, 
       [name]: value 
     });
-  }, [initialConfig, onConfigChange]);
+  }, [initialManifest, onManifestChange]);
 
-  // Specific handler for Select components which return value directly
-  const handleSelectChange = useCallback((name: keyof SiteConfigFile, value: string) => {
-    onConfigChange({
-      ...initialConfig,
-      [name]: value,
+  // Handles changes to the nested theme configuration
+  const handleThemeConfigChange = useCallback((field: keyof ThemeConfig['config'], value: string) => {
+    onManifestChange({
+      ...initialManifest,
+      theme: {
+        ...initialManifest.theme,
+        config: {
+          ...initialManifest.theme.config,
+          [field]: value,
+        },
+      },
     });
-  }, [initialConfig, onConfigChange]);
+  }, [initialManifest, onManifestChange]);
 
-
-  // Handler specifically for the primary_color text input to ensure it also updates the color picker
-  // and for the color picker to update the text input.
-  const handlePrimaryColorChange = useCallback((value: string) => {
-    onConfigChange({
-        ...initialConfig,
-        primary_color: value,
-    });
-  }, [initialConfig, onConfigChange]);
-
-
-  const currentConfig = initialConfig;
+  const currentManifest = initialManifest;
+  const currentThemeConfig = initialManifest.theme.config;
 
   return (
     <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
       <fieldset className="space-y-4 border p-4 rounded-md">
         <legend className="text-lg font-semibold px-1">General Information</legend>
         <div>
-          <Label htmlFor="title" className="block text-sm font-medium text-foreground mb-1">Site Title *</Label>
+          <Label htmlFor="title">Site Title *</Label>
           <Input
             id="title"
-            name="title" // Corresponds to SiteConfigFile key
-            value={currentConfig.title || ''}
-            onChange={handleChange}
+            name="title" // Corresponds to Manifest key
+            value={currentManifest.title || ''}
+            onChange={handleRootChange}
             placeholder="My Awesome Signum Blog"
             required
-            className="mt-1 block w-full"
           />
-          <p className="text-xs text-muted-foreground mt-1">The main title of your site.</p>
         </div>
 
         <div>
-          <Label htmlFor="description" className="block text-sm font-medium text-foreground mb-1">Site Description</Label>
+          <Label htmlFor="description">Site Description</Label>
           <Textarea
             id="description"
-            name="description" // Corresponds to SiteConfigFile key
-            value={currentConfig.description || ''}
-            onChange={handleChange}
+            name="description" // Corresponds to Manifest key
+            value={currentManifest.description || ''}
+            onChange={handleRootChange}
             placeholder="A short and catchy description of what your site is about."
             rows={3}
-            className="mt-1 block w-full"
           />
-           <p className="text-xs text-muted-foreground mt-1">Used for summaries and search engine metadata.</p>
         </div>
 
         <div>
-          <Label htmlFor="author" className="block text-sm font-medium text-foreground mb-1">Author Name</Label>
+          <Label htmlFor="author">Author Name</Label>
           <Input
             id="author"
-            name="author" // Corresponds to SiteConfigFile key
-            value={currentConfig.author || ''}
-            onChange={handleChange}
+            name="author" // Corresponds to Manifest key
+            value={currentManifest.author || ''}
+            onChange={handleRootChange}
             placeholder="John Doe"
-            className="mt-1 block w-full"
           />
-          <p className="text-xs text-muted-foreground mt-1">The name of the site author (optional).</p>
         </div>
       </fieldset>
 
       <fieldset className="space-y-4 border p-4 rounded-md">
-        <legend className="text-lg font-semibold px-1">Appearance</legend>
+        <legend className="text-lg font-semibold px-1">Appearance (Default Theme)</legend>
         <div>
-          <Label htmlFor="font_family" className="block text-sm font-medium text-foreground mb-1">Font Family</Label>
+          <Label htmlFor="font_family">Font Family</Label>
           <Select
-            value={currentConfig.font_family || 'sans-serif'}
-            onValueChange={(value) => handleSelectChange('font_family', value)}
+            value={currentThemeConfig.font_family || 'sans-serif'}
+            onValueChange={(value) => handleThemeConfigChange('font_family', value)}
           >
-            <SelectTrigger id="font_family" className="w-full mt-1">
-              <SelectValue placeholder="Select font family" />
-            </SelectTrigger>
+            <SelectTrigger id="font_family"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="sans-serif">Sans Serif (Default)</SelectItem>
+              <SelectItem value="sans-serif">Sans Serif</SelectItem>
               <SelectItem value="serif">Serif</SelectItem>
               <SelectItem value="monospace">Monospace</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground mt-1">Choose the base font style for your site content.</p>
         </div>
 
         <div>
-          <Label htmlFor="theme" className="block text-sm font-medium text-foreground mb-1">Color Theme</Label>
+          <Label htmlFor="color_scheme">Color Scheme</Label>
           <Select
-            value={currentConfig.theme || 'light'}
-            onValueChange={(value) => handleSelectChange('theme', value)}
+            value={currentThemeConfig.color_scheme || 'light'}
+            onValueChange={(value) => handleThemeConfigChange('color_scheme', value)}
           >
-            <SelectTrigger id="theme" className="w-full mt-1">
-              <SelectValue placeholder="Select color theme" />
-            </SelectTrigger>
+            <SelectTrigger id="color_scheme"><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="light">Light (Default)</SelectItem>
+              <SelectItem value="light">Light</SelectItem>
               <SelectItem value="dark">Dark</SelectItem>
               <SelectItem value="auto">System Preference</SelectItem>
             </SelectContent>
           </Select>
-          <p className="text-xs text-muted-foreground mt-1">Select the preferred color scheme. &apos;System&apos; will adapt to user&apos;s OS settings.</p>
         </div>
         
         <div>
-          <Label htmlFor="primary_color_text_input" className="block text-sm font-medium text-foreground mb-1">Primary Accent Color</Label>
+          <Label htmlFor="primary_color_text">Primary Accent Color</Label>
           <div className="flex items-center space-x-2 mt-1">
             <Input
-              id="primary_color_text_input"
-              name="primary_color" // Corresponds to SiteConfigFile key
+              id="primary_color_text"
               type="text"
-              value={currentConfig.primary_color || '#007AFF'}
-              onChange={(e) => handlePrimaryColorChange(e.target.value)} // Use dedicated handler
+              value={currentThemeConfig.primary_color || '#007AFF'}
+              onChange={(e) => handleThemeConfigChange('primary_color', e.target.value)}
               placeholder="#007AFF"
-              className="block w-full"
               pattern="^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$"
             />
             <Input
-              id="primary_color_picker" // Different ID for the picker itself
-              name="primary_color_picker_input" // Not directly tied to SiteConfigFile key
+              id="primary_color_picker"
               type="color"
-              value={currentConfig.primary_color || '#007AFF'}
-              onChange={(e) => handlePrimaryColorChange(e.target.value)} // Use dedicated handler
-              className="h-10 w-12 p-1 cursor-pointer border-input rounded-md"
+              value={currentThemeConfig.primary_color || '#007AFF'}
+              onChange={(e) => handleThemeConfigChange('primary_color', e.target.value)}
+              className="h-9 w-12 p-1"
             />
           </div>
-          <p className="text-xs text-muted-foreground mt-1">Choose an accent color (e.g., for links). Use a hex value like #RRGGBB.</p>
         </div>
       </fieldset>
     </form>

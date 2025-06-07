@@ -1,7 +1,7 @@
 // src/app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
 'use client';
 
-import { useParams, useRouter } from 'next/navigation';
+import { useParams,  } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -12,78 +12,76 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
+import { StructureNode } from '@/types'; // Import StructureNode
 
 export default function EditCollectionPage() {
     const params = useParams();
-    const router = useRouter();
+    //const router = useRouter();
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
 
     const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
-    const updateSiteConfig = useAppStore(state => state.updateSiteConfig);
+    const updateManifest = useAppStore(state => state.updateManifest);
 
     const collectionPath = `content/${collectionName}`;
 
-    const collectionData = useMemo(() => {
+    const collectionNode = useMemo(() => {
         if (!site) return null;
-        const collectionConfig = site.config.collections?.find(c => c.path === collectionName);
-        const items = site.contentFiles.filter(f => 
-            f.path.startsWith(`${collectionPath}/`) && !f.path.endsWith('/index.md')
-        );
-        return { config: collectionConfig, items };
-    }, [site, collectionName, collectionPath]);
+        return site.manifest.structure.find(node => node.path === collectionPath);
+    }, [site, collectionPath]);
 
     // Form state
-    const [navLabel, setNavLabel] = useState('');
+    const [title, setTitle] = useState('');
     const [description, setDescription] = useState('');
-    const [sortBy, setSortBy] = useState('date');
-    const [sortOrder, setSortOrder] = useState('desc');
+    const [sortBy, setSortBy] = useState<'date' | 'title'>('date');
+    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
     
     useEffect(() => {
-        if (collectionData?.config) {
-            setNavLabel(collectionData.config.nav_label || '');
-            setDescription(collectionData.config.description || '');
-            setSortBy(collectionData.config.sort_by || 'date');
-            setSortOrder(collectionData.config.sort_order || 'desc');
+        if (collectionNode) {
+            setTitle(collectionNode.title || '');
+            setDescription(collectionNode.description || '');
+            setSortBy(collectionNode.sortBy || 'date');
+            setSortOrder(collectionNode.sortOrder || 'desc');
         }
-    }, [collectionData]);
+    }, [collectionNode]);
     
     const handleSaveChanges = async () => {
-        if (!site || !collectionData?.config) {
+        if (!site || !collectionNode) {
             toast.error("Cannot save, collection configuration not found.");
             return;
         }
 
-        const newCollections = (site.config.collections || []).map(c => {
-            if (c.path === collectionName) {
+        // Create a new structure array with the updated node
+        const newStructure = site.manifest.structure.map(node => {
+            if (node.path === collectionPath) {
                 return {
-                    ...c,
-                    nav_label: navLabel.trim() || collectionName,
+                    ...node,
+                    title: title.trim(),
                     description: description.trim(),
-                    sort_by: sortBy,
-                    sort_order: sortOrder as 'asc' | 'desc',
+                    sortBy,
+                    sortOrder,
                 };
             }
-            return c;
+            return node;
         });
         
-        const newSiteConfig = { ...site.config, collections: newCollections };
-        await updateSiteConfig(siteId, newSiteConfig);
+        const newManifest = { ...site.manifest, structure: newStructure };
+        await updateManifest(siteId, newManifest);
 
         toast.success(`Collection "${collectionName}" updated successfully!`);
     };
     
-    if (!site || !collectionData?.config) {
+    if (!site || !collectionNode) {
         return <div>Loading collection data or collection not found...</div>;
     }
 
-    const title = navLabel || collectionName.charAt(0).toUpperCase() + collectionName.slice(1);
+    const displayTitle = title || collectionName.charAt(0).toUpperCase() + collectionName.slice(1);
 
     return (
         <div className="flex flex-row h-full gap-6">
             <main className="flex-1 flex flex-col">
                 <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-2xl font-bold">Editing Collection: {title}</h1>
+                    <h1 className="text-2xl font-bold">Editing Collection: {displayTitle}</h1>
                     <Button asChild>
                         <Link href={`/edit/${siteId}/content/${collectionName}/_new`}>
                             <PlusCircle className="mr-2 h-4 w-4" /> New Item
@@ -92,14 +90,13 @@ export default function EditCollectionPage() {
                 </div>
                 <div className="flex-grow p-4 border rounded-lg bg-background overflow-y-auto">
                     <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
-                    {collectionData.items.length > 0 ? (
+                    {collectionNode.children && collectionNode.children.length > 0 ? (
                         <ul className="space-y-2">
-                            {collectionData.items.map(item => (
+                            {collectionNode.children.map((item: StructureNode) => (
                                 <li key={item.path}>
-                                    <Link href={`/edit/${siteId}/content/${item.path.replace('content/', '').replace('.md', '')}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
+                                    <Link href={`/edit/${siteId}/content/${item.slug}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
                                         <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
-                                        <span className="font-medium">{item.frontmatter.title || item.slug}</span>
-                                        <span className="text-sm text-muted-foreground ml-auto">{item.frontmatter.date}</span>
+                                        <span className="font-medium">{item.title || item.slug}</span>
                                     </Link>
                                 </li>
                             ))}
@@ -113,9 +110,9 @@ export default function EditCollectionPage() {
             <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
                 <h2 className="text-lg font-semibold border-b pb-2">Collection Settings</h2>
                 <div>
-                    <Label htmlFor="navLabel">Navigation Label</Label>
-                    <Input id="navLabel" value={navLabel} onChange={e => setNavLabel(e.target.value)} placeholder="e.g., Blog Posts" />
-                    <p className="text-xs text-muted-foreground mt-1">How this collection appears in the site menu.</p>
+                    <Label htmlFor="title">Display Title</Label>
+                    <Input id="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Blog Posts" />
+                    <p className="text-xs text-muted-foreground mt-1">How this collection appears in the site menu and on its page.</p>
                 </div>
                 <div>
                     <Label htmlFor="description">Listing Page Description</Label>
@@ -124,14 +121,14 @@ export default function EditCollectionPage() {
                  <div>
                     <Label>Sort Items By</Label>
                     <div className="flex gap-2 mt-1">
-                        <Select value={sortBy} onValueChange={setSortBy}>
+                        <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'title')}>
                             <SelectTrigger><SelectValue/></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="date">Date</SelectItem>
                                 <SelectItem value="title">Title</SelectItem>
                             </SelectContent>
                         </Select>
-                        <Select value={sortOrder} onValueChange={setSortOrder}>
+                        <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'asc' | 'desc')}>
                             <SelectTrigger><SelectValue/></SelectTrigger>
                             <SelectContent>
                                 <SelectItem value="desc">Descending</SelectItem>
