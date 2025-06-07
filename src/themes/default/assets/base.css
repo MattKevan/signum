@@ -1,0 +1,10 @@
+/* Global styles: typography, variables, header/footer layout */
+:root {
+  --primary-color: #0d6efd;
+  --text-color-light: #212529;
+  --background-color-light: #ffffff;
+  /* ... other vars ... */
+}
+body { font-family: sans-serif; }
+body.font-serif { font-family: serif; }
+/* ... etc ... */

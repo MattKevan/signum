@@ -1,22 +1,30 @@
-// src/app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
 'use client';
 
-import { useParams,  } from 'next/navigation';
+import { useParams } from 'next/navigation'; // REMOVED: useRouter as it's not used
 import { useAppStore } from '@/stores/useAppStore';
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
-import { StructureNode } from '@/types'; // Import StructureNode
+import { StructureNode } from '@/types';
+import { getAvailableLayouts, getLayoutSchema, type ThemeLayout } from '@/lib/themeEngine';
+import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
+import { RJSFSchema } from '@rjsf/utils';
+
+// Define a specific type for the frontmatter of the collection itself.
+// This avoids using `any` and makes the component's state clear.
+type CollectionFrontmatter = {
+    title: string;
+    description: string;
+    [key: string]: string; // Allow other string-based properties from the schema
+};
 
 export default function EditCollectionPage() {
     const params = useParams();
-    //const router = useRouter();
+    // const router = useRouter(); // REMOVED: This was unused.
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
 
@@ -25,63 +33,96 @@ export default function EditCollectionPage() {
 
     const collectionPath = `content/${collectionName}`;
 
+    // --- State Hooks ---
+    const [selectedLayout, setSelectedLayout] = useState('');
+    const [availableLayouts, setAvailableLayouts] = useState<ThemeLayout[]>([]);
+    // FIXED: Use the specific CollectionFrontmatter type instead of `any`.
+    const [collectionFrontmatter, setCollectionFrontmatter] = useState<CollectionFrontmatter>({ title: '', description: '' });
+    const [formSchema, setFormSchema] = useState<RJSFSchema | null>(null);
+
+    // --- Memoized Selectors ---
     const collectionNode = useMemo(() => {
         if (!site) return null;
-        return site.manifest.structure.find(node => node.path === collectionPath);
+        const findNode = (nodes: StructureNode[]): StructureNode | undefined => {
+            for (const node of nodes) {
+                if (node.path === collectionPath) return node;
+                if (node.children) {
+                    const found = findNode(node.children);
+                    if (found) return found;
+                }
+            }
+        };
+        return findNode(site.manifest.structure);
     }, [site, collectionPath]);
 
-    // Form state
-    const [title, setTitle] = useState('');
-    const [description, setDescription] = useState('');
-    const [sortBy, setSortBy] = useState<'date' | 'title'>('date');
-    const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-    
+    // --- Effects ---
     useEffect(() => {
-        if (collectionNode) {
-            setTitle(collectionNode.title || '');
-            setDescription(collectionNode.description || '');
-            setSortBy(collectionNode.sortBy || 'date');
-            setSortOrder(collectionNode.sortOrder || 'desc');
+        if (site && collectionNode) {
+            setSelectedLayout(collectionNode.layout);
+            // Populate the frontmatter state from the node in the manifest.
+            setCollectionFrontmatter({
+                title: collectionNode.title,
+                // FIXED: Explicitly cast and provide a fallback to satisfy the type.
+                description: (collectionNode as { description?: string }).description || '',
+            });
+
+            getAvailableLayouts(site.manifest.theme.name).then(layouts => {
+                setAvailableLayouts(layouts.filter(l => l.type === 'collection'));
+            });
         }
-    }, [collectionNode]);
-    
+    }, [collectionNode, site]);
+
+    useEffect(() => {
+        async function loadSchema() {
+            if (site && selectedLayout) {
+                const schemaData = await getLayoutSchema(site.manifest.theme.name, selectedLayout);
+                setFormSchema(schemaData?.schema || null);
+            }
+        }
+        loadSchema();
+    }, [selectedLayout, site]);
+
+    // --- Event Handlers ---
     const handleSaveChanges = async () => {
         if (!site || !collectionNode) {
-            toast.error("Cannot save, collection configuration not found.");
+            toast.error("Cannot save, collection not found.");
             return;
         }
 
-        // Create a new structure array with the updated node
-        const newStructure = site.manifest.structure.map(node => {
-            if (node.path === collectionPath) {
-                return {
-                    ...node,
-                    title: title.trim(),
-                    description: description.trim(),
-                    sortBy,
-                    sortOrder,
-                };
-            }
-            return node;
-        });
+        const updateNode = (nodes: StructureNode[]): StructureNode[] => {
+            return nodes.map(node => {
+                if (node.path === collectionPath) {
+                    return { 
+                        ...node, 
+                        layout: selectedLayout,
+                        title: collectionFrontmatter.title,
+                        // Spread the rest of the frontmatter onto the node for storage.
+                        ...(collectionFrontmatter as Omit<CollectionFrontmatter, 'title'>),
+                    };
+                }
+                if (node.children) {
+                    return { ...node, children: updateNode(node.children) };
+                }
+                return node;
+            });
+        };
         
+        const newStructure = updateNode(site.manifest.structure);
         const newManifest = { ...site.manifest, structure: newStructure };
         await updateManifest(siteId, newManifest);
 
-        toast.success(`Collection "${collectionName}" updated successfully!`);
+        toast.success(`Collection "${collectionFrontmatter.title}" updated successfully!`);
     };
     
     if (!site || !collectionNode) {
-        return <div>Loading collection data or collection not found...</div>;
+        return <div>Loading collection data...</div>;
     }
-
-    const displayTitle = title || collectionName.charAt(0).toUpperCase() + collectionName.slice(1);
 
     return (
         <div className="flex flex-row h-full gap-6">
             <main className="flex-1 flex flex-col">
                 <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-2xl font-bold">Editing Collection: {displayTitle}</h1>
+                    <h1 className="text-2xl font-bold">Editing Collection: {collectionNode.title}</h1>
                     <Button asChild>
                         <Link href={`/edit/${siteId}/content/${collectionName}/_new`}>
                             <PlusCircle className="mr-2 h-4 w-4" /> New Item
@@ -102,7 +143,7 @@ export default function EditCollectionPage() {
                             ))}
                         </ul>
                     ) : (
-                        <p className="text-muted-foreground text-center py-8">No items in this collection yet. Click &quot;New Item&quot; to start.</p>
+                        <p className="text-muted-foreground text-center py-8">No items in this collection yet.</p>
                     )}
                 </div>
             </main>
@@ -110,33 +151,27 @@ export default function EditCollectionPage() {
             <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
                 <h2 className="text-lg font-semibold border-b pb-2">Collection Settings</h2>
                 <div>
-                    <Label htmlFor="title">Display Title</Label>
-                    <Input id="title" value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g., Blog Posts" />
-                    <p className="text-xs text-muted-foreground mt-1">How this collection appears in the site menu and on its page.</p>
+                    <Label htmlFor="layout-select">Collection Layout</Label>
+                    <Select value={selectedLayout} onValueChange={setSelectedLayout}>
+                        <SelectTrigger id="layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                        <SelectContent>
+                            {availableLayouts.map(layout => (
+                              <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
-                <div>
-                    <Label htmlFor="description">Listing Page Description</Label>
-                    <Textarea id="description" value={description} onChange={e => setDescription(e.target.value)} placeholder="A short description for the top of the collection page." rows={4} />
-                </div>
-                 <div>
-                    <Label>Sort Items By</Label>
-                    <div className="flex gap-2 mt-1">
-                        <Select value={sortBy} onValueChange={(v) => setSortBy(v as 'date' | 'title')}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="date">Date</SelectItem>
-                                <SelectItem value="title">Title</SelectItem>
-                            </SelectContent>
-                        </Select>
-                        <Select value={sortOrder} onValueChange={(v) => setSortOrder(v as 'asc' | 'desc')}>
-                            <SelectTrigger><SelectValue/></SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="desc">Descending</SelectItem>
-                                <SelectItem value="asc">Ascending</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-                </div>
+                
+                {formSchema ? (
+                    <SchemaDrivenForm
+                        schema={formSchema}
+                        formData={collectionFrontmatter}
+                        onFormChange={(data) => setCollectionFrontmatter(data as CollectionFrontmatter)}
+                    />
+                ) : (
+                    <p className="text-sm text-muted-foreground">Select a layout to see its settings.</p>
+                )}
+
                 <Button onClick={handleSaveChanges} className="w-full">Save Collection Settings</Button>
             </aside>
         </div>

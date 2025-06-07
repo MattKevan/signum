@@ -1,0 +1,27 @@
+{
+  "name": "Default",
+  "version": "1.0.0",
+  "layouts": [
+    "page",
+    "blog",
+    "gallery"
+  ],
+  "appearanceSchema": {
+    "title": "Theme Appearance",
+    "type": "object",
+    "properties": {
+      "color_scheme": {
+        "type": "string",
+        "title": "Color Scheme",
+        "default": "light",
+        "enum": ["light", "dark", "auto"]
+      },
+      "font_family": {
+        "type": "string",
+        "title": "Base Font",
+        "default": "sans-serif",
+        "enum": ["sans-serif", "serif"]
+      }
+    }
+  }
+}

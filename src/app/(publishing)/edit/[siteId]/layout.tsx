@@ -13,6 +13,8 @@ import { toast } from 'sonner';
 import { exportSiteToZip } from '@/lib/siteExporter';
 import { slugify } from '@/lib/utils';
 import { StructureNode } from '@/types';
+import { getAvailableLayouts, type ThemeLayout } from '@/lib/themeEngine';
+
 
 const NEW_FILE_SLUG_MARKER = '_new';
 
@@ -27,8 +29,18 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const addNewCollection = useAppStore((state) => state.addNewCollection);
   const [isPublishing, setIsPublishing] = useState(false);
   const [activePath, setActivePath] = useState<string | undefined>();
+  const [availableCollectionLayouts, setAvailableCollectionLayouts] = useState<ThemeLayout[]>([]);
 
   const siteStructure = useMemo(() => site?.manifest.structure || [], [site?.manifest.structure]);
+
+  useEffect(() => {
+    // Fetch available layouts when the component mounts and the site data is available
+    if (site) {
+        getAvailableLayouts(site.manifest.theme.name).then(layouts => {
+            setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
+        });
+    }
+  }, [site]);
 
   useEffect(() => {
     const pathSegments = pathname.split('/');
@@ -59,9 +71,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     router.push(newFileRoute.replace(/\/\//g, '/'));
   };
   
-  const handleCreateNewCollection = async (name: string, slug: string) => {
+   const handleCreateNewCollection = async (name: string, slug: string, layout: string) => {
     if (!site) return;
-    await addNewCollection(siteId, name, slug);
+    await addNewCollection(siteId, name, slug, layout);
     toast.success(`Collection "${name}" created!`);
     router.push(`/edit/${siteId}/collection/${slug}`);
   };
@@ -113,7 +125,11 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
               <PlusCircle className="mr-2 h-4 w-4" /> New Page
             </Button>
-            <NewCollectionDialog existingSlugs={existingTopLevelSlugs} onSubmit={handleCreateNewCollection}>
+            <NewCollectionDialog 
+                existingSlugs={existingTopLevelSlugs} 
+                availableLayouts={availableCollectionLayouts}
+                onSubmit={handleCreateNewCollection}
+            >
                 <Button variant="ghost" className="w-full justify-start">
                     <FolderPlus className="mr-2 h-4 w-4" /> New Collection
                 </Button>

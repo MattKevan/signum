@@ -1,0 +1,10 @@
+{
+  "title": "Blog Post",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "title": "Post Title" },
+    "date": { "type": "string", "format": "date", "title": "Publication Date" },
+    "tags": { "type": "string", "title": "Tags (comma-separated)" }
+  },
+  "required": ["title", "date"]
+}

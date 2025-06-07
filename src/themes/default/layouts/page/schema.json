@@ -1,0 +1,9 @@
+{
+  "title": "Page",
+  "description": "A standard content page.",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string", "title": "Page Title" }
+  },
+  "required": ["title"]
+}

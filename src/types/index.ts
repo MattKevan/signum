@@ -1,28 +1,26 @@
 // src/types/index.ts
+import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
 
 // Represents a node in the hierarchical site structure.
-// This is the primary building block for the manifest's structure.
 export interface StructureNode {
   type: 'page' | 'collection';
-  title: string;          // The display title (from frontmatter for pages).
-  path: string;           // The FULL path from root, e.g., "content/blog/first-post.md".
-  slug: string;           // The URL-friendly slug, e.g., "first-post".
-  navOrder?: number;      // Optional: If present, item is in main nav. Used for sorting.
+  title: string;
+  path: string;
+  slug: string;
+  navOrder?: number;
   children?: StructureNode[];
-
-  // Collection-specific properties are now directly on the node.
-  description?: string;
-  sortBy?: 'date' | 'title';
-  sortOrder?: 'asc' | 'desc';
+  layout: string;
+  // This property is specific to collection nodes, so it's optional.
+  itemLayout?: string; 
 }
 
-// Represents the theme configuration, now nested.
+// Represents the theme configuration.
 export interface ThemeConfig {
-  name: 'default'; // For now, only 'default' is supported.
+  name: 'default' | string;
+  // FIXED: Replace 'any' with a more specific index signature.
+  // This says the config object can have any string key, and its values can be strings, booleans, or numbers.
   config: {
-    font_family: 'serif' | 'sans-serif' | 'monospace';
-    color_scheme: 'light' | 'dark' | 'auto';
-    primary_color: string;
+    [key: string]: string | boolean | number;
   };
 }
 
@@ -30,16 +28,10 @@ export interface ThemeConfig {
 export interface Manifest {
   siteId: string;
   generatorVersion: string;
-
-  // Site metadata is now top-level.
   title: string;
   description: string;
   author?: string;
-
-  // Nested theme configuration.
   theme: ThemeConfig;
-
-  // The single, hierarchical source of truth for all content.
   structure: StructureNode[];
 }
 
@@ -51,6 +43,23 @@ export interface ParsedMarkdownFile {
   content: string;
 }
 
+// Represents a link used for rendering navigation menus.
+// This is a derived type, not part of the core manifest data.
+export interface NavLinkItem {
+  href: string;
+  label: string;
+  isActive?: boolean;
+  children?: NavLinkItem[];
+}
+
+// Represents the fields within a content file's frontmatter.
+export interface MarkdownFrontmatter {
+  title: string;
+  // FIXED: Replace 'any' with a specific index signature.
+  // This allows any other string key, accommodating custom frontmatter.
+  [key: string]: unknown; // 'unknown' is safer than 'any'. It forces type checks.
+}
+
 // The complete data for a site held in the app's state.
 export interface LocalSiteData {
   siteId: string;
@@ -58,34 +67,16 @@ export interface LocalSiteData {
   contentFiles: ParsedMarkdownFile[];
 }
 
-// Unchanged from before.
-export interface MarkdownFrontmatter {
-  title: string;
-  date?: string;
-  summary?: string;
-  tags?: string[];
-  status?: 'draft' | 'published';
-  [key: string]: unknown;
-}
-
 // The state and actions for the Zustand store.
 export interface AppState {
   sites: LocalSiteData[];
   addSite: (site: LocalSiteData) => Promise<void>;
   updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
-  deleteSiteAndState: (siteId: string) => Promise<void>;
+  addNewCollection: (siteId: string, name: string, slug: string, layout: string) => Promise<void>;
+  // FIXED: Replace 'any' with the specific 'RJSFSchema' type.
+  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, frontmatterSchema: RJSFSchema) => Promise<boolean>;
+  deleteSiteAndState: (siteId:string) => Promise<void>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
   getSiteById: (siteId: string) => LocalSiteData | undefined;
-  addNewCollection: (siteId: string, name: string, slug: string) => Promise<void>; // <-- THIS LINE IS ADDED
 }
 
-// A navigation link item for rendering menus (used by browsing/exporter).
-export interface NavLinkItem {
-  href: string;
-  label: string;
-  iconName?: string;
-  isActive?: boolean;
-  iconComponent?: React.ElementType;
-  children?: NavLinkItem[];
-}

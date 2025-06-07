@@ -1,35 +1,35 @@
 // src/themes/default/layout.ts
 import { Manifest, NavLinkItem, ThemeConfig } from '@/types';
-import { renderHead } from './partials/head';
-import { renderHeader } from './partials/header';
-import { renderFooter } from './partials/footer';
+import { ThemeEngine } from './engine';
 
-// This is the correct signature the other components will use.
-export function renderPageLayout(
+let isThemeEngineInitialized = false;
+
+/**
+ * This is now the single entry point for rendering a page with the theme.
+ * It prepares the data context and calls the ThemeEngine.
+ */
+export async function renderPageLayout(
   manifest: Manifest,
   themeConfig: ThemeConfig['config'],
   pageTitle: string,
   navLinks: NavLinkItem[],
   mainContentHtml: string,
-): string {
+): Promise<string> { // Return a promise as rendering is now async
   
-  const headerHtml = renderHeader(manifest, navLinks, '/');
-  const footerHtml = renderFooter(manifest);
-  const headContent = renderHead(manifest, themeConfig, pageTitle);
+  if (!isThemeEngineInitialized) {
+    await ThemeEngine.initializePartials();
+    isThemeEngineInitialized = true;
+  }
 
-  return `<!DOCTYPE html>
-<html lang="en">
-${headContent}
-<body>
-  <div class="site-container">
-    ${headerHtml}
-    <main class="site-content">
-      ${mainContentHtml}
-    </main>
-    ${footerHtml}
-  </div>
-  <script src="/js/scripts.js"></script>
-</body>
-</html>
-  `;
+  // Create the complete data context for Handlebars
+  const context = {
+    manifest,
+    themeConfig,
+    pageTitle,
+    navLinks,
+    mainContentHtml,
+    year: new Date().getFullYear(),
+  };
+
+  return ThemeEngine.render(context);
 }
