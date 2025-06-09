@@ -79,13 +79,30 @@ export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
 
 export async function getLayoutManifest(siteData: LocalSiteData, layoutPath: string): Promise<LayoutManifest | null> {
     const layoutManifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
+    if (!layoutManifest) {
+      console.error(`Could not load layout manifest for "${layoutPath}".`);
+      return null;
+    }
+    
+    // An optional base schema could provide other common fields like 'date' or 'status'
     const baseSchemaFile = await getJsonAsset<{ pageSchema: RJSFSchema, uiSchema: StrictUiSchema }>(siteData, 'theme', 'default', 'config/base.schema.json');
-    if (!layoutManifest || !baseSchemaFile) { console.error(`Could not load layout manifest for "${layoutPath}" or base schema file.`); return null; }
-    layoutManifest.pageSchema = mergeSchemas(baseSchemaFile.pageSchema, layoutManifest.pageSchema);
-    layoutManifest.uiSchema = { ...(baseSchemaFile.uiSchema || {}), ...(layoutManifest.uiSchema || {}) };
+    if (baseSchemaFile) {
+        layoutManifest.pageSchema = mergeSchemas(baseSchemaFile.pageSchema, layoutManifest.pageSchema);
+        layoutManifest.uiSchema = { ...(baseSchemaFile.uiSchema || {}), ...(layoutManifest.uiSchema || {}) };
+    }
+    
+    // This ensures they are only handled by their dedicated UI components.
+    if (layoutManifest.pageSchema?.properties) {
+      delete layoutManifest.pageSchema.properties.title;
+      delete layoutManifest.pageSchema.properties.description;
+      delete layoutManifest.pageSchema.properties.slug; // Slug is not part of any schema
+    }
+    
+    // Also clean the layout-specific schema if it exists
     if (layoutManifest.layoutSchema?.properties) {
         delete layoutManifest.layoutSchema.properties.title;
         delete layoutManifest.layoutSchema.properties.description;
     }
+    
     return layoutManifest;
 }

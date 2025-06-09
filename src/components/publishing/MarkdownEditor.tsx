@@ -4,76 +4,64 @@
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { Crepe } from "@milkdown/crepe";
 import { Editor } from '@milkdown/core';
-import { getMarkdown } from '@milkdown/utils';
+import { getMarkdown } from '@milkdown/utils'; // docChanged is not needed
 
-// Import styles. The CSS will automatically handle light/dark mode.
+// Import styles
 import "@milkdown/crepe/theme/common/style.css";
 import "@milkdown/crepe/theme/frame.css";
 import "@milkdown/crepe/theme/frame-dark.css";
 
 interface MarkdownEditorProps {
   initialValue: string;
+  onContentChange: (markdown: string) => void;
 }
 
-// Define the API that the editor will expose to its parent component.
 export interface MarkdownEditorRef {
   getMarkdown: () => string;
 }
 
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
-  ({ initialValue }, ref) => {
+  ({ initialValue, onContentChange }, ref) => {
     const editorRootRef = useRef<HTMLDivElement>(null);
-    // --- FIX: Create a ref to hold the actual Editor instance, not the Crepe factory ---
     const editorInstanceRef = useRef<Editor | null>(null);
-    const crepeInstanceRef = useRef<Crepe | null>(null);
 
-    // This hook exposes the 'getMarkdown' function to the parent component via the ref.
     useImperativeHandle(ref, () => ({
       getMarkdown: () => {
-        // FIX: Interact with the stored Editor instance and its action system.
-        if (!editorInstanceRef.current) {
-            console.warn("getMarkdown called before editor was ready.");
-            return '';
-        }
-        // The Milkdown core API uses an action system. We call the `getMarkdown` utility
-        // through the editor's action context to get the content.
+        if (!editorInstanceRef.current) return '';
         return editorInstanceRef.current.action(getMarkdown());
       },
     }));
 
     useEffect(() => {
       if (!editorRootRef.current) return;
+      let editor: Editor | null = null;
 
-      if (crepeInstanceRef.current) {
-        crepeInstanceRef.current.destroy();
-        crepeInstanceRef.current = null;
-        editorInstanceRef.current = null;
-      }
-
-      const crepe = new Crepe({
+      Crepe.create({
         root: editorRootRef.current,
         defaultValue: initialValue,
+      })
+      .then((instance) => {
+        editor = instance;
+        editorInstanceRef.current = instance;
+        
+        // FIXED: Use the modern listener API and ignore unused parameters with underscores.
+        instance.listener.updated((_ctx, _doc, _prevDoc) => {
+            const markdown = instance.action(getMarkdown());
+            onContentChange(markdown);
+        });
+      })
+      .catch((error: unknown) => {
+        console.error("Failed to create Milkdown editor:", error);
       });
 
-      crepeInstanceRef.current = crepe;
-      
-      crepe.create()
-        .then((editor) => {
-          // Store the resolved editor instance in our ref for later use.
-          editorInstanceRef.current = editor;
-        })
-        .catch((error: unknown) => {
-            console.error("Failed to create Milkdown editor:", error);
-        });
-
       return () => {
-        if (crepeInstanceRef.current) {
-          crepeInstanceRef.current.destroy();
-          crepeInstanceRef.current = null;
-          editorInstanceRef.current = null;
+        if (editor) {
+            editor.destroy();
+            editor = null;
+            editorInstanceRef.current = null;
         }
       };
-    }, [initialValue]);
+    }, [initialValue, onContentChange]);
 
     return (
       <div
@@ -88,5 +76,4 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 );
 
 MarkdownEditor.displayName = 'MarkdownEditor';
-
 export default MarkdownEditor;

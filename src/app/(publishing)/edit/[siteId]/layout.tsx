@@ -12,8 +12,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/lib/siteExporter';
 import { slugify } from '@/lib/utils';
-import { StructureNode } from '@/types';
-import { getAvailableLayouts, type ThemeLayout } from '@/lib/themeEngine';
+import { StructureNode, LayoutInfo } from '@/types'; // FIXED: Import LayoutInfo
+import { getAvailableLayouts } from '@/lib/configHelpers'; // FIXED: Correct import path
 import ErrorBoundary from '@/components/core/ErrorBoundary';
 
 const NEW_FILE_SLUG_MARKER = '_new';
@@ -27,22 +27,24 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const site = useAppStore((state) => state.getSiteById(siteId));
   const updateManifest = useAppStore((state) => state.updateManifest);
   const addNewCollection = useAppStore((state) => state.addNewCollection);
+  
   const [isPublishing, setIsPublishing] = useState(false);
   const [activePath, setActivePath] = useState<string | undefined>();
-  const [availableCollectionLayouts, setAvailableCollectionLayouts] = useState<ThemeLayout[]>([]);
 
   const siteStructure = useMemo(() => site?.manifest.structure || [], [site?.manifest.structure]);
 
-  useEffect(() => {
-    // Fetch available layouts when the component mounts and the site data is available
-    if (site) {
-        getAvailableLayouts(site.manifest.theme.name, site.manifest.theme.type).then(layouts => {
-            setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
-        });
+  // FIXED: Replaced useEffect with a simpler useMemo. The helper function is synchronous.
+  const availableCollectionLayouts = useMemo(() => {
+    if (!site?.manifest) {
+      return [];
     }
-  }, [site]);
+    // The getAvailableLayouts function now reads from the manifest itself.
+    return getAvailableLayouts(site.manifest).filter((l: LayoutInfo) => l.type === 'collection');
+  }, [site?.manifest]);
 
-   useEffect(() => {
+
+  // This useEffect correctly determines the active file in the sidebar tree.
+  useEffect(() => {
     const pathSegments = pathname.split('/');
     if (pathname.includes('/collection/')) {
         const slug = pathSegments[pathSegments.indexOf('collection') + 1];
@@ -108,14 +110,6 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     return <div className="p-6">Loading site editor...</div>;
   }
 
-  // UPDATED: Active link detection for new settings pages
-
-
-
-  if (!site) {
-    return <div className="p-6">Loading site editor...</div>;
-  }
-
   const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/site`);
   const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
@@ -142,7 +136,6 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
             <NewCollectionDialog 
                 existingSlugs={existingTopLevelSlugs} 
-                // CORRECTED: Pass the fetched layouts to the dialog.
                 availableLayouts={availableCollectionLayouts}
                 onSubmit={handleCreateNewCollection}
             >

@@ -1,3 +1,4 @@
+// src/components/publishing/GroupedFrontmatterFields.tsx
 'use client';
 
 import { useMemo } from 'react';
@@ -10,40 +11,22 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 
-// --- Type Definitions ---
-
 interface Group {
   title: string;
   fields: string[];
 }
-// This type is now safe and avoids 'any'
 type StrictUiSchema = UiSchema & { 'ui:groups'?: Group[] };
 
 interface GroupedFrontmatterFormProps {
   schema: RJSFSchema;
   uiSchema?: StrictUiSchema;
-  // FIX: Use Record<string, unknown> which is a type-safe alternative to { [key: string]: any }
   formData: Record<string, unknown>;
   onFormChange: (newData: Record<string, unknown>) => void;
 }
 
-
-/**
- * A helper function to create a new schema containing only a specific
- * subset of properties from the original schema.
- */
 function createSubSchema(originalSchema: RJSFSchema, fields: string[]): RJSFSchema {
-  const subSchema: RJSFSchema = {
-    ...originalSchema,
-    properties: {},
-    required: originalSchema.required?.filter(field => fields.includes(field)),
-  };
-
-  // Ensure the properties object exists before trying to assign to it.
-  if (!subSchema.properties) {
-    subSchema.properties = {};
-  }
-
+  const subSchema: RJSFSchema = { ...originalSchema, properties: {}, required: originalSchema.required?.filter(field => fields.includes(field)) };
+  if (!subSchema.properties) subSchema.properties = {};
   for (const field of fields) {
     if (originalSchema.properties && originalSchema.properties[field]) {
       subSchema.properties[field] = originalSchema.properties[field];
@@ -52,10 +35,6 @@ function createSubSchema(originalSchema: RJSFSchema, fields: string[]): RJSFSche
   return subSchema;
 }
 
-/**
- * Renders a frontmatter form with fields dynamically organized into
- * collapsible accordion groups based on a provided uiSchema.
- */
 export default function GroupedFrontmatterForm({
   schema,
   uiSchema,
@@ -67,11 +46,14 @@ export default function GroupedFrontmatterForm({
     const definedGroups = uiSchema?.['ui:groups'] || [];
     const allSchemaFields = Object.keys(schema.properties || {});
     const fieldsInGroups = new Set(definedGroups.flatMap(g => g.fields));
-    
     const remainingFields = allSchemaFields.filter(f => !fieldsInGroups.has(f));
-    
     return { groups: definedGroups, ungroupedFields: remainingFields };
   }, [schema, uiSchema]);
+
+  // FIXED: The handler now accepts the event from rjsf and extracts the formData.
+  const handleChange = (event: { formData?: Record<string, unknown> }) => {
+    onFormChange(event.formData || {});
+  };
 
   if (!schema.properties || Object.keys(schema.properties).length === 0) {
     return <p className="text-sm text-muted-foreground">This layout has no configurable fields.</p>;
@@ -82,7 +64,6 @@ export default function GroupedFrontmatterForm({
       <Accordion type="multiple" defaultValue={groups.map(g => g.title)} className="w-full">
         {groups.map((group) => {
           if (group.fields.length === 0) return null;
-
           return (
             <AccordionItem value={group.title} key={group.title}>
               <AccordionTrigger>{group.title}</AccordionTrigger>
@@ -90,7 +71,7 @@ export default function GroupedFrontmatterForm({
                 <SchemaDrivenForm
                   schema={createSubSchema(schema, group.fields)}
                   formData={formData}
-                  onFormChange={onFormChange}
+                  onFormChange={handleChange}
                 />
               </AccordionContent>
             </AccordionItem>
@@ -106,7 +87,7 @@ export default function GroupedFrontmatterForm({
           <SchemaDrivenForm
             schema={createSubSchema(schema, ungroupedFields)}
             formData={formData}
-            onFormChange={onFormChange}
+            onFormChange={handleChange}
           />
         </div>
       )}

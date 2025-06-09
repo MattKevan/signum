@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
 import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
+import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
 import { Button } from '@/components/ui/button';
 import type { MarkdownFrontmatter } from '@/types';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
@@ -25,7 +26,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Link } from '@/components/ui/link';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
-import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY } from '@/config/editorConfig';
+import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 
@@ -51,14 +52,14 @@ export default function EditContentPage() {
     return `content/${pathParts.join('/')}.md`;
   }, [slugSegments, isNewFileIntent, siteId]);
 
-  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const site = useAppStore(state => state.getSiteById(siteId));
   const addOrUpdateContentFileAction = useAppStore(state => state.addOrUpdateContentFile);
   const deleteContentFileAction = useAppStore(state => state.deleteContentFileAndState);
 
   const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
   const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
   const [currentFilePath, setCurrentFilePath] = useState<string>('');
-  const [layoutId, setLayoutId] = useState<string>('');
+  const [layoutPath, setLayoutPath] = useState<string>('');
   const [slug, setSlug] = useState<string>('');
 
   const [isLoading, setIsLoading] = useState(true);
@@ -89,7 +90,7 @@ export default function EditContentPage() {
         return;
     }
 
-    if (!currentFrontmatter || !siteId || !layoutId) {
+    if (!currentFrontmatter || !siteId || !layoutPath) {
       if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
       setAutoSaveStatus("error");
       return;
@@ -109,7 +110,7 @@ export default function EditContentPage() {
     if (isNewFileMode) {
       const currentSlug = slug.trim();
       if (!currentSlug) {
-        if (!isAutosave) toast.error("A valid URL slug is required. It is usually generated from the title.");
+        if (!isAutosave) toast.error("A valid URL slug is required for a new file.");
         setAutoSaveStatus("unsaved");
         if (!isAutosave) setIsSaving(false);
         return;
@@ -118,7 +119,7 @@ export default function EditContentPage() {
       filePathToSave = `${parentPathForNewFile}/${currentSlug}.md`.replace(/\/\//g, '/');
       
       if (site?.contentFiles.some(f => f.path === filePathToSave)) {
-        if (!isAutosave) toast.error(`A file with the slug "${currentSlug}" already exists in this location.`);
+        if (!isAutosave) toast.error(`A file with the slug "${currentSlug}" already exists here.`);
         setAutoSaveStatus("error");
         if (!isAutosave) setIsSaving(false);
         return;
@@ -129,7 +130,7 @@ export default function EditContentPage() {
     setCurrentBodyContent(latestBodyContent);
 
     try {
-      await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutId);
+      await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutPath);
       
       if (!isAutosave) toast.success(`Content "${title}" saved successfully!`);
       setHasUnsavedChanges(false);
@@ -144,9 +145,7 @@ export default function EditContentPage() {
     } catch (error) {
       console.error("Error saving content:", error);
       const errorMessage = (error as Error).message || "An unknown error occurred.";
-      toast.error(`Failed to save: ${errorMessage}`, {
-          description: "Your changes have not been saved. Please check the data and try again."
-      });
+      toast.error(`Failed to save: ${errorMessage}`);
       setAutoSaveStatus("error");
     } finally {
       if (!isAutosave) setIsSaving(false);
@@ -154,7 +153,7 @@ export default function EditContentPage() {
   }, [
     currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode,
     parentPathForNewFile, site?.contentFiles, addOrUpdateContentFileAction,
-    router, layoutId
+    router, layoutPath
   ]);
 
 
@@ -162,7 +161,7 @@ export default function EditContentPage() {
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
-    const title = (currentFrontmatter?.title as string)?.trim();
+    const title = (frontmatterRef.current?.title as string)?.trim();
     if (isNewFileMode && (!title || !slug.trim())) {
         setAutoSaveStatus("unsaved");
         return;
@@ -174,19 +173,9 @@ export default function EditContentPage() {
 
     setAutoSaveStatus("unsaved");
     autoSaveTimeoutRef.current = setTimeout(async () => {
-      const latestTitle = (frontmatterRef.current?.title as string)?.trim();
-      if (isNewFileMode && (!latestTitle || !slug.trim())) {
-        console.log("Autosave for new file skipped: title or slug not ready.");
-        setAutoSaveStatus("unsaved");
-        return;
-      }
       await handleSaveContent(true);
     }, AUTOSAVE_DELAY);
-  }, [
-    isNewFileMode, hasUnsavedChanges, currentFrontmatter?.title, slug,
-    autoSaveStatus, handleSaveContent
-  ]);
-
+  }, [isNewFileMode, hasUnsavedChanges, slug, autoSaveStatus, handleSaveContent]);
 
   useEffect(() => {
     setIsLoading(true);
@@ -197,82 +186,53 @@ export default function EditContentPage() {
       if (isNewFileIntent) {
         setIsNewFileMode(true);
         const parentNode = findNodeByPath(site.manifest.structure, parentPathForNewFile);
-        const newFileLayout = parentNode?.itemLayout as string || 'page';
-        setLayoutId(newFileLayout);
+        const newFileLayout = parentNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH;
+        setLayoutPath(newFileLayout);
 
-        setCurrentFrontmatter({
-          title: '',
-          date: new Date().toISOString().split('T')[0],
-          status: 'draft',
-        });
-        setCurrentBodyContent('');
+        setCurrentFrontmatter({ title: '', date: new Date().toISOString().split('T')[0], status: 'draft' });
+        setCurrentBodyContent('# Start writing...');
         setSlug('');
         setCurrentFilePath('');
-        setIsLoading(false);
       } else {
         setIsNewFileMode(false);
         const fileNode = findNodeByPath(site.manifest.structure, targetPathForExistingFile);
         const existingFile = site.contentFiles.find(f => f.path === targetPathForExistingFile);
-
         if (existingFile && fileNode) {
-          setLayoutId(fileNode.layout);
+          setLayoutPath(fileNode.layout);
           setCurrentFrontmatter(existingFile.frontmatter);
           setCurrentBodyContent(existingFile.content || '');
           setCurrentFilePath(existingFile.path);
           setSlug(existingFile.slug);
         } else {
-          toast.error(`File or its manifest entry not found: ${targetPathForExistingFile}`);
-          setCurrentFrontmatter(null);
-          setCurrentBodyContent('');
-          setLayoutId('');
-          setSlug('');
+          toast.error(`Content not found.`);
+          router.push(`/edit/${siteId}`);
         }
-        setIsLoading(false);
       }
-    } else if (useAppStore.getState().isInitialized && siteId) {
-        toast.error(`Site with ID ${siteId} not found.`);
-        setCurrentFrontmatter(null);
-        setIsLoading(false);
     }
-  }, [site, siteId, targetPathForExistingFile, isNewFileIntent, parentPathForNewFile]);
+    setIsLoading(false);
+  }, [site, siteId, targetPathForExistingFile, isNewFileIntent, parentPathForNewFile, router]);
 
 
   useEffect(() => {
     if (!isLoading && hasUnsavedChanges) {
       triggerAutoSave();
     }
-    return () => {
-      if (autoSaveTimeoutRef.current) {
-        clearTimeout(autoSaveTimeoutRef.current);
-      }
-    };
+    return () => { if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current); };
   }, [currentFrontmatter, currentBodyContent, isLoading, hasUnsavedChanges, triggerAutoSave]);
 
 
-  const handleFrontmatterChange = useCallback((newFrontmatter: MarkdownFrontmatter) => {
-    const newTitle = (newFrontmatter.title as string) || '';
-    setCurrentFrontmatter(newFrontmatter);
-    updateSlugFromTitle(newTitle);
-    setHasUnsavedChanges(true); 
+  const handleFrontmatterChange = useCallback((newData: Partial<MarkdownFrontmatter>) => {
+    setCurrentFrontmatter(prev => ({ ...(prev || { title: '' }), ...newData }));
+    if (newData.title !== undefined) {
+        updateSlugFromTitle(newData.title);
+    }
+    setHasUnsavedChanges(true);
     setAutoSaveStatus("unsaved");
   }, [updateSlugFromTitle]);
 
 
-
-  const handleSlugChange = useCallback((newSlug: string) => {
-    if (isNewFileMode) {
-        setSlug(slugify(newSlug));
-        setHasUnsavedChanges(true);
-        setAutoSaveStatus("unsaved");
-    }
-  }, [isNewFileMode]);
-
-
   const handleDeleteContentFile = async () => {
-    if (isNewFileMode || !currentFilePath || !site || !currentFrontmatter) {
-        toast.info("Cannot delete an unsaved new file.");
-        return;
-    }
+    if (isNewFileMode || !currentFilePath || !site || !currentFrontmatter) return;
     try {
         await deleteContentFileAction(siteId, currentFilePath);
         toast.success(`File "${currentFrontmatter.title || currentFilePath}" deleted.`);
@@ -281,41 +241,33 @@ export default function EditContentPage() {
         if (parentNode?.type === 'collection') {
             router.push(`/edit/${siteId}/collection/${parentNode.slug}`);
         } else {
-            router.push(`/edit/${siteId}/settings/site`);
+            router.push(`/edit/${siteId}`);
         }
     } catch (error) {
         toast.error(`Failed to delete file: ${(error as Error).message}`);
-        console.error("Error deleting file:", error);
     }
   };
 
   const renderAutoSaveIndicator = () => {
     switch (autoSaveStatus) {
-      case "saving":
-        return <><Cloud className="h-4 w-4 mr-1.5 animate-pulse text-blue-500" /> Saving...</>;
-      case "saved":
-        return <><CheckCircle className="h-4 w-4 mr-1.5 text-green-500" /> Saved</>;
-      case "unsaved":
-        return <><Save className="h-4 w-4 mr-1.5 text-amber-500" /> Unsaved changes</>;
-      case "error":
-        return <><AlertCircle className="h-4 w-4 mr-1.5 text-red-500" /> Save error!</>;
-      default:
-        return null;
+      case "saving": return <><Cloud className="h-4 w-4 mr-1.5 animate-pulse text-blue-500" /> Saving...</>;
+      case "saved": return <><CheckCircle className="h-4 w-4 mr-1.5 text-green-500" /> Saved</>;
+      case "unsaved": return <><Save className="h-4 w-4 mr-1.5 text-amber-500" /> Unsaved</>;
+      case "error": return <><AlertCircle className="h-4 w-4 mr-1.5 text-red-500" /> Save error!</>;
+      default: return null;
     }
   };
 
   if (isLoading) {
-    return <div className="p-6 flex justify-center items-center min-h-[calc(100vh-128px)]"><p>Loading editor...</p></div>;
+    return <div className="p-6 flex justify-center items-center h-full"><p>Loading editor...</p></div>;
   }
   if (!currentFrontmatter && !isNewFileMode && !isLoading) {
     return (
         <div className="p-6 text-center">
             <h2 className="text-xl font-semibold mb-4">Content Not Found</h2>
-            <p className="text-muted-foreground mb-4">
-            The content for path &quot;{targetPathForExistingFile.replace('content/', '')}&quot; could not be loaded. It may have been deleted or there could be an issue with your site&apos;s manifest.
-            </p>
+            <p className="text-muted-foreground mb-4">The requested content could not be loaded.</p>
             <Button asChild variant="outline">
-                <Link href={`/edit/${siteId}/settings/site`}>Go to Site Editor Home</Link>
+                <Link href={`/edit/${siteId}`}>Go to Site Editor Home</Link>
             </Button>
         </div>
     );
@@ -324,16 +276,14 @@ export default function EditContentPage() {
   const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
 
   return (
-    <div className="flex flex-row h-full">
-      <main className="flex-1 flex flex-col p-6 pr-0 overflow-hidden">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2 shrink-0">
+    <div className="flex flex-row h-full gap-6">
+      <main className="flex-1 flex flex-col p-6 overflow-hidden">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 shrink-0">
           <h1 className="text-xl font-bold truncate">
             {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
           </h1>
           <div className="flex items-center gap-2">
-            <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">
-                {renderAutoSaveIndicator()}
-            </div>
+            <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">{renderAutoSaveIndicator()}</div>
             {!isNewFileMode && (
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
@@ -343,55 +293,63 @@ export default function EditContentPage() {
                     </AlertDialogTrigger>
                     <AlertDialogContent> 
                         <AlertDialogHeader>
-                        <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;? This action cannot be undone.
-                        </AlertDialogDescription>
+                            <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
+                            <AlertDialogDescription>Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;?</AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">
-                            Yes, Delete File
-                        </AlertDialogAction>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">Yes, Delete</AlertDialogAction>
                         </AlertDialogFooter>
                     </AlertDialogContent>
                 </AlertDialog>
             )}
-            <Button 
-              onClick={() => handleSaveContent(false)}
-              disabled={isSaveDisabled}
-              size="sm"
-              title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}
-            >
-              <Save className="h-4 w-4 mr-1.5" />
-              {isSaving ? 'Saving...' : 'Save Now'}
+            <Button onClick={() => handleSaveContent(false)} disabled={isSaveDisabled} size="sm" title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}>
+              <Save className="h-4 w-4 mr-1.5" />{isSaving ? 'Saving...' : 'Save Now'}
             </Button>
           </div>
         </div>
+        
         {currentFrontmatter ? (
-             <div className="flex-grow overflow-y-auto">
-                <MarkdownEditor
-                    ref={editorRef}
-                    key={currentFilePath || 'new-file-editor'}
-                    initialValue={currentBodyContent}
+            <>
+                <PrimaryContentFields
+                    frontmatter={currentFrontmatter}
+                    onFrontmatterChange={handleFrontmatterChange}
+                    showDescription={true}
                 />
-            </div>
+                <div className="flex-grow mt-6">
+                    <MarkdownEditor
+                        ref={editorRef}
+                        key={currentFilePath || 'new-file-editor'}
+                        initialValue={currentBodyContent}
+                        onContentChange={(newContent: string) => {
+                            // This is a direct callback from the editor component
+                            setCurrentBodyContent(newContent);
+                            setHasUnsavedChanges(true);
+                            setAutoSaveStatus("unsaved");
+                        }}
+                    />
+                </div>
+            </>
         ) : (
-             <div className="flex-grow flex items-center justify-center text-muted-foreground">
-                <p>Initializing editor...</p>
-            </div>
+             <div className="flex-grow flex items-center justify-center text-muted-foreground"><p>Initializing editor...</p></div>
         )}
       </main>
-      {currentFrontmatter && site && (
+      
+      {currentFrontmatter && site && layoutPath && (
         <FrontmatterSidebar
+            site={site}
+            layoutPath={layoutPath}
             frontmatter={currentFrontmatter}
             onFrontmatterChange={handleFrontmatterChange}
-            layoutId={layoutId}
-            themeId={site.manifest.theme.name}
-            themeType={site.manifest.theme.type}
             isNewFileMode={isNewFileMode}
             slug={slug}
-            onSlugChange={handleSlugChange}
+            onSlugChange={(newSlug: string) => {
+                if(isNewFileMode) {
+                    setSlug(slugify(newSlug));
+                    setHasUnsavedChanges(true);
+                    setAutoSaveStatus("unsaved");
+                }
+            }}
         />
       )}
     </div>
