@@ -1,0 +1,11 @@
+<article class="post">
+    <header class="post-header">
+        <h1>{{frontmatter.title}}</h1>
+        {{#if frontmatter.date}}
+            <p class="post-date">{{formatDate frontmatter.date "MMMM D, YYYY"}}</p>
+        {{/if}}
+    </header>
+    <div class="post-content prose">
+        {{{ contentHtml }}}
+    </div>
+</article>

@@ -1,3 +1,4 @@
+// src/components/publishing/FrontmatterSidebar.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -5,23 +6,29 @@ import type { MarkdownFrontmatter } from '@/types';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { getLayoutSchema } from '@/lib/themeEngine';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface FrontmatterSidebarProps {
-  // The current frontmatter data for the file being edited.
   frontmatter: MarkdownFrontmatter;
-  // Callback to update the parent component's state.
   onFrontmatterChange: (newFrontmatter: MarkdownFrontmatter) => void;
-  // The ID of the layout chosen for this content (e.g., "blog", "page").
   layoutId: string;
-  // The name of the theme currently being used.
-  themeName: string;
+  themeId: string;
+  themeType: 'core' | 'contrib';
+  isNewFileMode: boolean;
+  slug: string;
+  onSlugChange: (newSlug: string) => void;
 }
 
 export default function FrontmatterSidebar({
   frontmatter,
   onFrontmatterChange,
   layoutId,
-  themeName,
+  themeId,
+  themeType,
+  isNewFileMode,
+  slug,
+  onSlugChange,
 }: FrontmatterSidebarProps) {
   
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
@@ -32,12 +39,11 @@ export default function FrontmatterSidebar({
     async function loadSchemaForLayout() {
       setIsLoading(true);
       try {
-        const layoutSchemaData = await getLayoutSchema(themeName, layoutId);
+        const layoutSchemaData = await getLayoutSchema(themeId, themeType, layoutId);
         if (layoutSchemaData) {
-          // Determine if we should use the itemSchema (for collection items) or the main schema (for pages/collection listings)
-          const isItem = !!layoutSchemaData.itemSchema;
-          setSchema(isItem ? layoutSchemaData.itemSchema! : layoutSchemaData.schema);
-          setUiSchema(isItem ? layoutSchemaData.itemUiSchema : layoutSchemaData.uiSchema);
+          const isItemSchema = !!layoutSchemaData.itemSchema;
+          setSchema(isItemSchema ? layoutSchemaData.itemSchema! : layoutSchemaData.schema);
+          setUiSchema(isItemSchema ? layoutSchemaData.itemUiSchema : layoutSchemaData.uiSchema);
         } else {
           setSchema(null);
         }
@@ -49,47 +55,65 @@ export default function FrontmatterSidebar({
       }
     }
     
-    if (layoutId && themeName) {
+    if (layoutId && themeId && themeType) {
       loadSchemaForLayout();
+    } else {
+        setIsLoading(false);
+        setSchema(null);
     }
-  }, [layoutId, themeName]);
+  }, [layoutId, themeId, themeType]);
 
   const handleFormChange = (data: object) => {
-    // FIXED: Cast the generic 'object' from the form to the specific
-    // 'MarkdownFrontmatter' type that the parent component expects.
     onFrontmatterChange(data as MarkdownFrontmatter);
   };
 
   if (isLoading) {
     return (
-      <aside className="w-80 border-l bg-muted/20 p-4">
+      <aside className="w-80 border-l bg-muted/20 p-4 shrink-0">
         <p className="text-sm text-muted-foreground">Loading Form...</p>
       </aside>
     );
   }
 
-  if (!schema) {
-    return (
-       <aside className="w-80 border-l bg-muted/20 p-4">
-        <h2 className="text-lg font-semibold border-b pb-2">Fields</h2>
-        <div className="text-sm text-destructive-foreground bg-destructive p-2 rounded-md mt-4">
-            <p className="font-bold">Schema Error</p>
-            <p>Could not find a frontmatter schema for the layout &quot;{layoutId}&quot;.</p>
-        </div>
-       </aside>
-    );
-  }
-
   return (
     <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
-      <h2 className="text-lg font-semibold border-b pb-2">{schema.title || 'Content Fields'}</h2>
+      <div>
+        <h2 className="text-lg font-semibold border-b pb-2 mb-4">Content Settings</h2>
+        
+        <div className="space-y-2">
+            <Label htmlFor="slug-input">Slug (URL Path)</Label>
+            <Input 
+                id="slug-input"
+                value={slug}
+                onChange={(e) => onSlugChange(e.target.value)}
+                // CORRECTED: The field is now a normal, editable input.
+                // It is only disabled for EXISTING files, where the slug cannot be changed.
+                disabled={!isNewFileMode}
+                className={!isNewFileMode ? 'bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0' : ''}
+            />
+            <p className="text-xs text-muted-foreground">
+              {isNewFileMode 
+                ? "Auto-generates from title, but you can edit it for a custom URL." 
+                : "The slug cannot be changed after the file is created."}
+            </p>
+        </div>
+      </div>
       
-      <SchemaDrivenForm
-        schema={schema}
-        uiSchema={uiSchema}
-        formData={frontmatter}
-        onFormChange={handleFormChange}
-      />
+      {schema ? (
+        <div className="border-t pt-6">
+            <SchemaDrivenForm
+                schema={schema}
+                uiSchema={uiSchema}
+                formData={frontmatter}
+                onFormChange={handleFormChange}
+            />
+        </div>
+      ) : (
+        <div className="text-sm text-destructive-foreground bg-destructive p-3 rounded-md mt-4">
+            <p className="font-bold">Schema Error</p>
+            <p>Could not find a valid schema for the layout &quot;{layoutId || 'none'}&quot;.</p>
+        </div>
+      )}
     </aside>
   );
 }

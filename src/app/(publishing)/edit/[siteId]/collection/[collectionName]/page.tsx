@@ -1,6 +1,6 @@
 'use client';
 
-import { useParams } from 'next/navigation'; // REMOVED: useRouter as it's not used
+import { useParams } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -14,17 +14,14 @@ import { getAvailableLayouts, getLayoutSchema, type ThemeLayout } from '@/lib/th
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { RJSFSchema } from '@rjsf/utils';
 
-// Define a specific type for the frontmatter of the collection itself.
-// This avoids using `any` and makes the component's state clear.
 type CollectionFrontmatter = {
     title: string;
-    description: string;
-    [key: string]: string; // Allow other string-based properties from the schema
+    description?: string;
+    [key: string]: unknown;
 };
 
 export default function EditCollectionPage() {
     const params = useParams();
-    // const router = useRouter(); // REMOVED: This was unused.
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
 
@@ -34,53 +31,46 @@ export default function EditCollectionPage() {
     const collectionPath = `content/${collectionName}`;
 
     // --- State Hooks ---
-    const [selectedLayout, setSelectedLayout] = useState('');
-    const [availableLayouts, setAvailableLayouts] = useState<ThemeLayout[]>([]);
-    // FIXED: Use the specific CollectionFrontmatter type instead of `any`.
-    const [collectionFrontmatter, setCollectionFrontmatter] = useState<CollectionFrontmatter>({ title: '', description: '' });
+    const [selectedCollectionLayout, setSelectedCollectionLayout] = useState('');
+    const [selectedItemLayout, setSelectedItemLayout] = useState('');
+    const [availableCollectionLayouts, setAvailableCollectionLayouts] = useState<ThemeLayout[]>([]);
+    const [availablePageLayouts, setAvailablePageLayouts] = useState<ThemeLayout[]>([]);
+    const [collectionFrontmatter, setCollectionFrontmatter] = useState<CollectionFrontmatter>({ title: '' });
     const [formSchema, setFormSchema] = useState<RJSFSchema | null>(null);
 
     // --- Memoized Selectors ---
     const collectionNode = useMemo(() => {
-        if (!site) return null;
-        const findNode = (nodes: StructureNode[]): StructureNode | undefined => {
-            for (const node of nodes) {
-                if (node.path === collectionPath) return node;
-                if (node.children) {
-                    const found = findNode(node.children);
-                    if (found) return found;
-                }
-            }
-        };
-        return findNode(site.manifest.structure);
+        return site?.manifest.structure.find(node => node.path === collectionPath);
     }, [site, collectionPath]);
 
     // --- Effects ---
     useEffect(() => {
         if (site && collectionNode) {
-            setSelectedLayout(collectionNode.layout);
-            // Populate the frontmatter state from the node in the manifest.
+            setSelectedCollectionLayout(collectionNode.layout);
+            setSelectedItemLayout(collectionNode.itemLayout as string || 'page');
+            
             setCollectionFrontmatter({
+                ...collectionNode,
                 title: collectionNode.title,
-                // FIXED: Explicitly cast and provide a fallback to satisfy the type.
-                description: (collectionNode as { description?: string }).description || '',
+                description: collectionNode.description as string || '',
             });
 
-            getAvailableLayouts(site.manifest.theme.name).then(layouts => {
-                setAvailableLayouts(layouts.filter(l => l.type === 'collection'));
+             getAvailableLayouts(site.manifest.theme.name, site.manifest.theme.type).then(layouts => {
+                setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
+                setAvailablePageLayouts(layouts.filter(l => l.type === 'page'));
             });
         }
     }, [collectionNode, site]);
 
     useEffect(() => {
         async function loadSchema() {
-            if (site && selectedLayout) {
-                const schemaData = await getLayoutSchema(site.manifest.theme.name, selectedLayout);
+            if (site && selectedCollectionLayout) {
+                const schemaData = await getLayoutSchema(site.manifest.theme.name, site.manifest.theme.type, selectedCollectionLayout);
                 setFormSchema(schemaData?.schema || null);
             }
         }
         loadSchema();
-    }, [selectedLayout, site]);
+    }, [selectedCollectionLayout, site]);
 
     // --- Event Handlers ---
     const handleSaveChanges = async () => {
@@ -94,14 +84,10 @@ export default function EditCollectionPage() {
                 if (node.path === collectionPath) {
                     return { 
                         ...node, 
-                        layout: selectedLayout,
-                        title: collectionFrontmatter.title,
-                        // Spread the rest of the frontmatter onto the node for storage.
-                        ...(collectionFrontmatter as Omit<CollectionFrontmatter, 'title'>),
+                        ...collectionFrontmatter,
+                        layout: selectedCollectionLayout,
+                        itemLayout: selectedItemLayout,
                     };
-                }
-                if (node.children) {
-                    return { ...node, children: updateNode(node.children) };
                 }
                 return node;
             });
@@ -133,14 +119,18 @@ export default function EditCollectionPage() {
                     <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
                     {collectionNode.children && collectionNode.children.length > 0 ? (
                         <ul className="space-y-2">
-                            {collectionNode.children.map((item: StructureNode) => (
-                                <li key={item.path}>
-                                    <Link href={`/edit/${siteId}/content/${item.slug}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
-                                        <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
-                                        <span className="font-medium">{item.title || item.slug}</span>
-                                    </Link>
-                                </li>
-                            ))}
+                            {collectionNode.children.map((item: StructureNode) => {
+                                // CORRECTED: Generate the link from the full relative path to handle nested content correctly.
+                                const relativeContentPath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+                                return (
+                                    <li key={item.path}>
+                                        <Link href={`/edit/${siteId}/content/${relativeContentPath}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
+                                            <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
+                                            <span className="font-medium">{item.title || item.slug}</span>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     ) : (
                         <p className="text-muted-foreground text-center py-8">No items in this collection yet.</p>
@@ -150,16 +140,30 @@ export default function EditCollectionPage() {
 
             <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
                 <h2 className="text-lg font-semibold border-b pb-2">Collection Settings</h2>
+                
                 <div>
-                    <Label htmlFor="layout-select">Collection Layout</Label>
-                    <Select value={selectedLayout} onValueChange={setSelectedLayout}>
-                        <SelectTrigger id="layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                    <Label htmlFor="collection-layout-select">Listing Page Layout</Label>
+                    <Select value={selectedCollectionLayout} onValueChange={setSelectedCollectionLayout}>
+                        <SelectTrigger id="collection-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
                         <SelectContent>
-                            {availableLayouts.map(layout => (
+                            {availableCollectionLayouts.map(layout => (
                               <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
+                </div>
+                
+                <div>
+                    <Label htmlFor="item-layout-select">Default Layout for Items</Label>
+                    <Select value={selectedItemLayout} onValueChange={setSelectedItemLayout}>
+                        <SelectTrigger id="item-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                        <SelectContent>
+                            {availablePageLayouts.map(layout => (
+                              <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">This layout will be used for all new items created in this collection.</p>
                 </div>
                 
                 {formSchema ? (

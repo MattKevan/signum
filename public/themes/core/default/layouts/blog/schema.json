@@ -1,0 +1,16 @@
+{
+  "schema": {
+    "title": "Blog Listing Page",
+    "type": "object",
+    "properties": {
+      "title": {
+        "type": "string",
+        "title": "Listing Page Title"
+      },
+      "description": {
+        "type": "string",
+        "title": "Listing Page Description"
+      }
+    }
+  }
+}

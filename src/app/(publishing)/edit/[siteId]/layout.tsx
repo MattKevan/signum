@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud } from 'lucide-react';
+import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud, Palette } from 'lucide-react';
 import FileTree from '@/components/publishing/FileTree';
 import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
 import { useEffect, useState, useCallback, useMemo } from 'react';
@@ -36,22 +36,21 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     // Fetch available layouts when the component mounts and the site data is available
     if (site) {
-        getAvailableLayouts(site.manifest.theme.name).then(layouts => {
+        getAvailableLayouts(site.manifest.theme.name, site.manifest.theme.type).then(layouts => {
             setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
         });
     }
   }, [site]);
 
-  useEffect(() => {
+   useEffect(() => {
     const pathSegments = pathname.split('/');
     if (pathname.includes('/collection/')) {
-        const slug = pathSegments.find((v, i) => pathSegments[i-1] === 'collection');
+        const slug = pathSegments[pathSegments.indexOf('collection') + 1];
         setActivePath(`content/${slug}`);
     } else if (pathname.includes('/content/')) {
         const contentPath = pathname.substring(pathname.indexOf('/content/') + 8).replace(/\/$/, '');
-        const existingFile = site?.contentFiles.find(f => 
-            f.path === `content/${contentPath}.md`
-        );
+        const pathWithExt = `content/${contentPath}.md`;
+        const existingFile = site?.contentFiles.find(f => f.path === pathWithExt);
         setActivePath(existingFile?.path);
     } else {
         setActivePath(undefined);
@@ -109,7 +108,16 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     return <div className="p-6">Loading site editor...</div>;
   }
 
-  const isSiteConfigPageActive = pathname === `/edit/${siteId}/config`;
+  // UPDATED: Active link detection for new settings pages
+
+
+
+  if (!site) {
+    return <div className="p-6">Loading site editor...</div>;
+  }
+
+  const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/site`);
+  const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -119,14 +127,22 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </h2>
 
         <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${isSiteConfigPageActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/config`}><Settings className="mr-2 h-4 w-4" /> Site Config</Link>
+          <Button variant="ghost" asChild className={`justify-start ${isSiteSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/settings/site`}><Settings className="mr-2 h-4 w-4" /> Site Settings</Link>
           </Button>
-           <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
+          <Button variant="ghost" asChild className={`justify-start ${isAppearanceSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/settings/appearance`}><Palette className="mr-2 h-4 w-4" /> Appearance</Link>
+          </Button>
+        </nav>
+        
+        <div className="border-t pt-4 mt-4">
+            <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase mb-2">Content</h3>
+            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start w-full">
               <PlusCircle className="mr-2 h-4 w-4" /> New Page
             </Button>
             <NewCollectionDialog 
                 existingSlugs={existingTopLevelSlugs} 
+                // CORRECTED: Pass the fetched layouts to the dialog.
                 availableLayouts={availableCollectionLayouts}
                 onSubmit={handleCreateNewCollection}
             >
@@ -134,9 +150,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
                     <FolderPlus className="mr-2 h-4 w-4" /> New Collection
                 </Button>
             </NewCollectionDialog>
-        </nav>
-        
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1">
+        </div>
+
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
           <FileTree 
             nodes={siteStructure} 
             baseEditPath={`/edit/${siteId}`}

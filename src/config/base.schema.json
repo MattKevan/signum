@@ -1,0 +1,68 @@
+{
+  "schema": {
+    "title": "Base Content Fields",
+    "type": "object",
+    "required": ["title"],
+    "properties": {
+      "title": {
+        "type": "string",
+        "title": "Title",
+        "description": "The main title for this piece of content."
+      },
+      "slug": {
+        "type": "string",
+        "title": "Slug (URL Path)",
+        "description": "The URL-friendly version of the title. Auto-generated, but can be edited."
+      },
+      "description": {
+        "type": "string",
+        "title": "Description / Summary",
+        "description": "A short summary used for search engines and collection listings."
+      },
+      "image": {
+        "type": "string",
+        "title": "Featured Image",
+        "description": "URL or path to a featured image for this content."
+      },
+      "date": {
+        "type": "string",
+        "title": "Publication Date",
+        "format": "date"
+      },
+      "status": {
+        "type": "string",
+        "title": "Status",
+        "enum": ["published", "draft"],
+        "default": "draft"
+      },
+      "author": {
+        "type": "string",
+        "title": "Author"
+      },
+      "tags": {
+        "type": "array",
+        "title": "Tags",
+        "items": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "uiSchema": {
+    "slug": {
+      "ui:widget": "hidden"
+    },
+    "description": {
+      "ui:widget": "textarea",
+      "ui:options": {
+        "rows": 3
+      }
+    },
+    "tags": {
+      "ui:options": {
+        "addable": true,
+        "removable": true
+      }
+    }
+  }
+}

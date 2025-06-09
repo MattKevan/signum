@@ -1,17 +1,25 @@
+// src/app/(publishing)/create-site/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode } from '@/types';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getAvailableLayouts, getLayoutSchema, type ThemeLayout } from '@/lib/themeEngine';
+import { getLayoutSchema, type ThemeInfo } from '@/lib/themeEngine';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+
+// CORRECTED: Define the available CORE themes as a hardcoded constant.
+// This is the single source of truth for this page.
+const CORE_THEMES: ThemeInfo[] = [
+  { id: 'default', name: 'Default Theme', type: 'core' },
+  // { id: 'docs', name: 'Docs Theme', type: 'core' }, // Add the docs theme here when ready
+];
 
 export default function CreateSitePage() {
   const router = useRouter();
@@ -21,52 +29,35 @@ export default function CreateSitePage() {
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [availablePageLayouts, setAvailablePageLayouts] = useState<ThemeLayout[]>([]);
-  const [selectedLayout, setSelectedLayout] = useState('');
-
-  // --- Effects ---
-  useEffect(() => {
-    // We'll hardcode the "default" theme for now, but this is the single
-    // place it's defined. In the future, this could come from user settings.
-    const currentTheme = 'default';
-
-    async function loadLayouts() {
-      const allLayouts = await getAvailableLayouts(currentTheme);
-      const pageLayouts = allLayouts.filter(l => l.type === 'page');
-      setAvailablePageLayouts(pageLayouts);
-
-      // Automatically select the first available page layout.
-      if (pageLayouts.length > 0) {
-        setSelectedLayout(pageLayouts[0].id);
-      }
-    }
-    loadLayouts();
-  }, []);
-
+  // CORRECTED: Initialize state directly from the constant. No useEffect needed.
+  const [selectedThemeInfo, setSelectedThemeInfo] = useState<ThemeInfo | null>(CORE_THEMES[0] || null);
 
   // --- Event Handlers ---
   const handleSubmit = async () => {
-    if (!siteTitle.trim() || !selectedLayout) {
-      toast.error('Site title and a homepage layout are required.');
+    if (!siteTitle.trim() || !selectedThemeInfo) {
+      toast.error('Site title and a theme are required.');
       return;
     }
     setIsLoading(true);
 
-    const currentTheme = 'default';
     const newSiteId = generateSiteId(siteTitle);
+    const homepageLayoutId = 'page'; // The homepage is always a standard page for new sites.
 
-    // 1. Fetch the chosen layout's schema to get default frontmatter values.
-    const layoutSchemaData = await getLayoutSchema(currentTheme, selectedLayout);
-    const schemaProperties = layoutSchemaData?.schema?.properties || {};
+    // 1. Fetch the 'page' layout's schema from the selected theme to get default frontmatter.
+    const layoutSchemaData = await getLayoutSchema(selectedThemeInfo.id, selectedThemeInfo.type, homepageLayoutId);
+    const schemaProperties = layoutSchemaData?.itemSchema?.properties || {};
 
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: 'Welcome to your new site!', // This is the H1 on the page
+        title: 'Welcome to your new site!',
     };
 
     for (const [key, prop] of Object.entries(schemaProperties)) {
         if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
             defaultFrontmatter[key] = prop.default;
         }
+    }
+     if (!defaultFrontmatter.date) {
+        defaultFrontmatter.date = new Date().toISOString().split('T')[0];
     }
 
     // 2. Create the default index.md file content
@@ -81,11 +72,11 @@ export default function CreateSitePage() {
     // 3. Create the initial structure node for the site manifest
     const indexStructureNode: StructureNode = {
         type: 'page',
-        title: 'Home', // This is the display name in the editor's file tree
+        title: 'Home',
         path: 'content/index.md',
         slug: 'index',
         navOrder: 0,
-        layout: selectedLayout,
+        layout: homepageLayoutId,
     };
 
     // 4. Construct the final data object
@@ -93,12 +84,13 @@ export default function CreateSitePage() {
       siteId: newSiteId,
       manifest: {
         siteId: newSiteId,
-        generatorVersion: 'SignumClient/0.7.0',
+        generatorVersion: 'SignumClient/1.2.0',
         title: siteTitle.trim(),
         description: siteDescription.trim(),
         theme: {
-          name: currentTheme,
-          config: {}, // Appearance config will be set later on the config page
+          name: selectedThemeInfo.id,
+          type: selectedThemeInfo.type,
+          config: {},
         },
         structure: [indexStructureNode],
       },
@@ -122,9 +114,7 @@ export default function CreateSitePage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">Create a New Site</h1>
-            <Button onClick={() => router.push('/')} variant="outline">
-              Cancel
-            </Button>
+            <Button onClick={() => router.push('/')} variant="outline">Cancel</Button>
         </div>
 
         <div className="space-y-4 p-6 border rounded-lg">
@@ -152,27 +142,33 @@ export default function CreateSitePage() {
                 />
             </div>
             <div>
-                <Label htmlFor="homepage-layout">Homepage Layout</Label>
-                <Select value={selectedLayout} onValueChange={setSelectedLayout} disabled={availablePageLayouts.length === 0}>
-                    <SelectTrigger id="homepage-layout" className="mt-1">
-                        <SelectValue placeholder="Select a layout..." />
+                <Label htmlFor="theme-select">Theme</Label>
+                <Select 
+                    value={selectedThemeInfo?.id || ''} 
+                    onValueChange={(themeId) => {
+                        const theme = CORE_THEMES.find(t => t.id === themeId);
+                        if(theme) setSelectedThemeInfo(theme);
+                    }} 
+                >
+                    <SelectTrigger id="theme-select" className="mt-1">
+                        <SelectValue placeholder="Select a theme..." />
                     </SelectTrigger>
                     <SelectContent>
-                        {availablePageLayouts.map(layout => (
-                            <SelectItem key={layout.id} value={layout.id}>
-                                {layout.name}
+                        {CORE_THEMES.map(theme => (
+                            <SelectItem key={theme.id} value={theme.id}>
+                                {theme.name}
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
                  <p className="text-xs text-muted-foreground mt-1">
-                    Determines the fields and appearance of your main landing page.
+                    Choose the overall design for your site. You can change this later on the Appearance page.
                 </p>
             </div>
         </div>
 
         <div className="flex justify-end">
-            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedLayout} size="lg">
+            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedThemeInfo} size="lg">
                 {isLoading ? 'Creating...' : 'Create Site'}
             </Button>
         </div>

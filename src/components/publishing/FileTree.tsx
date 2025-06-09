@@ -31,14 +31,16 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
     const style = { transform: CSS.Transform.toString(transform), transition };
 
     const isFolderType = node.type === 'collection' || (node.type === 'page' && node.children && node.children.length > 0);
+    
+    // CORRECTED: Generate links robustly using the full relative path for pages.
+    const relativeContentPath = node.path.replace(/^content\//, '').replace(/\.md$/, '');
     const href = node.type === 'collection'
         ? `${baseEditPath}/collection/${node.slug}`
-        : `${baseEditPath}/content/${node.slug}`; // All pages, including folder indexes, go to content editor.
+        : `${baseEditPath}/content/${relativeContentPath}`;
 
     const isSelected = activePath === node.path;
     const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'page' && node.children && node.children.length > 0 ? FolderGit2 : FileTextIcon);
 
-    // This handler is for when the children of THIS node are reordered.
     const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
         onStructureChange([{ ...node, children: reorderedChildren }]);
     };
@@ -73,7 +75,6 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
             </div>
             {isFolderType && isOpen && node.children && node.children.length > 0 && (
                 <div className="pl-6">
-                    {/* Recursive call to FileTree for nested items */}
                     <FileTree
                         nodes={node.children}
                         baseEditPath={baseEditPath}
@@ -102,7 +103,6 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
         const newIndex = nodeIds.indexOf(over.id as string);
         if (oldIndex !== -1 && newIndex !== -1) {
             const reorderedNodes = arrayMove(nodes, oldIndex, newIndex);
-            // Re-assign navOrder based on the new array index for items that should be in nav.
             const updatedNavOrderNodes = reorderedNodes.map((node, index) => {
                 if (node.navOrder !== undefined) {
                     return { ...node, navOrder: index };
@@ -126,8 +126,6 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
                         activePath={activePath} 
                         onFileCreate={onFileCreate} 
                         onStructureChange={(updatedChildNode) => {
-                            // This gets called from the recursive FileTree's onStructureChange
-                            // It finds the parent and replaces it with the one containing the reordered children
                             const newNodes = nodes.map(n => n.path === updatedChildNode[0].path ? updatedChildNode[0] : n);
                             onStructureChange(newNodes);
                         }}

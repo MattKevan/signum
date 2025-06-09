@@ -2,8 +2,8 @@
 import { create } from 'zustand';
 import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
-import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser'; // FIXED: Added 'stringifyToMarkdown' import
-import { RJSFSchema } from '@rjsf/utils'; // FIXED: Import RJSFSchema for type safety
+import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser';
+import { getParentPath } from '@/lib/fileTreeUtils';
 
 // Helper function to recursively find and update a node in the structure tree.
 const mapStructure = (nodes: StructureNode[], predicate: (node: StructureNode) => boolean, transform: (node: StructureNode) => StructureNode): StructureNode[] => {
@@ -69,6 +69,7 @@ export const useAppStore = create<AppStore>()(
         children: [],
         navOrder: site.manifest.structure.length,
         layout: layout,
+        itemLayout: 'page', // Default item layout for new collections
       };
       
       const newStructure = [...site.manifest.structure, newCollectionNode];
@@ -77,21 +78,13 @@ export const useAppStore = create<AppStore>()(
       await get().updateManifest(siteId, newManifest);
     },
     
-    // FIXED: Added 'RJSFSchema' type to avoid 'any'
-    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, frontmatterSchema: RJSFSchema): Promise<boolean> => {
+    // UPDATED: Signature now includes layoutId.
+    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string): Promise<boolean> => {
       const site = get().sites.find(s => s.siteId === siteId);
       if (!site) return false;
 
       const { frontmatter: parsedFm, content } = parseMarkdownString(rawMarkdownContent);
       const isNewFile = !site.contentFiles.some(f => f.path === filePath);
-      
-      if (isNewFile && frontmatterSchema?.properties) {
-          for (const [key, prop] of Object.entries(frontmatterSchema.properties)) {
-              if (typeof prop === 'object' && prop !== null && 'default' in prop && parsedFm[key] === undefined) {
-                  parsedFm[key] = prop.default;
-              }
-          }
-      }
       
       const fileSlug = filePath.substring(filePath.lastIndexOf('/') + 1).replace('.md', '');
       const savedFile: ParsedMarkdownFile = { slug: fileSlug, path: filePath, frontmatter: parsedFm, content };
@@ -107,11 +100,13 @@ export const useAppStore = create<AppStore>()(
 
       let manifestChanged = false;
       let newStructure = site.manifest.structure;
+
       if (isNewFile) {
         manifestChanged = true;
         let parentFound = false;
-        const parentPath = filePath.substring(0, filePath.lastIndexOf('/'));
+        const parentPath = getParentPath(filePath);
 
+        // Try to add the new file as a child of its parent in the structure
         newStructure = mapStructure(site.manifest.structure, node => node.path === parentPath, parentNode => {
           parentFound = true;
           return {
@@ -123,16 +118,18 @@ export const useAppStore = create<AppStore>()(
                 title: parsedFm.title,
                 path: filePath,
                 slug: fileSlug,
-                layout: parentNode.itemLayout || 'page',
+                layout: layoutId, // Use the provided layoutId
               },
             ],
           };
         });
         
-        if (!parentFound) {
-            newStructure.push({ type: 'page', title: parsedFm.title, path: filePath, slug: fileSlug, layout: 'page' });
+        // If no parent was found (e.g., a new top-level page), add it to the root.
+        if (!parentFound && parentPath === 'content') {
+            newStructure.push({ type: 'page', title: parsedFm.title, path: filePath, slug: fileSlug, layout: layoutId, navOrder: newStructure.length });
         }
       } else {
+        // If an existing file's title changed, update it in the manifest.
         newStructure = mapStructure(site.manifest.structure, node => node.path === filePath, node => {
           if (node.title !== parsedFm.title) {
             manifestChanged = true;

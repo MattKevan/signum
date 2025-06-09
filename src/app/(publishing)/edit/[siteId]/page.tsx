@@ -4,7 +4,7 @@
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-// This page now simply redirects to the config page by default for a site editor.
+// This page now simply redirects to the site settings page by default.
 export default function SiteEditorRootPage() {
   const router = useRouter();
   const params = useParams();
@@ -12,14 +12,13 @@ export default function SiteEditorRootPage() {
 
   useEffect(() => {
     if (siteId) {
-      router.replace(`/edit/${siteId}/config`);
+      router.replace(`/edit/${siteId}/settings/site`);
     }
   }, [siteId, router]);
 
   return (
     <div className="p-6 flex justify-center items-center h-full">
-      <p>Redirecting to site configuration...</p>
-      {/* You could add a spinner here */}
+      <p>Redirecting to site settings...</p>
     </div>
   );
 }

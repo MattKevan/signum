@@ -1,0 +1,12 @@
+<header class="site-header">
+    <div class="container">
+        <h1 class="site-title"><a href="/" class="site-title-link">{{manifest.title}}</a></h1>
+        <nav class="site-nav">
+            <ul>
+                {{#each navLinks}}
+                    <li class="{{#if this.isActive}}active{{/if}}"><a href="{{this.href}}">{{this.label}}</a></li>
+                {{/each}}
+            </ul>
+        </nav>
+    </div>
+</header>

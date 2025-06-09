@@ -3,6 +3,7 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo } from 'react';
+//import { marked } from 'marked';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
 import type { LocalSiteData } from '@/types';
@@ -10,9 +11,8 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
 import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
-import { generateNavLinks } from '@/lib/navigationUtils';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { renderPageLayout } from '@/themes/default/layout';
+import { render as renderWithTheme } from '@/lib/themeEngine';
 
 enum PageRenderState { Loading, Display, NotFound, Error }
 
@@ -57,29 +57,28 @@ export default function CatchAllSitePage() {
 
       const resolution = resolvePageContent(fetchedSiteData, slugArray);
       const siteRootPathForLinks = `/${validParsedResult.rawParam}`;
-      const navLinks = generateNavLinks(fetchedSiteData, {isStaticExport: false, siteRootPath: siteRootPathForLinks});
       
-      switch (resolution.type) {
-        case PageType.SinglePage:
-        case PageType.CollectionListing:
-          // THIS IS THE CORRECTED CALL
-          const fullPageHtml = renderPageLayout(
-            fetchedSiteData.manifest,
-            fetchedSiteData.manifest.theme.config,
-            resolution.pageTitle || 'Untitled',
-            navLinks,
-            resolution.mainContentHtml || ''
-          );
-          setPageHtmlContent(fullPageHtml);
-          setPageMetaTitle(resolution.pageTitle || 'Untitled');
-          setRenderState(PageRenderState.Display);
-          break;
-        
-        case PageType.NotFound:
+      if (resolution.type === PageType.NotFound) {
           setRenderState(PageRenderState.NotFound);
           setErrorMessage(resolution.errorMessage || "Page not found.");
           setPageMetaTitle("Page Not Found");
-          break;
+          return;
+      }
+      
+      setPageMetaTitle(resolution.pageTitle || 'Untitled');
+      
+      try {
+        const fullPageHtml = await renderWithTheme(
+          fetchedSiteData,
+          resolution,
+          siteRootPathForLinks
+        );
+        setPageHtmlContent(fullPageHtml);
+        setRenderState(PageRenderState.Display);
+      } catch (e) {
+          console.error("Theme rendering failed:", e);
+          setErrorMessage(`Theme Error: ${(e as Error).message}`);
+          setRenderState(PageRenderState.Error);
       }
     }
     processAndRenderSiteContent(localParsedResult);

@@ -30,16 +30,33 @@ export function findNodeByPath(nodes: StructureNode[], path: string): StructureN
 export function flattenStructureToPages(nodes: StructureNode[]): StructureNode[] {
   let pages: StructureNode[] = [];
   for (const node of nodes) {
-    // A 'page' type node can represent a single file or a folder with an index.md. Both are pages.
     if (node.type === 'page') {
       pages.push(node);
     }
-    // Recursively search in children, regardless of parent type.
     if (node.children) {
       pages = pages.concat(flattenStructureToPages(node.children));
     }
   }
   return pages;
+}
+
+/**
+ * Recursively traverses the structure tree and collects all nodes that can be rendered as a page.
+ * This includes single pages AND collection listing pages.
+ * @param nodes The array of nodes to traverse.
+ * @returns A flat array of all renderable StructureNodes.
+ */
+export function flattenStructureToRenderableNodes(nodes: StructureNode[]): StructureNode[] {
+  let renderableNodes: StructureNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'page' || node.type === 'collection') {
+      renderableNodes.push(node);
+    }
+    if (node.children) {
+      renderableNodes = renderableNodes.concat(flattenStructureToRenderableNodes(node.children));
+    }
+  }
+  return renderableNodes;
 }
 
 /**

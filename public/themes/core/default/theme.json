@@ -1,0 +1,35 @@
+{
+  "name": "Default Theme",
+  "version": "1.0.0",
+  "layouts": [
+    "page",
+    "blog"
+  ],
+  "partials": {
+    "header": "/themes/core/default/partials/header.hbs",
+    "footer": "/themes/core/default/partials/footer.hbs"
+  },
+  "appearanceSchema": {
+    "title": "Theme Appearance",
+    "description": "Customize the look and feel of the default theme.",
+    "type": "object",
+    "properties": {
+      "color_scheme": {
+        "type": "string",
+        "title": "Color Scheme",
+        "description": "Select the color mode for your site.",
+        "enum": ["auto", "light", "dark"],
+        "enumNames": ["Auto (System Preference)", "Light Mode", "Dark Mode"],
+        "default": "auto"
+      },
+      "font_family": {
+        "type": "string",
+        "title": "Font Family",
+        "description": "Choose the primary font for body text.",
+        "enum": ["sans-serif", "serif", "monospace"],
+        "enumNames": ["Sans-Serif", "Serif", "Monospace"],
+        "default": "sans-serif"
+      }
+    }
+  }
+}

@@ -1,5 +1,5 @@
 // src/types/index.ts
-import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
+//import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
 
 // Represents a node in the hierarchical site structure.
 export interface StructureNode {
@@ -11,14 +11,16 @@ export interface StructureNode {
   children?: StructureNode[];
   layout: string;
   // This property is specific to collection nodes, so it's optional.
-  itemLayout?: string; 
+  itemLayout?: string;
+  // CORRECTED: Add an index signature to allow for arbitrary properties
+  // from the theme's schema, making the node a flexible data container.
+  [key: string]: unknown;
 }
 
 // Represents the theme configuration.
 export interface ThemeConfig {
-  name: 'default' | string;
-  // FIXED: Replace 'any' with a more specific index signature.
-  // This says the config object can have any string key, and its values can be strings, booleans, or numbers.
+  name: string; // This is the theme's ID, e.g., "default"
+  type: 'core' | 'contrib'; // The new type property
   config: {
     [key: string]: string | boolean | number;
   };
@@ -55,7 +57,6 @@ export interface NavLinkItem {
 // Represents the fields within a content file's frontmatter.
 export interface MarkdownFrontmatter {
   title: string;
-  // FIXED: Replace 'any' with a specific index signature.
   // This allows any other string key, accommodating custom frontmatter.
   [key: string]: unknown; // 'unknown' is safer than 'any'. It forces type checks.
 }
@@ -73,10 +74,8 @@ export interface AppState {
   addSite: (site: LocalSiteData) => Promise<void>;
   updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
   addNewCollection: (siteId: string, name: string, slug: string, layout: string) => Promise<void>;
-  // FIXED: Replace 'any' with the specific 'RJSFSchema' type.
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, frontmatterSchema: RJSFSchema) => Promise<boolean>;
+  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string) => Promise<boolean>;
   deleteSiteAndState: (siteId:string) => Promise<void>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
   getSiteById: (siteId: string) => LocalSiteData | undefined;
 }
-
