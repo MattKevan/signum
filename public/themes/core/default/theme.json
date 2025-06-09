@@ -6,8 +6,8 @@
     "blog"
   ],
   "partials": {
-    "header": "/themes/core/default/partials/header.hbs",
-    "footer": "/themes/core/default/partials/footer.hbs"
+    "header": "partials/header.hbs",
+    "footer": "partials/footer.hbs"
   },
   "appearanceSchema": {
     "title": "Theme Appearance",

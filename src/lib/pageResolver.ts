@@ -11,13 +11,13 @@ export type PageResolutionResult = {
   type: PageType.SinglePage;
   pageTitle: string;
   contentFile: ParsedMarkdownFile;
-  layout: string;
+  layoutPath: string;
 } | {
   type: PageType.Collection;
   pageTitle: string;
-  collectionNode: StructureNode;
+  collectionNode: StructureNode; 
   items: ParsedMarkdownFile[];
-  layout: string;
+  layoutPath: string;
 } | {
   type: PageType.NotFound;
   errorMessage: string;
@@ -55,7 +55,7 @@ export function resolvePageContent(siteData: LocalSiteData, slugArray: string[])
       type: PageType.SinglePage,
       pageTitle: targetNode.title,
       contentFile,
-      layout: targetNode.layout,
+      layoutPath: targetNode.layout,
     };
   }
 
@@ -63,15 +63,13 @@ export function resolvePageContent(siteData: LocalSiteData, slugArray: string[])
     const items = (targetNode.children || [])
       .map(childNode => siteData.contentFiles.find(f => f.path === childNode.path))
       .filter((file): file is ParsedMarkdownFile => !!file);
-    
-    // Future: Add sorting logic here based on collectionNode properties
-    
+        
     return {
-      type: PageType.Collection,
-      pageTitle: targetNode.title,
-      collectionNode: targetNode,
-      items,
-      layout: targetNode.layout,
+        type: PageType.Collection,
+        pageTitle: targetNode.title,
+        collectionNode: targetNode,
+        items,
+        layoutPath: targetNode.layout,
     };
   }
 

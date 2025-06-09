@@ -1,0 +1,5 @@
+<a href="/{{this.slug}}" class="card">
+  <h3 class="card-title">{{this.frontmatter.title}}</h3>
+  <p class="card-meta">{{formatDate this.frontmatter.date}}</p>
+  {{#if this.frontmatter.summary}}<p class="card-summary">{{this.frontmatter.summary}}</p>{{/if}}
+</a>

@@ -1,0 +1,11 @@
+{
+  "name": "Page",
+  "version": "1.0.0",
+  "type": "page",
+  "description": "A clean, single-column layout for standard pages.",
+  "pageSchema": {
+    "title": "Page Content",
+    "type": "object",
+    "properties": {}
+  }
+}

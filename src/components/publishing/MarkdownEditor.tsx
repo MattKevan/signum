@@ -1,66 +1,92 @@
 // src/components/publishing/MarkdownEditor.tsx
 'use client';
 
-import React, { useEffect, useRef, useState } from 'react';
-import { Textarea } from '@/components/ui/textarea';
+import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { Crepe } from "@milkdown/crepe";
+import { Editor } from '@milkdown/core';
+import { getMarkdown } from '@milkdown/utils';
+
+// Import styles. The CSS will automatically handle light/dark mode.
+import "@milkdown/crepe/theme/common/style.css";
+import "@milkdown/crepe/theme/frame.css";
+import "@milkdown/crepe/theme/frame-dark.css";
 
 interface MarkdownEditorProps {
   initialValue: string;
-  onChange: (bodyContent: string) => void;
 }
 
-export default function MarkdownEditor({ initialValue, onChange }: MarkdownEditorProps) {
-  const [currentValue, setCurrentValue] = useState(initialValue);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
+// Define the API that the editor will expose to its parent component.
+export interface MarkdownEditorRef {
+  getMarkdown: () => string;
+}
 
-  useEffect(() => {
-    // Only update if initialValue truly differs from currentValue to avoid cursor jumps
-    // This is important if parent re-renders frequently but initialValue for editor hasn't changed
-    if (initialValue !== currentValue) {
-      setCurrentValue(initialValue);
-    }
-  }, [initialValue, currentValue]); // Added currentValue back as per ESLint, condition handles loops
+const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
+  ({ initialValue }, ref) => {
+    const editorRootRef = useRef<HTMLDivElement>(null);
+    // --- FIX: Create a ref to hold the actual Editor instance, not the Crepe factory ---
+    const editorInstanceRef = useRef<Editor | null>(null);
+    const crepeInstanceRef = useRef<Crepe | null>(null);
 
-  const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newValue = event.target.value;
-    setCurrentValue(newValue);
-    onChange(newValue); 
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Tab' && !event.shiftKey) {
-      event.preventDefault();
-      const target = event.target as HTMLTextAreaElement;
-      const { selectionStart, selectionEnd } = target;
-      const tab = '  ';
-      
-      const newValue = currentValue.substring(0, selectionStart) + tab + currentValue.substring(selectionEnd);
-      
-      setCurrentValue(newValue);
-      onChange(newValue);
-
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = selectionStart + tab.length;
+    // This hook exposes the 'getMarkdown' function to the parent component via the ref.
+    useImperativeHandle(ref, () => ({
+      getMarkdown: () => {
+        // FIX: Interact with the stored Editor instance and its action system.
+        if (!editorInstanceRef.current) {
+            console.warn("getMarkdown called before editor was ready.");
+            return '';
         }
-      }, 0);
-    }
-  };
+        // The Milkdown core API uses an action system. We call the `getMarkdown` utility
+        // through the editor's action context to get the content.
+        return editorInstanceRef.current.action(getMarkdown());
+      },
+    }));
 
-  return (
-    <Textarea
-      ref={textareaRef}
-      value={currentValue}
-      onChange={handleChange}
-      onKeyDown={handleKeyDown}
-      placeholder={
-`# Your Main Heading
+    useEffect(() => {
+      if (!editorRootRef.current) return;
 
-Start writing your Markdown content here.`}
-      className="w-full flex-1 font-mono text-sm min-h-[calc(100%-50px)] 
-                 p-4 border rounded-md shadow-sm 
-                 focus-visible:ring-1 focus-visible:ring-ring"
-      // Adjusted min-height assuming parent provides fixed height for overall editor area
-    />
-  );
-}
+      if (crepeInstanceRef.current) {
+        crepeInstanceRef.current.destroy();
+        crepeInstanceRef.current = null;
+        editorInstanceRef.current = null;
+      }
+
+      const crepe = new Crepe({
+        root: editorRootRef.current,
+        defaultValue: initialValue,
+      });
+
+      crepeInstanceRef.current = crepe;
+      
+      crepe.create()
+        .then((editor) => {
+          // Store the resolved editor instance in our ref for later use.
+          editorInstanceRef.current = editor;
+        })
+        .catch((error: unknown) => {
+            console.error("Failed to create Milkdown editor:", error);
+        });
+
+      return () => {
+        if (crepeInstanceRef.current) {
+          crepeInstanceRef.current.destroy();
+          crepeInstanceRef.current = null;
+          editorInstanceRef.current = null;
+        }
+      };
+    }, [initialValue]);
+
+    return (
+      <div
+        ref={editorRootRef}
+        className="prose prose-neutral dark:prose-invert max-w-none 
+                   p-4 border rounded-md shadow-sm bg-background
+                   min-h-[calc(100%-50px)] w-full
+                   focus-within:ring-1 focus-within:ring-ring"
+      />
+    );
+  }
+);
+
+MarkdownEditor.displayName = 'MarkdownEditor';
+
+export default MarkdownEditor;

@@ -1,5 +1,4 @@
 // src/types/index.ts
-//import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
 
 // Represents a node in the hierarchical site structure.
 export interface StructureNode {
@@ -10,23 +9,35 @@ export interface StructureNode {
   navOrder?: number;
   children?: StructureNode[];
   layout: string;
-  // This property is specific to collection nodes, so it's optional.
   itemLayout?: string;
-  // CORRECTED: Add an index signature to allow for arbitrary properties
-  // from the theme's schema, making the node a flexible data container.
   [key: string]: unknown;
 }
 
 // Represents the theme configuration.
 export interface ThemeConfig {
-  name: string; // This is the theme's ID, e.g., "default"
-  type: 'core' | 'contrib'; // The new type property
+  name: string;
   config: {
     [key: string]: string | boolean | number;
   };
 }
 
-// The new, authoritative Manifest.
+export interface LayoutInfo {
+  id: string;
+  name: string;
+  type: 'page' | 'collection';
+  // Path is RELATIVE to the site's `_signum/layouts` directory
+  path: string; 
+  description?: string;
+}
+
+// A similar structure for custom themes
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  // Path is RELATIVE to the site's `_signum/themes` directory
+  path: string; 
+}
+
 export interface Manifest {
   siteId: string;
   generatorVersion: string;
@@ -35,6 +46,8 @@ export interface Manifest {
   author?: string;
   theme: ThemeConfig;
   structure: StructureNode[];
+  layouts?: LayoutInfo[];
+  themes?: ThemeInfo[]; 
 }
 
 // A raw markdown file parsed from storage.
@@ -61,11 +74,18 @@ export interface MarkdownFrontmatter {
   [key: string]: unknown; // 'unknown' is safer than 'any'. It forces type checks.
 }
 
+export interface RawFile {
+  path: string;    // e.g., "layouts/custom/my-grid/layout.json" or "themes/custom/my-theme/theme.css"
+  content: string; // The raw text content of the file
+}
+
 // The complete data for a site held in the app's state.
 export interface LocalSiteData {
   siteId: string;
   manifest: Manifest;
   contentFiles: ParsedMarkdownFile[];
+  layoutFiles?: RawFile[];
+  themeFiles?: RawFile[];
 }
 
 // The state and actions for the Zustand store.

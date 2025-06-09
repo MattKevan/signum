@@ -1,0 +1,23 @@
+<section class="listing-container">
+  <header class="listing-header">
+    {{! The title comes from the node's main title property }}
+    <h1 class="listing-title">{{collectionNode.title}}</h1>
+    {{! The description comes from the data saved via the layoutSchema }}
+    {{#if collectionNode.description}}
+      <p class="listing-description">{{collectionNode.description}}</p>
+    {{/if}}
+  </header>
+  
+  <div class="listing-items">
+    {{#each items}}
+      {{! It checks the display_style property on the same collectionNode }}
+      {{#if (eq ../collectionNode.display_style "full_post")}}
+        {{> item-full this}}
+      {{else}}
+        {{> item-teaser this}}
+      {{/if}}
+    {{else}}
+      <p class="text-muted">No items have been added to this listing yet.</p>
+    {{/each}}
+  </div>
+</section>

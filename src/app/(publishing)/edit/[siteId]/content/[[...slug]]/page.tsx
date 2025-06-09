@@ -3,7 +3,7 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
-import MarkdownEditor from '@/components/publishing/MarkdownEditor';
+import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
 import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
 import { Button } from '@/components/ui/button';
 import type { MarkdownFrontmatter } from '@/types';
@@ -68,13 +68,13 @@ export default function EditContentPage() {
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("saved");
 
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const editorRef = useRef<MarkdownEditorRef>(null);
 
   const frontmatterRef = useRef<MarkdownFrontmatter | null>(null);
   useEffect(() => {
     frontmatterRef.current = currentFrontmatter;
   }, [currentFrontmatter]);
 
-  // IMPROVEMENT: Consolidate slug update logic.
   const updateSlugFromTitle = useCallback((title: string) => {
     if (isNewFileMode) {
       setSlug(slugify(title));
@@ -82,6 +82,13 @@ export default function EditContentPage() {
   }, [isNewFileMode]);
 
   const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
+    const latestBodyContent = editorRef.current?.getMarkdown();
+
+    if (typeof latestBodyContent !== 'string') {
+        if (!isAutosave) toast.warning("Editor is not ready, please wait a moment.");
+        return;
+    }
+
     if (!currentFrontmatter || !siteId || !layoutId) {
       if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
       setAutoSaveStatus("error");
@@ -118,7 +125,8 @@ export default function EditContentPage() {
       }
     }
 
-    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, currentBodyContent);
+    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, latestBodyContent);
+    setCurrentBodyContent(latestBodyContent);
 
     try {
       await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutId);
@@ -136,7 +144,6 @@ export default function EditContentPage() {
     } catch (error) {
       console.error("Error saving content:", error);
       const errorMessage = (error as Error).message || "An unknown error occurred.";
-      // IMPROVEMENT: Couple the toast with the error message
       toast.error(`Failed to save: ${errorMessage}`, {
           description: "Your changes have not been saved. Please check the data and try again."
       });
@@ -145,9 +152,9 @@ export default function EditContentPage() {
       if (!isAutosave) setIsSaving(false);
     }
   }, [
-    currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode, 
-    parentPathForNewFile, site?.contentFiles, currentBodyContent, 
-    addOrUpdateContentFileAction, router, layoutId
+    currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode,
+    parentPathForNewFile, site?.contentFiles, addOrUpdateContentFileAction,
+    router, layoutId
   ]);
 
 
@@ -245,16 +252,12 @@ export default function EditContentPage() {
   const handleFrontmatterChange = useCallback((newFrontmatter: MarkdownFrontmatter) => {
     const newTitle = (newFrontmatter.title as string) || '';
     setCurrentFrontmatter(newFrontmatter);
-    updateSlugFromTitle(newTitle); // Use consolidated slug handler
-    setHasUnsavedChanges(true);
+    updateSlugFromTitle(newTitle);
+    setHasUnsavedChanges(true); 
     setAutoSaveStatus("unsaved");
   }, [updateSlugFromTitle]);
 
-  const handleBodyChange = useCallback((newBody: string) => {
-    setCurrentBodyContent(newBody);
-    setHasUnsavedChanges(true);
-    setAutoSaveStatus("unsaved");
-  }, []);
+
 
   const handleSlugChange = useCallback((newSlug: string) => {
     if (isNewFileMode) {
@@ -368,13 +371,13 @@ export default function EditContentPage() {
         {currentFrontmatter ? (
              <div className="flex-grow overflow-y-auto">
                 <MarkdownEditor
+                    ref={editorRef}
                     key={currentFilePath || 'new-file-editor'}
                     initialValue={currentBodyContent}
-                    onChange={handleBodyChange}
                 />
             </div>
         ) : (
-            <div className="flex-grow flex items-center justify-center text-muted-foreground">
+             <div className="flex-grow flex items-center justify-center text-muted-foreground">
                 <p>Initializing editor...</p>
             </div>
         )}
