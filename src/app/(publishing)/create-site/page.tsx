@@ -1,86 +1,92 @@
 // src/app/(publishing)/create-site/page.tsx
 'use client';
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
-import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode, ThemeInfo } from '@/types';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getLayoutSchema, type ThemeInfo } from '@/lib/themeEngine';
+import { getLayoutManifest } from '@/lib/configHelpers';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { GENERATOR_VERSION } from '@/config/editorConfig';
-
-// CORRECTED: Define the available CORE themes as a hardcoded constant.
-// This is the single source of truth for this page.
-const CORE_THEMES: ThemeInfo[] = [
-  { id: 'default', name: 'Default Theme', type: 'core' },
-  // { id: 'docs', name: 'Docs Theme', type: 'core' }, // Add the docs theme here when ready
-];
+import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
 
-  // --- State Hooks ---
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  // CORRECTED: Initialize state directly from the constant. No useEffect needed.
-  const [selectedThemeInfo, setSelectedThemeInfo] = useState<ThemeInfo | null>(CORE_THEMES[0] || null);
+  
+  const availableThemes = useMemo(() => CORE_THEMES, []);
+  const [selectedTheme, setSelectedTheme] = useState<ThemeInfo | null>(availableThemes[0] || null);
 
-  // --- Event Handlers ---
   const handleSubmit = async () => {
-    if (!siteTitle.trim() || !selectedThemeInfo) {
+    if (!siteTitle.trim() || !selectedTheme) {
       toast.error('Site title and a theme are required.');
       return;
     }
     setIsLoading(true);
 
     const newSiteId = generateSiteId(siteTitle);
-    const homepageLayoutId = 'page'; // The homepage is always a standard page for new sites.
+    const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
 
-    // 1. Fetch the 'page' layout's schema from the selected theme to get default frontmatter.
-    const layoutSchemaData = await getLayoutSchema(selectedThemeInfo.id, selectedThemeInfo.type, homepageLayoutId);
-    const schemaProperties = layoutSchemaData?.itemSchema?.properties || {};
-
+    // FIXED: 'defaultFrontmatter' is never reassigned, so it should be a const.
     const defaultFrontmatter: MarkdownFrontmatter = {
         title: 'Welcome to your new site!',
+        date: new Date().toISOString().split('T')[0],
     };
 
-    for (const [key, prop] of Object.entries(schemaProperties)) {
-        if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
-            defaultFrontmatter[key] = prop.default;
+    // FIXED: Create a complete mock LocalSiteData object to satisfy the type system.
+    const mockSiteData: LocalSiteData = { 
+        siteId: 'mock-id', 
+        contentFiles: [], 
+        layoutFiles: [], 
+        themeFiles: [], 
+        manifest: { 
+            siteId: 'mock-id',
+            title: 'mock',
+            description: 'mock',
+            generatorVersion: GENERATOR_VERSION,
+            structure: [],
+            theme: { 
+                name: selectedTheme.path, 
+                config: {} 
+            } 
+        } 
+    };
+    
+    const layoutManifest = await getLayoutManifest(mockSiteData, homepageLayoutPath);
+    
+    if (layoutManifest?.pageSchema.properties) {
+        for (const [key, prop] of Object.entries(layoutManifest.pageSchema.properties)) {
+            if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
+                defaultFrontmatter[key] = prop.default as unknown;
+            }
         }
     }
-     if (!defaultFrontmatter.date) {
-        defaultFrontmatter.date = new Date().toISOString().split('T')[0];
-    }
 
-    // 2. Create the default index.md file content
-    const defaultIndexBody = `# Welcome to ${siteTitle}\n\nThis is your new site's homepage. Start editing!`;
     const defaultIndexFile: ParsedMarkdownFile = {
         slug: 'index',
         path: 'content/index.md',
         frontmatter: defaultFrontmatter,
-        content: defaultIndexBody,
+        content: `# Welcome to ${siteTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
     };
     
-    // 3. Create the initial structure node for the site manifest
     const indexStructureNode: StructureNode = {
         type: 'page',
         title: 'Home',
         path: 'content/index.md',
         slug: 'index',
         navOrder: 0,
-        layout: homepageLayoutId,
+        layout: homepageLayoutPath,
     };
 
-    // 4. Construct the final data object
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
       manifest: {
@@ -89,13 +95,14 @@ export default function CreateSitePage() {
         title: siteTitle.trim(),
         description: siteDescription.trim(),
         theme: {
-          name: selectedThemeInfo.id,
-          type: selectedThemeInfo.type,
+          name: selectedTheme.path,
           config: {},
         },
         structure: [indexStructureNode],
       },
       contentFiles: [defaultIndexFile],
+      themeFiles: [],
+      layoutFiles: [],
     };
 
     try {
@@ -103,7 +110,6 @@ export default function CreateSitePage() {
       toast.success(`Site "${siteTitle}" created successfully!`);
       router.push(`/edit/${newSiteId}/content/index`);
     } catch (error) {
-      console.error("Error creating site:", error);
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
@@ -145,31 +151,31 @@ export default function CreateSitePage() {
             <div>
                 <Label htmlFor="theme-select">Theme</Label>
                 <Select 
-                    value={selectedThemeInfo?.id || ''} 
-                    onValueChange={(themeId) => {
-                        const theme = CORE_THEMES.find(t => t.id === themeId);
-                        if(theme) setSelectedThemeInfo(theme);
+                    value={selectedTheme?.path || ''} 
+                    onValueChange={(themePath) => {
+                        const theme = availableThemes.find(t => t.path === themePath);
+                        if (theme) setSelectedTheme(theme);
                     }} 
                 >
                     <SelectTrigger id="theme-select" className="mt-1">
                         <SelectValue placeholder="Select a theme..." />
                     </SelectTrigger>
                     <SelectContent>
-                        {CORE_THEMES.map(theme => (
-                            <SelectItem key={theme.id} value={theme.id}>
+                        {availableThemes.map(theme => (
+                            <SelectItem key={theme.path} value={theme.path}>
                                 {theme.name}
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
                  <p className="text-xs text-muted-foreground mt-1">
-                    Choose the overall design for your site. You can change this later on the Appearance page.
+                    Choose the overall design for your site. You can change this later.
                 </p>
             </div>
         </div>
 
         <div className="flex justify-end">
-            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedThemeInfo} size="lg">
+            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedTheme} size="lg">
                 {isLoading ? 'Creating...' : 'Create Site'}
             </Button>
         </div>

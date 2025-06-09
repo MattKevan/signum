@@ -3,13 +3,13 @@
 
 import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
 import { Crepe } from "@milkdown/crepe";
-import { Editor } from '@milkdown/core';
-import { getMarkdown } from '@milkdown/utils'; // docChanged is not needed
+import { Ctx } from '@milkdown/ctx'; // Import Ctx for typing the listener callback
 
-// Import styles
-import "@milkdown/crepe/theme/common/style.css";
-import "@milkdown/crepe/theme/frame.css";
-import "@milkdown/crepe/theme/frame-dark.css";
+// Import only the necessary theme styles
+import '@milkdown/crepe/theme/common/prosemirror.css';
+import '@milkdown/crepe/theme/common/reset.css';
+import '@milkdown/crepe/theme/frame.css';
+import '@milkdown/crepe/theme/frame-dark.css';
 
 interface MarkdownEditorProps {
   initialValue: string;
@@ -23,42 +23,52 @@ export interface MarkdownEditorRef {
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
   ({ initialValue, onContentChange }, ref) => {
     const editorRootRef = useRef<HTMLDivElement>(null);
-    const editorInstanceRef = useRef<Editor | null>(null);
+    const crepeInstanceRef = useRef<Crepe | null>(null);
 
     useImperativeHandle(ref, () => ({
       getMarkdown: () => {
-        if (!editorInstanceRef.current) return '';
-        return editorInstanceRef.current.action(getMarkdown());
+        if (!crepeInstanceRef.current) return '';
+        return crepeInstanceRef.current.getMarkdown();
       },
     }));
 
     useEffect(() => {
       if (!editorRootRef.current) return;
-      let editor: Editor | null = null;
 
-      Crepe.create({
+      if (crepeInstanceRef.current) {
+        crepeInstanceRef.current.destroy();
+        crepeInstanceRef.current = null;
+      }
+      
+      const crepe = new Crepe({
         root: editorRootRef.current,
         defaultValue: initialValue,
-      })
-      .then((instance) => {
-        editor = instance;
-        editorInstanceRef.current = instance;
-        
-        // FIXED: Use the modern listener API and ignore unused parameters with underscores.
-        instance.listener.updated((_ctx, _doc, _prevDoc) => {
-            const markdown = instance.action(getMarkdown());
-            onContentChange(markdown);
-        });
-      })
-      .catch((error: unknown) => {
-        console.error("Failed to create Milkdown editor:", error);
       });
 
+      crepeInstanceRef.current = crepe;
+      
+      crepe.create()
+        .then(() => {
+          // Use the .on() method from the Crepe instance.
+          // The `api` object passed to this callback is the ListenerManager.
+          crepe.on((api) => {
+            // FIXED: Use the 'markdownUpdated' method, which exists on the ListenerManager.
+            // This is the most direct and efficient way to get markdown changes.
+            api.markdownUpdated((_ctx: Ctx, markdown: string, prevMarkdown: string) => {
+              if (markdown !== prevMarkdown) {
+                onContentChange(markdown);
+              }
+            });
+          });
+        })
+        .catch((error: unknown) => {
+            console.error("Failed to create Milkdown editor:", error);
+        });
+
       return () => {
-        if (editor) {
-            editor.destroy();
-            editor = null;
-            editorInstanceRef.current = null;
+        if (crepeInstanceRef.current) {
+          crepeInstanceRef.current.destroy();
+          crepeInstanceRef.current = null;
         }
       };
     }, [initialValue, onContentChange]);

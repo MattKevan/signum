@@ -2,34 +2,44 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { RJSFSchema } from '@rjsf/utils';
-import { getThemeAppearanceSchema } from '@/lib/themeEngine';
+import { RJSFSchema } from '@rjsf/utils'; // No event type import needed
+import { getJsonAsset } from '@/lib/configHelpers';
 import SchemaDrivenForm from './SchemaDrivenForm';
-import { ThemeConfig } from '@/types';
+import { ThemeConfig, LocalSiteData } from '@/types';
 
 interface AppearanceSettingsFormProps {
-  themeId: string;
-  themeType: 'core' | 'contrib';
+  site: LocalSiteData;
+  themePath: string;
   themeConfig: ThemeConfig['config'];
   onConfigChange: (newConfig: ThemeConfig['config']) => void;
 }
 
-export default function AppearanceSettingsForm({ themeId, themeType, themeConfig, onConfigChange }: AppearanceSettingsFormProps) {
+export default function AppearanceSettingsForm({ site, themePath, themeConfig, onConfigChange }: AppearanceSettingsFormProps) {
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function loadSchema() {
       setIsLoading(true);
-      // CORRECTED: Pass both themeId and themeType
-      const appearanceSchema = await getThemeAppearanceSchema(themeId, themeType);
+      const appearanceSchema = await getJsonAsset<RJSFSchema>(
+        site,
+        'theme',
+        themePath,
+        'appearance.schema.json'
+      );
       setSchema(appearanceSchema);
       setIsLoading(false);
     }
-    if (themeId && themeType) {
+    if (themePath) {
         loadSchema();
     }
-  }, [themeId, themeType]);
+  }, [site, themePath]);
+  
+  // FIXED: Define the event shape inline. The react-jsonschema-form event
+  // object is guaranteed to have a `formData` property.
+  const handleChange = (event: { formData?: Record<string, unknown> }) => {
+    onConfigChange(event.formData as ThemeConfig['config'] || {});
+  };
 
   if (isLoading) {
     return (
@@ -47,7 +57,7 @@ export default function AppearanceSettingsForm({ themeId, themeType, themeConfig
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme (&quot;{themeId}&quot;) does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme (&quot;{themePath}&quot;) does not provide any customizable appearance settings.</p>
       </div>
     );
   }
@@ -56,7 +66,7 @@ export default function AppearanceSettingsForm({ themeId, themeType, themeConfig
     <SchemaDrivenForm
       schema={schema}
       formData={themeConfig}
-      onFormChange={(data) => onConfigChange(data as ThemeConfig['config'])}
+      onFormChange={handleChange}
     />
   );
 }

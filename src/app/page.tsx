@@ -22,7 +22,6 @@ export default function HomePageDashboard() {
     }
   };
 
-  // ADDED: Filter to ensure we only try to render valid site objects
   const validSites = sites.filter(site => site && site.manifest);
 
   return (
@@ -65,7 +64,8 @@ export default function HomePageDashboard() {
                   </Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
-                  <Link href={`/edit/${siteId}`}>
+                  {/* FIXED: Changed `siteId` to `site.siteId` to correctly reference the property of the mapped object. */}
+                  <Link href={`/edit/${site.siteId}`}>
                      <Edit3 className="mr-2 h-4 w-4" /> Edit
                   </Link>
                 </Button>
@@ -79,7 +79,7 @@ export default function HomePageDashboard() {
                     <AlertDialogHeader>
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will permanently delete "{site.manifest.title || 'this site'}" from local storage.
+                        This will permanently delete &quot;{site.manifest.title || 'this site'}&quot; from local storage.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

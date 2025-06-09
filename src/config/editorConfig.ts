@@ -27,18 +27,18 @@ export const AUTOSAVE_DELAY = 2500;
  * The default layout path used for any new single page.
  * The system will fall back to this if a more specific layout isn't defined.
  * The path is relative to '/public/layouts/'.
- * e.g., 'core/page'
+ * e.g., 'page'
  */
-export const DEFAULT_PAGE_LAYOUT_PATH = 'core/page';
+export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 
 /**
  * The default layout path used for any new collection.
  * This ensures that when a user creates a new collection, it has a sensible
  * default appearance without requiring an immediate decision.
  * The path is relative to '/public/layouts/'.
- * e.g., 'core/listing'
+ * e.g., 'listing'
  */
-export const DEFAULT_COLLECTION_LAYOUT_PATH = 'core/listing';
+export const DEFAULT_COLLECTION_LAYOUT_PATH = 'listing';
 
 export const CORE_LAYOUTS: LayoutInfo[] = [
   { id: 'page', name: 'Standard Page', type: 'page', path: 'page' },

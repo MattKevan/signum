@@ -1,18 +1,20 @@
+// src/components/publishing/PrimaryContentFields.tsx
 'use client';
 
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { MarkdownFrontmatter } from '@/types';
 
-// We use a specific type for the props to ensure type safety.
-// It can accept any object that might have a title or description.
+// FIXED: The interface is now much stricter and safer.
+// It only defines the properties this component actually cares about.
 interface PrimaryFieldsProps {
   frontmatter: {
     title?: string;
     description?: string;
-    [key: string]: any;
   };
-  onFrontmatterChange: (newData: { title?: string; description?: string }) => void;
+  // The callback expects a partial update to the main frontmatter state.
+  onFrontmatterChange: (newData: Partial<MarkdownFrontmatter>) => void;
   showDescription?: boolean;
 }
 
@@ -22,11 +24,10 @@ export default function PrimaryContentFields({
   showDescription = false,
 }: PrimaryFieldsProps) {
 
-  // A single handler for both fields. It calls the parent's callback
-  // with an object containing only the changed field.
+  // FIXED: The handler now only passes back the single field that changed.
+  // This makes the component more reusable and decoupled from the parent's state shape.
   const handleChange = (field: 'title' | 'description', value: string) => {
     onFrontmatterChange({
-      ...frontmatter,
       [field]: value,
     });
   };
@@ -58,7 +59,7 @@ export default function PrimaryContentFields({
             value={frontmatter.description || ''}
             onChange={(e) => handleChange('description', e.target.value)}
             // Style for a clean, borderless textarea
-            className="p-0 border-0 shadow-none focus-visible:ring-0 text-muted-foreground bg-transparent"
+            className="p-0 border-0 shadow-none focus-visible:ring-0 text-muted-foreground bg-transparent resize-none"
             rows={1}
           />
         </div>

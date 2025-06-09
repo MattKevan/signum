@@ -3,7 +3,6 @@
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo } from 'react';
-//import { marked } from 'marked';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
 import type { LocalSiteData } from '@/types';
@@ -12,7 +11,7 @@ import { AlertTriangle } from 'lucide-react';
 import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { render as renderWithTheme } from '@/lib/themeEngine';
+import { render as renderWithTheme } from '@/lib/themeEngine'; // The name is aliased
 import ErrorBoundary from '@/components/core/ErrorBoundary';
 
 enum PageRenderState { Loading, Display, NotFound, Error }
@@ -57,7 +56,6 @@ export default function CatchAllSitePage() {
       setSiteData(fetchedSiteData);
 
       const resolution = resolvePageContent(fetchedSiteData, slugArray);
-      const siteRootPathForLinks = `/${validParsedResult.rawParam}`;
       
       if (resolution.type === PageType.NotFound) {
           setRenderState(PageRenderState.NotFound);
@@ -69,10 +67,14 @@ export default function CatchAllSitePage() {
       setPageMetaTitle(resolution.pageTitle || 'Untitled');
       
       try {
+        // FIXED: The call to renderWithTheme now passes a single options object.
         const fullPageHtml = await renderWithTheme(
           fetchedSiteData,
           resolution,
-          siteRootPathForLinks
+          {
+            siteRootPath: `/${validParsedResult.rawParam}`,
+            isExport: false // This is a live preview, not an export
+          }
         );
         setPageHtmlContent(fullPageHtml);
         setRenderState(PageRenderState.Display);
