@@ -13,6 +13,7 @@ import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUt
 import Link from 'next/link';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
 import { render as renderWithTheme } from '@/lib/themeEngine';
+import ErrorBoundary from '@/components/core/ErrorBoundary';
 
 enum PageRenderState { Loading, Display, NotFound, Error }
 
@@ -114,5 +115,8 @@ export default function CatchAllSitePage() {
       );
   }
 
-  return <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />;
+  return (
+  <ErrorBoundary>
+    <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />
+  </ErrorBoundary>);
 }

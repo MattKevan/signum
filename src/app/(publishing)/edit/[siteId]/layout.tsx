@@ -14,7 +14,7 @@ import { exportSiteToZip } from '@/lib/siteExporter';
 import { slugify } from '@/lib/utils';
 import { StructureNode } from '@/types';
 import { getAvailableLayouts, type ThemeLayout } from '@/lib/themeEngine';
-
+import ErrorBoundary from '@/components/core/ErrorBoundary';
 
 const NEW_FILE_SLUG_MARKER = '_new';
 
@@ -175,7 +175,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </div>
       </aside>
       <div className="flex-1 overflow-y-auto p-6">
-        {children}
+        <ErrorBoundary>
+          {children}
+        </ErrorBoundary>
       </div>
     </div>
   );

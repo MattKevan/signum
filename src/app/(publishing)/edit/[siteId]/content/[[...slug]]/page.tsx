@@ -25,9 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Link } from '@/components/ui/link';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
-
-const NEW_FILE_SLUG_MARKER = '_new';
-const AUTOSAVE_DELAY = 2500;
+import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY } from '@/config/editorConfig';
 
 type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 
@@ -76,14 +74,22 @@ export default function EditContentPage() {
     frontmatterRef.current = currentFrontmatter;
   }, [currentFrontmatter]);
 
+  // IMPROVEMENT: Consolidate slug update logic.
+  const updateSlugFromTitle = useCallback((title: string) => {
+    if (isNewFileMode) {
+      setSlug(slugify(title));
+    }
+  }, [isNewFileMode]);
+
   const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
     if (!currentFrontmatter || !siteId || !layoutId) {
       if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
       setAutoSaveStatus("error");
       return;
     }
-    if (!currentFrontmatter.title || !(currentFrontmatter.title as string).trim()) {
-      if (!isAutosave) toast.error("Title is required to save.");
+    const title = (currentFrontmatter.title as string)?.trim();
+    if (!title) {
+      if (!isAutosave) toast.error("A title is required to save.");
       setAutoSaveStatus(isNewFileMode ? "unsaved" : "error");
       return;
     }
@@ -94,17 +100,18 @@ export default function EditContentPage() {
     let filePathToSave = currentFilePath;
 
     if (isNewFileMode) {
-      if (!slug || !slug.trim()) {
-        if (!isAutosave) toast.error("A valid slug is required. It is usually generated from the title.");
+      const currentSlug = slug.trim();
+      if (!currentSlug) {
+        if (!isAutosave) toast.error("A valid URL slug is required. It is usually generated from the title.");
         setAutoSaveStatus("unsaved");
         if (!isAutosave) setIsSaving(false);
         return;
       }
       
-      filePathToSave = `${parentPathForNewFile}/${slug}.md`.replace(/\/\//g, '/');
+      filePathToSave = `${parentPathForNewFile}/${currentSlug}.md`.replace(/\/\//g, '/');
       
       if (site?.contentFiles.some(f => f.path === filePathToSave)) {
-        if (!isAutosave) toast.error(`A file with the slug "${slug}" already exists in this location.`);
+        if (!isAutosave) toast.error(`A file with the slug "${currentSlug}" already exists in this location.`);
         setAutoSaveStatus("error");
         if (!isAutosave) setIsSaving(false);
         return;
@@ -114,25 +121,25 @@ export default function EditContentPage() {
     const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, currentBodyContent);
 
     try {
-      const success = await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutId);
-      if (success) {
-        if (!isAutosave) toast.success(`Content "${currentFrontmatter.title}" saved successfully!`);
-        setHasUnsavedChanges(false);
-        setAutoSaveStatus("saved");
-        
-        if (isNewFileMode) {
-          setIsNewFileMode(false);
-          setCurrentFilePath(filePathToSave);
-          const newEditPathSegments = filePathToSave.replace(/^content\//, '').replace(/\.md$/, '');
-          router.replace(`/edit/${siteId}/content/${newEditPathSegments}`);
-        }
-      } else {
-        if (!isAutosave) toast.error("Failed to save: Invalid data. Check console for details.");
-        setAutoSaveStatus("error");
+      await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutId);
+      
+      if (!isAutosave) toast.success(`Content "${title}" saved successfully!`);
+      setHasUnsavedChanges(false);
+      setAutoSaveStatus("saved");
+      
+      if (isNewFileMode) {
+        setIsNewFileMode(false);
+        setCurrentFilePath(filePathToSave);
+        const newEditPathSegments = filePathToSave.replace(/^content\//, '').replace(/\.md$/, '');
+        router.replace(`/edit/${siteId}/content/${newEditPathSegments}`);
       }
     } catch (error) {
       console.error("Error saving content:", error);
-      if (!isAutosave) toast.error(`Failed to save content: ${(error as Error).message}`);
+      const errorMessage = (error as Error).message || "An unknown error occurred.";
+      // IMPROVEMENT: Couple the toast with the error message
+      toast.error(`Failed to save: ${errorMessage}`, {
+          description: "Your changes have not been saved. Please check the data and try again."
+      });
       setAutoSaveStatus("error");
     } finally {
       if (!isAutosave) setIsSaving(false);
@@ -148,7 +155,8 @@ export default function EditContentPage() {
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
-    if (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim())) {
+    const title = (currentFrontmatter?.title as string)?.trim();
+    if (isNewFileMode && (!title || !slug.trim())) {
         setAutoSaveStatus("unsaved");
         return;
     }
@@ -159,7 +167,8 @@ export default function EditContentPage() {
 
     setAutoSaveStatus("unsaved");
     autoSaveTimeoutRef.current = setTimeout(async () => {
-      if (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim())) {
+      const latestTitle = (frontmatterRef.current?.title as string)?.trim();
+      if (isNewFileMode && (!latestTitle || !slug.trim())) {
         console.log("Autosave for new file skipped: title or slug not ready.");
         setAutoSaveStatus("unsaved");
         return;
@@ -234,17 +243,12 @@ export default function EditContentPage() {
 
 
   const handleFrontmatterChange = useCallback((newFrontmatter: MarkdownFrontmatter) => {
-    const oldTitle = (frontmatterRef.current?.title as string) || '';
     const newTitle = (newFrontmatter.title as string) || '';
-
-    if (isNewFileMode && slugify(oldTitle) === slug) {
-        setSlug(slugify(newTitle));
-    }
-
     setCurrentFrontmatter(newFrontmatter);
+    updateSlugFromTitle(newTitle); // Use consolidated slug handler
     setHasUnsavedChanges(true);
     setAutoSaveStatus("unsaved");
-  }, [isNewFileMode, slug]); // slug is a dependency to ensure we have the latest value
+  }, [updateSlugFromTitle]);
 
   const handleBodyChange = useCallback((newBody: string) => {
     setCurrentBodyContent(newBody);
@@ -314,6 +318,8 @@ export default function EditContentPage() {
     );
   }
 
+  const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
+
   return (
     <div className="flex flex-row h-full">
       <main className="flex-1 flex flex-col p-6 pr-0 overflow-hidden">
@@ -350,9 +356,9 @@ export default function EditContentPage() {
             )}
             <Button 
               onClick={() => handleSaveContent(false)}
-              disabled={isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()))}
+              disabled={isSaveDisabled}
               size="sm"
-              title={isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()) ? "Enter a title to enable saving" : "Save changes"}
+              title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}
             >
               <Save className="h-4 w-4 mr-1.5" />
               {isSaving ? 'Saving...' : 'Save Now'}

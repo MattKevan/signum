@@ -69,8 +69,8 @@ export default function FrontmatterSidebar({
 
   if (isLoading) {
     return (
-      <aside className="w-80 border-l bg-muted/20 p-4 shrink-0">
-        <p className="text-sm text-muted-foreground">Loading Form...</p>
+      <aside className="w-80 border-l bg-muted/20 p-4 shrink-0 flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Loading settings...</p>
       </aside>
     );
   }

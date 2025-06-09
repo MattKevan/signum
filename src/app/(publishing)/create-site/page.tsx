@@ -13,6 +13,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { GENERATOR_VERSION } from '@/config/editorConfig';
 
 // CORRECTED: Define the available CORE themes as a hardcoded constant.
 // This is the single source of truth for this page.
@@ -84,7 +85,7 @@ export default function CreateSitePage() {
       siteId: newSiteId,
       manifest: {
         siteId: newSiteId,
-        generatorVersion: 'SignumClient/1.2.0',
+        generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
         theme: {
@@ -103,7 +104,7 @@ export default function CreateSitePage() {
       router.push(`/edit/${newSiteId}/content/index`);
     } catch (error) {
       console.error("Error creating site:", error);
-      toast.error("Failed to create site.");
+      toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
     }

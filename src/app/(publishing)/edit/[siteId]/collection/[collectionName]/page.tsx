@@ -79,25 +79,42 @@ export default function EditCollectionPage() {
             return;
         }
 
-        const updateNode = (nodes: StructureNode[]): StructureNode[] => {
+        const updateNodeAndChildren = (nodes: StructureNode[]): StructureNode[] => {
             return nodes.map(node => {
                 if (node.path === collectionPath) {
-                    return { 
+                    // This is the collection we are editing.
+                    const updatedCollectionNode = { 
                         ...node, 
                         ...collectionFrontmatter,
                         layout: selectedCollectionLayout,
                         itemLayout: selectedItemLayout,
                     };
+                    
+                    // IMPROVEMENT: Update all direct children to use the new itemLayout.
+                    if (updatedCollectionNode.children) {
+                        updatedCollectionNode.children = updatedCollectionNode.children.map(child => ({
+                            ...child,
+                            layout: selectedItemLayout, // Apply the new default layout
+                        }));
+                    }
+                    
+                    return updatedCollectionNode;
                 }
+                // Recurse for nested structures if necessary (not needed for this flat collection model)
                 return node;
             });
         };
         
-        const newStructure = updateNode(site.manifest.structure);
+        const newStructure = updateNodeAndChildren(site.manifest.structure);
         const newManifest = { ...site.manifest, structure: newStructure };
-        await updateManifest(siteId, newManifest);
-
-        toast.success(`Collection "${collectionFrontmatter.title}" updated successfully!`);
+        
+        try {
+            await updateManifest(siteId, newManifest);
+            toast.success(`Collection "${collectionFrontmatter.title}" updated successfully!`);
+        } catch (error) {
+            console.error("Error updating collection:", error);
+            toast.error(`Failed to update collection: ${(error as Error).message}`);
+        }
     };
     
     if (!site || !collectionNode) {
