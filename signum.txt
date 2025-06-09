@@ -6,7 +6,7 @@ File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html
 
 File: types/index.ts
 // src/types/index.ts
-import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
+//import { RJSFSchema } from '@rjsf/utils'; // Import RJSFSchema
 
 // Represents a node in the hierarchical site structure.
 export interface StructureNode {
@@ -18,14 +18,16 @@ export interface StructureNode {
   children?: StructureNode[];
   layout: string;
   // This property is specific to collection nodes, so it's optional.
-  itemLayout?: string; 
+  itemLayout?: string;
+  // CORRECTED: Add an index signature to allow for arbitrary properties
+  // from the theme's schema, making the node a flexible data container.
+  [key: string]: unknown;
 }
 
 // Represents the theme configuration.
 export interface ThemeConfig {
-  name: 'default' | string;
-  // FIXED: Replace 'any' with a more specific index signature.
-  // This says the config object can have any string key, and its values can be strings, booleans, or numbers.
+  name: string; // This is the theme's ID, e.g., "default"
+  type: 'core' | 'contrib'; // The new type property
   config: {
     [key: string]: string | boolean | number;
   };
@@ -62,7 +64,6 @@ export interface NavLinkItem {
 // Represents the fields within a content file's frontmatter.
 export interface MarkdownFrontmatter {
   title: string;
-  // FIXED: Replace 'any' with a specific index signature.
   // This allows any other string key, accommodating custom frontmatter.
   [key: string]: unknown; // 'unknown' is safer than 'any'. It forces type checks.
 }
@@ -80,14 +81,11 @@ export interface AppState {
   addSite: (site: LocalSiteData) => Promise<void>;
   updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
   addNewCollection: (siteId: string, name: string, slug: string, layout: string) => Promise<void>;
-  // FIXED: Replace 'any' with the specific 'RJSFSchema' type.
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, frontmatterSchema: RJSFSchema) => Promise<boolean>;
+  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string) => Promise<boolean>;
   deleteSiteAndState: (siteId:string) => Promise<void>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
   getSiteById: (siteId: string) => LocalSiteData | undefined;
 }
-
-
 
 ================================================================================
 
@@ -194,16 +192,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"; // Assuming shadcn/ui
+} from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-//import { useRouter } from 'next/navigation';
 
 export default function HomePageDashboard() {
   const sites = useAppStore((state) => state.sites);
   const deleteSiteAndState = useAppStore((state) => state.deleteSiteAndState);
   const isInitialized = useAppStore((state) => state.isInitialized);
-  //const router = useRouter();
-
 
   const handleDeleteSite = async (siteId: string, siteTitle: string) => {
     try {
@@ -216,13 +211,16 @@ export default function HomePageDashboard() {
   };
 
   if (!isInitialized) {
-    // This state should ideally be handled by the RootLayout's loading indicator
     return (
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-full">
             <p>Loading sites...</p>
         </div>
     );
   }
+
+  // CORRECTED: Filter the sites array to only include sites that have a valid manifest.
+  // This prevents runtime errors if stale or malformed data is loaded from localStorage.
+  const validSites = sites.filter(site => site && site.manifest);
 
   return (
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
@@ -235,7 +233,7 @@ export default function HomePageDashboard() {
         </Button>
       </div>
 
-      {sites.length === 0 ? (
+      {validSites.length === 0 ? (
         <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
           <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
           <p className="text-muted-foreground mb-4">
@@ -249,17 +247,17 @@ export default function HomePageDashboard() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {sites.map((site) => (
+          {validSites.map((site) => (
             <div 
                 key={site.siteId} 
                 className="bg-card border border-border rounded-lg p-6 shadow-sm hover:shadow-lg transition-shadow flex flex-col justify-between"
             >
               <div>
-                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.config.title}>
-                  {site.config.title || "Untitled Site"}
+                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.manifest.title}>
+                  {site.manifest.title || "Untitled Site"}
                 </h2>
-                <p className="text-sm text-muted-foreground mb-1 line-clamp-2" title={site.config.description}>
-                  {site.config.description || 'No description provided.'}
+                <p className="text-sm text-muted-foreground mb-1 line-clamp-2" title={site.manifest.description}>
+                  {site.manifest.description || 'No description provided.'}
                 </p>
                 <p className="text-xs text-muted-foreground mb-4 break-all" title={site.siteId}>
                   ID: {site.siteId}
@@ -287,13 +285,13 @@ export default function HomePageDashboard() {
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
                         This action cannot be undone. This will permanently delete the site
-                        {site.config.title || 'this site'} and all its content from your local storage.
+                        &quot;{site.manifest.title || 'this site'}&quot; and all its content from your local storage.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                       <AlertDialogCancel>Cancel</AlertDialogCancel>
                       <AlertDialogAction
-                        onClick={() => handleDeleteSite(site.siteId, site.config.title || 'Untitled Site')}
+                        onClick={() => handleDeleteSite(site.siteId, site.manifest.title || 'Untitled Site')}
                         className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
                       >
                         Yes, delete site
@@ -455,7 +453,7 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud } from 'lucide-react';
+import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud, Palette } from 'lucide-react';
 import FileTree from '@/components/publishing/FileTree';
 import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
 import { useEffect, useState, useCallback, useMemo } from 'react';
@@ -486,22 +484,21 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   useEffect(() => {
     // Fetch available layouts when the component mounts and the site data is available
     if (site) {
-        getAvailableLayouts(site.manifest.theme.name).then(layouts => {
+        getAvailableLayouts(site.manifest.theme.name, site.manifest.theme.type).then(layouts => {
             setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
         });
     }
   }, [site]);
 
-  useEffect(() => {
+   useEffect(() => {
     const pathSegments = pathname.split('/');
     if (pathname.includes('/collection/')) {
-        const slug = pathSegments.find((v, i) => pathSegments[i-1] === 'collection');
+        const slug = pathSegments[pathSegments.indexOf('collection') + 1];
         setActivePath(`content/${slug}`);
     } else if (pathname.includes('/content/')) {
         const contentPath = pathname.substring(pathname.indexOf('/content/') + 8).replace(/\/$/, '');
-        const existingFile = site?.contentFiles.find(f => 
-            f.path === `content/${contentPath}.md`
-        );
+        const pathWithExt = `content/${contentPath}.md`;
+        const existingFile = site?.contentFiles.find(f => f.path === pathWithExt);
         setActivePath(existingFile?.path);
     } else {
         setActivePath(undefined);
@@ -559,7 +556,16 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     return <div className="p-6">Loading site editor...</div>;
   }
 
-  const isSiteConfigPageActive = pathname === `/edit/${siteId}/config`;
+  // UPDATED: Active link detection for new settings pages
+
+
+
+  if (!site) {
+    return <div className="p-6">Loading site editor...</div>;
+  }
+
+  const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/site`);
+  const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
@@ -569,14 +575,22 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         </h2>
 
         <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${isSiteConfigPageActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/config`}><Settings className="mr-2 h-4 w-4" /> Site Config</Link>
+          <Button variant="ghost" asChild className={`justify-start ${isSiteSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/settings/site`}><Settings className="mr-2 h-4 w-4" /> Site Settings</Link>
           </Button>
-           <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start">
+          <Button variant="ghost" asChild className={`justify-start ${isAppearanceSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
+            <Link href={`/edit/${siteId}/settings/appearance`}><Palette className="mr-2 h-4 w-4" /> Appearance</Link>
+          </Button>
+        </nav>
+        
+        <div className="border-t pt-4 mt-4">
+            <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase mb-2">Content</h3>
+            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start w-full">
               <PlusCircle className="mr-2 h-4 w-4" /> New Page
             </Button>
             <NewCollectionDialog 
                 existingSlugs={existingTopLevelSlugs} 
+                // CORRECTED: Pass the fetched layouts to the dialog.
                 availableLayouts={availableCollectionLayouts}
                 onSubmit={handleCreateNewCollection}
             >
@@ -584,9 +598,9 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
                     <FolderPlus className="mr-2 h-4 w-4" /> New Collection
                 </Button>
             </NewCollectionDialog>
-        </nav>
-        
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1">
+        </div>
+
+        <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
           <FileTree 
             nodes={siteStructure} 
             baseEditPath={`/edit/${siteId}`}
@@ -624,7 +638,7 @@ File: app/(publishing)/edit/[siteId]/page.tsx
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-// This page now simply redirects to the config page by default for a site editor.
+// This page now simply redirects to the site settings page by default.
 export default function SiteEditorRootPage() {
   const router = useRouter();
   const params = useParams();
@@ -632,14 +646,260 @@ export default function SiteEditorRootPage() {
 
   useEffect(() => {
     if (siteId) {
-      router.replace(`/edit/${siteId}/config`);
+      router.replace(`/edit/${siteId}/settings/site`);
     }
   }, [siteId, router]);
 
   return (
     <div className="p-6 flex justify-center items-center h-full">
-      <p>Redirecting to site configuration...</p>
-      {/* You could add a spinner here */}
+      <p>Redirecting to site settings...</p>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
+// src/app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import AppearanceSettingsForm from '@/components/publishing/AppearanceSettingsForm';
+import { Button } from '@/components/ui/button';
+import { Manifest, ThemeConfig } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+// CORRECTED: The getAvailableThemes function is no longer needed or available.
+import { type ThemeInfo } from '@/lib/themeEngine';
+
+// CORRECTED: Define the available themes as a hardcoded constant.
+// This is the single source of truth for the UI and removes the async dependency.
+const AVAILABLE_THEMES: ThemeInfo[] = [
+  { id: 'default', name: 'Default Theme', type: 'core' },
+  // { id: 'docs', name: 'Docs Theme', type: 'core' }, // Add future themes here
+];
+
+export default function AppearanceSettingsPage() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateManifestAction = useAppStore(state => state.updateManifest);
+  const isStoreInitialized = useAppStore(state => state.isInitialized);
+
+  // CORRECTED: selectedThemeInfo is now the primary state for the selected theme object.
+  const [selectedThemeInfo, setSelectedThemeInfo] = useState<ThemeInfo | null>(null);
+  const [themeConfig, setThemeConfig] = useState<ThemeConfig['config']>({});
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // CORRECTED: This useEffect no longer needs to fetch themes. It now correctly
+  // sets the selected theme based on the site data and the hardcoded list.
+  useEffect(() => {
+    if (site?.manifest.theme) {
+      const themeTypeFromManifest = site.manifest.theme.type || 'core'; // Handle old data gracefully
+      const currentThemeInfo = AVAILABLE_THEMES.find(t => 
+        t.id === site.manifest.theme.name && t.type === themeTypeFromManifest
+      );
+      
+      setSelectedThemeInfo(currentThemeInfo || null);
+      setThemeConfig(site.manifest.theme.config);
+      setHasChanges(false);
+    }
+  }, [site]);
+  
+  const handleConfigChange = useCallback((newConfig: ThemeConfig['config']) => {
+    setThemeConfig(newConfig);
+    setHasChanges(true);
+  }, []);
+
+  const handleThemeChange = (themeId: string) => {
+    const theme = AVAILABLE_THEMES.find(t => t.id === themeId);
+    if (theme) {
+        setSelectedThemeInfo(theme);
+        setThemeConfig({});
+        setHasChanges(true);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!site || !site.manifest || !selectedThemeInfo) return;
+    
+    setIsLoading(true);
+    const newManifest: Manifest = {
+      ...site.manifest,
+      theme: {
+        name: selectedThemeInfo.id,
+        type: selectedThemeInfo.type,
+        config: themeConfig,
+      },
+    };
+
+    try {
+      await updateManifestAction(siteId, newManifest);
+      toast.success('Appearance settings saved successfully!');
+      setHasChanges(false);
+    } catch (error) {
+      console.error("Error saving appearance settings:", error);
+      toast.error("Failed to save settings. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isStoreInitialized || !site) {
+    return <div className="p-6">Loading settings...</div>;
+  }
+  
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h1 className="text-2xl font-bold">Appearance</h1>
+        <p className="text-muted-foreground">Customize the visual style of your site.</p>
+      </div>
+
+      <div className="border-t pt-6 space-y-6">
+        <div>
+            <Label htmlFor="theme-select">Active Theme</Label>
+            <Select value={selectedThemeInfo?.id || ''} onValueChange={handleThemeChange}>
+                <SelectTrigger id="theme-select" className="mt-1">
+                    <SelectValue placeholder="Select a theme..." />
+                </SelectTrigger>
+                <SelectContent>
+                    {/* The dropdown now renders from the reliable constant. */}
+                    {AVAILABLE_THEMES.map(theme => (
+                        <SelectItem key={`${theme.type}-${theme.id}`} value={theme.id}>
+                            {theme.name}
+                        </SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+        </div>
+        
+        {selectedThemeInfo && (
+            <AppearanceSettingsForm 
+                themeId={selectedThemeInfo.id}
+                themeType={selectedThemeInfo.type}
+                themeConfig={themeConfig}
+                onConfigChange={handleConfigChange}
+            />
+        )}
+      </div>
+
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
+          {isLoading ? 'Saving...' : 'Save Appearance'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/(publishing)/edit/[siteId]/settings/site/page.tsx
+// src/app/(publishing)/edit/[siteId]/settings/site/page.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import SiteSettingsForm from '@/components/publishing/SiteSettingsForm';
+import { Button } from '@/components/ui/button';
+import { Manifest } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+import Link from 'next/link';
+
+export default function SiteSettingsPage() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateManifestAction = useAppStore(state => state.updateManifest);
+  const isStoreInitialized = useAppStore(state => state.isInitialized);
+
+  const [formData, setFormData] = useState({ title: '', description: '', author: '' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  useEffect(() => {
+    if (site?.manifest) {
+      setFormData({
+        title: site.manifest.title,
+        description: site.manifest.description,
+        author: site.manifest.author || '',
+      });
+      setHasChanges(false);
+    }
+  }, [site]);
+  
+  const handleFormChange = useCallback((newData: typeof formData) => {
+    setFormData(newData);
+    setHasChanges(true);
+  }, []);
+
+  const handleSave = async () => {
+    if (!site || !site.manifest) return;
+    if (!formData.title.trim()) {
+      toast.error("Site title cannot be empty.");
+      return;
+    }
+    
+    setIsLoading(true);
+    const newManifest: Manifest = {
+      ...site.manifest,
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      author: formData.author.trim(),
+    };
+
+    try {
+      await updateManifestAction(siteId, newManifest);
+      toast.success('Site settings saved successfully!');
+      setHasChanges(false);
+    } catch (error) {
+      console.error("Error saving site settings:", error);
+      toast.error("Failed to save settings. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isStoreInitialized || (site && !formData.title && !site.manifest.title)) {
+    return <div className="p-6">Loading settings...</div>;
+  }
+  
+  if (!site) {
+    return (
+      <div className="p-6 text-center">
+        <h2 className="text-xl font-semibold">Site Not Found</h2>
+        <Button asChild variant="outline" className="mt-4">
+          <Link href="/">Go to Dashboard</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h1 className="text-2xl font-bold">Site Settings</h1>
+        <p className="text-muted-foreground">Manage the core details of your website.</p>
+      </div>
+      <div className="border-t pt-6">
+        <SiteSettingsForm 
+          formData={formData}
+          onFormChange={handleFormChange} 
+        />
+      </div>
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
+          {isLoading ? 'Saving...' : 'Save Settings'}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -649,7 +909,7 @@ export default function SiteEditorRootPage() {
 File: app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
 'use client';
 
-import { useParams } from 'next/navigation'; // REMOVED: useRouter as it's not used
+import { useParams } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { useCallback, useMemo, useState, useEffect } from 'react';
 import Link from 'next/link';
@@ -663,17 +923,14 @@ import { getAvailableLayouts, getLayoutSchema, type ThemeLayout } from '@/lib/th
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { RJSFSchema } from '@rjsf/utils';
 
-// Define a specific type for the frontmatter of the collection itself.
-// This avoids using `any` and makes the component's state clear.
 type CollectionFrontmatter = {
     title: string;
-    description: string;
-    [key: string]: string; // Allow other string-based properties from the schema
+    description?: string;
+    [key: string]: unknown;
 };
 
 export default function EditCollectionPage() {
     const params = useParams();
-    // const router = useRouter(); // REMOVED: This was unused.
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
 
@@ -683,53 +940,46 @@ export default function EditCollectionPage() {
     const collectionPath = `content/${collectionName}`;
 
     // --- State Hooks ---
-    const [selectedLayout, setSelectedLayout] = useState('');
-    const [availableLayouts, setAvailableLayouts] = useState<ThemeLayout[]>([]);
-    // FIXED: Use the specific CollectionFrontmatter type instead of `any`.
-    const [collectionFrontmatter, setCollectionFrontmatter] = useState<CollectionFrontmatter>({ title: '', description: '' });
+    const [selectedCollectionLayout, setSelectedCollectionLayout] = useState('');
+    const [selectedItemLayout, setSelectedItemLayout] = useState('');
+    const [availableCollectionLayouts, setAvailableCollectionLayouts] = useState<ThemeLayout[]>([]);
+    const [availablePageLayouts, setAvailablePageLayouts] = useState<ThemeLayout[]>([]);
+    const [collectionFrontmatter, setCollectionFrontmatter] = useState<CollectionFrontmatter>({ title: '' });
     const [formSchema, setFormSchema] = useState<RJSFSchema | null>(null);
 
     // --- Memoized Selectors ---
     const collectionNode = useMemo(() => {
-        if (!site) return null;
-        const findNode = (nodes: StructureNode[]): StructureNode | undefined => {
-            for (const node of nodes) {
-                if (node.path === collectionPath) return node;
-                if (node.children) {
-                    const found = findNode(node.children);
-                    if (found) return found;
-                }
-            }
-        };
-        return findNode(site.manifest.structure);
+        return site?.manifest.structure.find(node => node.path === collectionPath);
     }, [site, collectionPath]);
 
     // --- Effects ---
     useEffect(() => {
         if (site && collectionNode) {
-            setSelectedLayout(collectionNode.layout);
-            // Populate the frontmatter state from the node in the manifest.
+            setSelectedCollectionLayout(collectionNode.layout);
+            setSelectedItemLayout(collectionNode.itemLayout as string || 'page');
+            
             setCollectionFrontmatter({
+                ...collectionNode,
                 title: collectionNode.title,
-                // FIXED: Explicitly cast and provide a fallback to satisfy the type.
-                description: (collectionNode as { description?: string }).description || '',
+                description: collectionNode.description as string || '',
             });
 
-            getAvailableLayouts(site.manifest.theme.name).then(layouts => {
-                setAvailableLayouts(layouts.filter(l => l.type === 'collection'));
+             getAvailableLayouts(site.manifest.theme.name, site.manifest.theme.type).then(layouts => {
+                setAvailableCollectionLayouts(layouts.filter(l => l.type === 'collection'));
+                setAvailablePageLayouts(layouts.filter(l => l.type === 'page'));
             });
         }
     }, [collectionNode, site]);
 
     useEffect(() => {
         async function loadSchema() {
-            if (site && selectedLayout) {
-                const schemaData = await getLayoutSchema(site.manifest.theme.name, selectedLayout);
+            if (site && selectedCollectionLayout) {
+                const schemaData = await getLayoutSchema(site.manifest.theme.name, site.manifest.theme.type, selectedCollectionLayout);
                 setFormSchema(schemaData?.schema || null);
             }
         }
         loadSchema();
-    }, [selectedLayout, site]);
+    }, [selectedCollectionLayout, site]);
 
     // --- Event Handlers ---
     const handleSaveChanges = async () => {
@@ -743,14 +993,10 @@ export default function EditCollectionPage() {
                 if (node.path === collectionPath) {
                     return { 
                         ...node, 
-                        layout: selectedLayout,
-                        title: collectionFrontmatter.title,
-                        // Spread the rest of the frontmatter onto the node for storage.
-                        ...(collectionFrontmatter as Omit<CollectionFrontmatter, 'title'>),
+                        ...collectionFrontmatter,
+                        layout: selectedCollectionLayout,
+                        itemLayout: selectedItemLayout,
                     };
-                }
-                if (node.children) {
-                    return { ...node, children: updateNode(node.children) };
                 }
                 return node;
             });
@@ -782,14 +1028,18 @@ export default function EditCollectionPage() {
                     <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
                     {collectionNode.children && collectionNode.children.length > 0 ? (
                         <ul className="space-y-2">
-                            {collectionNode.children.map((item: StructureNode) => (
-                                <li key={item.path}>
-                                    <Link href={`/edit/${siteId}/content/${item.slug}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
-                                        <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
-                                        <span className="font-medium">{item.title || item.slug}</span>
-                                    </Link>
-                                </li>
-                            ))}
+                            {collectionNode.children.map((item: StructureNode) => {
+                                // CORRECTED: Generate the link from the full relative path to handle nested content correctly.
+                                const relativeContentPath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+                                return (
+                                    <li key={item.path}>
+                                        <Link href={`/edit/${siteId}/content/${relativeContentPath}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
+                                            <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
+                                            <span className="font-medium">{item.title || item.slug}</span>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
                         </ul>
                     ) : (
                         <p className="text-muted-foreground text-center py-8">No items in this collection yet.</p>
@@ -799,16 +1049,30 @@ export default function EditCollectionPage() {
 
             <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
                 <h2 className="text-lg font-semibold border-b pb-2">Collection Settings</h2>
+                
                 <div>
-                    <Label htmlFor="layout-select">Collection Layout</Label>
-                    <Select value={selectedLayout} onValueChange={setSelectedLayout}>
-                        <SelectTrigger id="layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                    <Label htmlFor="collection-layout-select">Listing Page Layout</Label>
+                    <Select value={selectedCollectionLayout} onValueChange={setSelectedCollectionLayout}>
+                        <SelectTrigger id="collection-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
                         <SelectContent>
-                            {availableLayouts.map(layout => (
+                            {availableCollectionLayouts.map(layout => (
                               <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
+                </div>
+                
+                <div>
+                    <Label htmlFor="item-layout-select">Default Layout for Items</Label>
+                    <Select value={selectedItemLayout} onValueChange={setSelectedItemLayout}>
+                        <SelectTrigger id="item-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                        <SelectContent>
+                            {availablePageLayouts.map(layout => (
+                              <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground mt-1">This layout will be used for all new items created in this collection.</p>
                 </div>
                 
                 {formSchema ? (
@@ -829,98 +1093,6 @@ export default function EditCollectionPage() {
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/config/page.tsx
-// src/app/(publishing)/edit/[siteId]/config/page.tsx
-'use client';
-
-import { useParams } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
-import SiteConfigForm from '@/components/publishing/SiteConfigForm';
-import { Button } from '@/components/ui/button';
-import { Manifest } from '@/types';
-import { useEffect, useState, useCallback } from 'react';
-import { toast } from "sonner";
-import Link from 'next/link';
-
-export default function EditSiteConfigPage() {
-  const params = useParams();
-  const siteId = params.siteId as string;
-
-  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
-  const updateManifestAction = useAppStore(state => state.updateManifest);
-  const isStoreInitialized = useAppStore(state => state.isInitialized);
-
-  const [currentManifest, setCurrentManifest] = useState<Manifest | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-
-  useEffect(() => {
-    if (site?.manifest) {
-      setCurrentManifest(JSON.parse(JSON.stringify(site.manifest)));
-      setHasChanges(false);
-    } else if (isStoreInitialized && !site) {
-      setCurrentManifest(null); 
-    }
-  }, [site, isStoreInitialized]);
-
-  const handleManifestChange = useCallback((newManifest: Manifest) => {
-    setCurrentManifest(newManifest);
-    setHasChanges(true);
-  }, []);
-
-  const handleSave = async () => {
-    if (currentManifest && siteId) {
-      if (!currentManifest.title || currentManifest.title.trim() === "") {
-        toast.error("Site title cannot be empty.");
-        return;
-      }
-      setIsLoading(true);
-      try {
-        await updateManifestAction(siteId, currentManifest);
-        toast.success('Site configuration saved successfully!');
-        setHasChanges(false);
-      } catch (error) {
-        console.error("Error saving site configuration:", error);
-        toast.error("Failed to save configuration. Please try again.");
-      } finally {
-        setIsLoading(false);
-      }
-    }
-  };
-
-  if (!isStoreInitialized || (site && !currentManifest)) {
-    return <div className="p-6">Loading site editor...</div>;
-  }
-  
-  if (!site) {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold">Site Not Found</h2>
-        <Button asChild variant="outline" className="mt-4">
-          <Link href="/">Go to Dashboard</Link>
-        </Button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">Edit Site Configuration</h1>
-      <SiteConfigForm 
-        initialManifest={currentManifest!} 
-        onManifestChange={handleManifestChange} 
-      />
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
-          {isLoading ? 'Saving...' : 'Save Configuration'}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-================================================================================
-
 File: app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
 // src/app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
 'use client';
@@ -932,11 +1104,10 @@ import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
 import { Button } from '@/components/ui/button';
 import type { MarkdownFrontmatter } from '@/types';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { stringifyToMarkdown } from '@/lib/markdownParser'; // Removed unused: parseMarkdownString
+import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
 import { toast } from "sonner";
 import { Trash2, Save, Cloud, AlertCircle, CheckCircle } from 'lucide-react';
-// import Link from 'next/link'; // Not used directly in this version of UI
 import {
   AlertDialog,
   AlertDialogAction,
@@ -949,6 +1120,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Link } from '@/components/ui/link';
+import { findNodeByPath } from '@/lib/fileTreeUtils';
 
 const NEW_FILE_SLUG_MARKER = '_new';
 const AUTOSAVE_DELAY = 2500;
@@ -966,7 +1138,8 @@ export default function EditContentPage() {
   const parentPathForNewFile = useMemo(() => {
     if (!isNewFileIntent) return 'content';
     const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
-    return newMarkerIndex > 0 ? `content/${slugSegments.slice(0, newMarkerIndex).join('/')}` : 'content';
+    const parentSlug = newMarkerIndex > 0 ? slugSegments.slice(0, newMarkerIndex).join('/') : '';
+    return parentSlug ? `content/${parentSlug}` : 'content';
   }, [slugSegments, isNewFileIntent]);
 
   const targetPathForExistingFile = useMemo(() => {
@@ -983,27 +1156,29 @@ export default function EditContentPage() {
   const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
   const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
   const [currentFilePath, setCurrentFilePath] = useState<string>('');
-  
+  const [layoutId, setLayoutId] = useState<string>('');
+  const [slug, setSlug] = useState<string>('');
+
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isNewFileMode, setIsNewFileMode] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [proposedSlugForNewFile, setProposedSlugForNewFile] = useState<string>('');
   const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("saved");
 
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
-    // This function needs access to component state like currentFrontmatter, siteId, etc.
-    // So, it's defined inside the component.
-    // The dependency array for its own useCallback will be crucial.
+  const frontmatterRef = useRef<MarkdownFrontmatter | null>(null);
+  useEffect(() => {
+    frontmatterRef.current = currentFrontmatter;
+  }, [currentFrontmatter]);
 
-    if (!currentFrontmatter || !siteId) {
+  const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
+    if (!currentFrontmatter || !siteId || !layoutId) {
       if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
       setAutoSaveStatus("error");
       return;
     }
-    if (!currentFrontmatter.title || !currentFrontmatter.title.trim()) {
+    if (!currentFrontmatter.title || !(currentFrontmatter.title as string).trim()) {
       if (!isAutosave) toast.error("Title is required to save.");
       setAutoSaveStatus(isNewFileMode ? "unsaved" : "error");
       return;
@@ -1013,23 +1188,19 @@ export default function EditContentPage() {
     setAutoSaveStatus("saving");
 
     let filePathToSave = currentFilePath;
-    let finalSlug = proposedSlugForNewFile;
 
     if (isNewFileMode) {
-      if (!finalSlug || !finalSlug.trim()) {
-        finalSlug = slugify(currentFrontmatter.title);
-      }
-      if (!finalSlug || !finalSlug.trim()) {
-        if (!isAutosave) toast.error("A valid slug could not be generated. Please provide a valid title or manually enter a slug.");
+      if (!slug || !slug.trim()) {
+        if (!isAutosave) toast.error("A valid slug is required. It is usually generated from the title.");
         setAutoSaveStatus("unsaved");
         if (!isAutosave) setIsSaving(false);
         return;
       }
       
-      filePathToSave = `${parentPathForNewFile}/${finalSlug}.md`.replace(/\/\//g, '/');
+      filePathToSave = `${parentPathForNewFile}/${slug}.md`.replace(/\/\//g, '/');
       
       if (site?.contentFiles.some(f => f.path === filePathToSave)) {
-        if (!isAutosave) toast.error(`A file named "${finalSlug}.md" already exists. Please choose a different title or slug.`);
+        if (!isAutosave) toast.error(`A file with the slug "${slug}" already exists in this location.`);
         setAutoSaveStatus("error");
         if (!isAutosave) setIsSaving(false);
         return;
@@ -1039,7 +1210,7 @@ export default function EditContentPage() {
     const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, currentBodyContent);
 
     try {
-      const success = await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave);
+      const success = await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutId);
       if (success) {
         if (!isAutosave) toast.success(`Content "${currentFrontmatter.title}" saved successfully!`);
         setHasUnsavedChanges(false);
@@ -1052,7 +1223,7 @@ export default function EditContentPage() {
           router.replace(`/edit/${siteId}/content/${newEditPathSegments}`);
         }
       } else {
-        if (!isAutosave) toast.error("Failed to save: Invalid frontmatter. Check console.");
+        if (!isAutosave) toast.error("Failed to save: Invalid data. Check console for details.");
         setAutoSaveStatus("error");
       }
     } catch (error) {
@@ -1062,10 +1233,10 @@ export default function EditContentPage() {
     } finally {
       if (!isAutosave) setIsSaving(false);
     }
-  }, [ // Dependencies for handleSaveContent
-    currentFrontmatter, siteId, currentFilePath, proposedSlugForNewFile, isNewFileMode, 
+  }, [
+    currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode, 
     parentPathForNewFile, site?.contentFiles, currentBodyContent, 
-    addOrUpdateContentFileAction, router // Note: `site` can be just `site?.contentFiles` if that's all that's needed
+    addOrUpdateContentFileAction, router, layoutId
   ]);
 
 
@@ -1073,7 +1244,7 @@ export default function EditContentPage() {
     if (autoSaveTimeoutRef.current) {
       clearTimeout(autoSaveTimeoutRef.current);
     }
-    if (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim())) {
+    if (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim())) {
         setAutoSaveStatus("unsaved");
         return;
     }
@@ -1084,16 +1255,16 @@ export default function EditContentPage() {
 
     setAutoSaveStatus("unsaved");
     autoSaveTimeoutRef.current = setTimeout(async () => {
-      if (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim())) {
+      if (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim())) {
         console.log("Autosave for new file skipped: title or slug not ready.");
         setAutoSaveStatus("unsaved");
         return;
       }
       await handleSaveContent(true);
     }, AUTOSAVE_DELAY);
-  }, [ // Dependencies for triggerAutoSave
-    isNewFileMode, hasUnsavedChanges, currentFrontmatter?.title, proposedSlugForNewFile, 
-    autoSaveStatus, handleSaveContent // Added autoSaveStatus and handleSaveContent
+  }, [
+    isNewFileMode, hasUnsavedChanges, currentFrontmatter?.title, slug,
+    autoSaveStatus, handleSaveContent
   ]);
 
 
@@ -1105,32 +1276,36 @@ export default function EditContentPage() {
     if (site) {
       if (isNewFileIntent) {
         setIsNewFileMode(true);
+        const parentNode = findNodeByPath(site.manifest.structure, parentPathForNewFile);
+        const newFileLayout = parentNode?.itemLayout as string || 'page';
+        setLayoutId(newFileLayout);
+
         setCurrentFrontmatter({
           title: '',
           date: new Date().toISOString().split('T')[0],
           status: 'draft',
-          summary: '',
-          tags: [],
         });
         setCurrentBodyContent('');
-        setProposedSlugForNewFile('');
+        setSlug('');
         setCurrentFilePath('');
         setIsLoading(false);
       } else {
         setIsNewFileMode(false);
+        const fileNode = findNodeByPath(site.manifest.structure, targetPathForExistingFile);
         const existingFile = site.contentFiles.find(f => f.path === targetPathForExistingFile);
-        if (existingFile) {
-          const fm = typeof existingFile.frontmatter === 'object' && existingFile.frontmatter !== null 
-                       ? existingFile.frontmatter 
-                       : { title: existingFile.slug };
-          setCurrentFrontmatter(fm as MarkdownFrontmatter);
+
+        if (existingFile && fileNode) {
+          setLayoutId(fileNode.layout);
+          setCurrentFrontmatter(existingFile.frontmatter);
           setCurrentBodyContent(existingFile.content || '');
           setCurrentFilePath(existingFile.path);
-          setProposedSlugForNewFile(existingFile.slug);
+          setSlug(existingFile.slug);
         } else {
-          toast.error(`File not found: ${targetPathForExistingFile}`);
+          toast.error(`File or its manifest entry not found: ${targetPathForExistingFile}`);
           setCurrentFrontmatter(null);
           setCurrentBodyContent('');
+          setLayoutId('');
+          setSlug('');
         }
         setIsLoading(false);
       }
@@ -1139,15 +1314,13 @@ export default function EditContentPage() {
         setCurrentFrontmatter(null);
         setIsLoading(false);
     }
-  }, [site, siteId, targetPathForExistingFile, isNewFileIntent]);
+  }, [site, siteId, targetPathForExistingFile, isNewFileIntent, parentPathForNewFile]);
 
 
   useEffect(() => {
-    // This effect should run whenever content changes that needs to be autosaved.
-    if (!isLoading && (currentFrontmatter || currentBodyContent) && hasUnsavedChanges) {
+    if (!isLoading && hasUnsavedChanges) {
       triggerAutoSave();
     }
-    // Cleanup timeout on component unmount or when dependencies change
     return () => {
       if (autoSaveTimeoutRef.current) {
         clearTimeout(autoSaveTimeoutRef.current);
@@ -1157,13 +1330,17 @@ export default function EditContentPage() {
 
 
   const handleFrontmatterChange = useCallback((newFrontmatter: MarkdownFrontmatter) => {
+    const oldTitle = (frontmatterRef.current?.title as string) || '';
+    const newTitle = (newFrontmatter.title as string) || '';
+
+    if (isNewFileMode && slugify(oldTitle) === slug) {
+        setSlug(slugify(newTitle));
+    }
+
     setCurrentFrontmatter(newFrontmatter);
     setHasUnsavedChanges(true);
     setAutoSaveStatus("unsaved");
-    if (isNewFileMode && typeof newFrontmatter.title === 'string') {
-        setProposedSlugForNewFile(slugify(newFrontmatter.title));
-    }
-  }, [isNewFileMode]);
+  }, [isNewFileMode, slug]); // slug is a dependency to ensure we have the latest value
 
   const handleBodyChange = useCallback((newBody: string) => {
     setCurrentBodyContent(newBody);
@@ -1171,9 +1348,9 @@ export default function EditContentPage() {
     setAutoSaveStatus("unsaved");
   }, []);
 
-  const handleProposedSlugChange = useCallback((newSlug: string) => {
+  const handleSlugChange = useCallback((newSlug: string) => {
     if (isNewFileMode) {
-        setProposedSlugForNewFile(slugify(newSlug));
+        setSlug(slugify(newSlug));
         setHasUnsavedChanges(true);
         setAutoSaveStatus("unsaved");
     }
@@ -1182,13 +1359,19 @@ export default function EditContentPage() {
 
   const handleDeleteContentFile = async () => {
     if (isNewFileMode || !currentFilePath || !site || !currentFrontmatter) {
-        toast.info("Cannot delete an unsaved new file or if file path is missing.");
+        toast.info("Cannot delete an unsaved new file.");
         return;
     }
     try {
         await deleteContentFileAction(siteId, currentFilePath);
         toast.success(`File "${currentFrontmatter.title || currentFilePath}" deleted.`);
-        router.push(`/edit/${siteId}`); 
+        const parentNodePath = currentFilePath.substring(0, currentFilePath.lastIndexOf('/'));
+        const parentNode = findNodeByPath(site.manifest.structure, parentNodePath);
+        if (parentNode?.type === 'collection') {
+            router.push(`/edit/${siteId}/collection/${parentNode.slug}`);
+        } else {
+            router.push(`/edit/${siteId}/settings/site`);
+        }
     } catch (error) {
         toast.error(`Failed to delete file: ${(error as Error).message}`);
         console.error("Error deleting file:", error);
@@ -1210,7 +1393,6 @@ export default function EditContentPage() {
     }
   };
 
-  // MOVED LOADING/ERROR RETURNS HERE, INSIDE THE FUNCTION BODY
   if (isLoading) {
     return <div className="p-6 flex justify-center items-center min-h-[calc(100vh-128px)]"><p>Loading editor...</p></div>;
   }
@@ -1219,16 +1401,13 @@ export default function EditContentPage() {
         <div className="p-6 text-center">
             <h2 className="text-xl font-semibold mb-4">Content Not Found</h2>
             <p className="text-muted-foreground mb-4">
-            The content for path &quot;{targetPathForExistingFile.replace('content/', '')}&quot; could not be loaded.
+            The content for path &quot;{targetPathForExistingFile.replace('content/', '')}&quot; could not be loaded. It may have been deleted or there could be an issue with your site&apos;s manifest.
             </p>
             <Button asChild variant="outline">
-                <Link href={`/edit/${siteId}`}>Go to Site Editor Home</Link>
+                <Link href={`/edit/${siteId}/settings/site`}>Go to Site Editor Home</Link>
             </Button>
         </div>
     );
-  }
-   if (!site && siteId && !isLoading) { 
-    return <div className="p-6 text-center"><p>Site data for ID &quot;{siteId}&quot; not available.</p></div>;
   }
 
   return (
@@ -1236,13 +1415,13 @@ export default function EditContentPage() {
       <main className="flex-1 flex flex-col p-6 pr-0 overflow-hidden">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-2 shrink-0">
           <h1 className="text-xl font-bold truncate">
-            {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || proposedSlugForNewFile || 'Content'}`}
+            {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
           </h1>
           <div className="flex items-center gap-2">
             <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">
                 {renderAutoSaveIndicator()}
             </div>
-            {!isNewFileMode && currentFilePath && currentFrontmatter && (
+            {!isNewFileMode && (
                 <AlertDialog>
                     <AlertDialogTrigger asChild>
                         <Button variant="outline" size="sm" className="text-destructive border-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/50">
@@ -1253,7 +1432,7 @@ export default function EditContentPage() {
                         <AlertDialogHeader>
                         <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Are you sure you want to delete &quot;{currentFrontmatter.title || currentFilePath}&quot;? This action cannot be undone.
+                            Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;? This action cannot be undone.
                         </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -1267,16 +1446,16 @@ export default function EditContentPage() {
             )}
             <Button 
               onClick={() => handleSaveContent(false)}
-              disabled={isSaving || (isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim()))}
+              disabled={isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()))}
               size="sm"
-              title={isNewFileMode && (!currentFrontmatter?.title?.trim() || !proposedSlugForNewFile.trim()) ? "Enter a title to enable saving" : "Save changes"}
+              title={isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()) ? "Enter a title to enable saving" : "Save changes"}
             >
               <Save className="h-4 w-4 mr-1.5" />
               {isSaving ? 'Saving...' : 'Save Now'}
             </Button>
           </div>
         </div>
-        {currentFrontmatter && (
+        {currentFrontmatter ? (
              <div className="flex-grow overflow-y-auto">
                 <MarkdownEditor
                     key={currentFilePath || 'new-file-editor'}
@@ -1284,20 +1463,22 @@ export default function EditContentPage() {
                     onChange={handleBodyChange}
                 />
             </div>
-        )}
-         {!currentFrontmatter && isNewFileMode && (
+        ) : (
             <div className="flex-grow flex items-center justify-center text-muted-foreground">
-                <p>Initializing new content editor...</p>
+                <p>Initializing editor...</p>
             </div>
         )}
       </main>
-      {currentFrontmatter && (
+      {currentFrontmatter && site && (
         <FrontmatterSidebar
             frontmatter={currentFrontmatter}
             onFrontmatterChange={handleFrontmatterChange}
+            layoutId={layoutId}
+            themeId={site.manifest.theme.name}
+            themeType={site.manifest.theme.type}
             isNewFileMode={isNewFileMode}
-            proposedSlug={proposedSlugForNewFile}
-            onProposedSlugChange={handleProposedSlugChange}
+            slug={slug}
+            onSlugChange={handleSlugChange}
         />
       )}
     </div>
@@ -1307,20 +1488,28 @@ export default function EditContentPage() {
 ================================================================================
 
 File: app/(publishing)/create-site/page.tsx
+// src/app/(publishing)/create-site/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode } from '@/types';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getAvailableLayouts, getLayoutSchema, type ThemeLayout } from '@/lib/themeEngine';
+import { getLayoutSchema, type ThemeInfo } from '@/lib/themeEngine';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+
+// CORRECTED: Define the available CORE themes as a hardcoded constant.
+// This is the single source of truth for this page.
+const CORE_THEMES: ThemeInfo[] = [
+  { id: 'default', name: 'Default Theme', type: 'core' },
+  // { id: 'docs', name: 'Docs Theme', type: 'core' }, // Add the docs theme here when ready
+];
 
 export default function CreateSitePage() {
   const router = useRouter();
@@ -1330,52 +1519,35 @@ export default function CreateSitePage() {
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [availablePageLayouts, setAvailablePageLayouts] = useState<ThemeLayout[]>([]);
-  const [selectedLayout, setSelectedLayout] = useState('');
-
-  // --- Effects ---
-  useEffect(() => {
-    // We'll hardcode the "default" theme for now, but this is the single
-    // place it's defined. In the future, this could come from user settings.
-    const currentTheme = 'default';
-
-    async function loadLayouts() {
-      const allLayouts = await getAvailableLayouts(currentTheme);
-      const pageLayouts = allLayouts.filter(l => l.type === 'page');
-      setAvailablePageLayouts(pageLayouts);
-
-      // Automatically select the first available page layout.
-      if (pageLayouts.length > 0) {
-        setSelectedLayout(pageLayouts[0].id);
-      }
-    }
-    loadLayouts();
-  }, []);
-
+  // CORRECTED: Initialize state directly from the constant. No useEffect needed.
+  const [selectedThemeInfo, setSelectedThemeInfo] = useState<ThemeInfo | null>(CORE_THEMES[0] || null);
 
   // --- Event Handlers ---
   const handleSubmit = async () => {
-    if (!siteTitle.trim() || !selectedLayout) {
-      toast.error('Site title and a homepage layout are required.');
+    if (!siteTitle.trim() || !selectedThemeInfo) {
+      toast.error('Site title and a theme are required.');
       return;
     }
     setIsLoading(true);
 
-    const currentTheme = 'default';
     const newSiteId = generateSiteId(siteTitle);
+    const homepageLayoutId = 'page'; // The homepage is always a standard page for new sites.
 
-    // 1. Fetch the chosen layout's schema to get default frontmatter values.
-    const layoutSchemaData = await getLayoutSchema(currentTheme, selectedLayout);
-    const schemaProperties = layoutSchemaData?.schema?.properties || {};
+    // 1. Fetch the 'page' layout's schema from the selected theme to get default frontmatter.
+    const layoutSchemaData = await getLayoutSchema(selectedThemeInfo.id, selectedThemeInfo.type, homepageLayoutId);
+    const schemaProperties = layoutSchemaData?.itemSchema?.properties || {};
 
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: 'Welcome to your new site!', // This is the H1 on the page
+        title: 'Welcome to your new site!',
     };
 
     for (const [key, prop] of Object.entries(schemaProperties)) {
         if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
             defaultFrontmatter[key] = prop.default;
         }
+    }
+     if (!defaultFrontmatter.date) {
+        defaultFrontmatter.date = new Date().toISOString().split('T')[0];
     }
 
     // 2. Create the default index.md file content
@@ -1390,11 +1562,11 @@ export default function CreateSitePage() {
     // 3. Create the initial structure node for the site manifest
     const indexStructureNode: StructureNode = {
         type: 'page',
-        title: 'Home', // This is the display name in the editor's file tree
+        title: 'Home',
         path: 'content/index.md',
         slug: 'index',
         navOrder: 0,
-        layout: selectedLayout,
+        layout: homepageLayoutId,
     };
 
     // 4. Construct the final data object
@@ -1402,12 +1574,13 @@ export default function CreateSitePage() {
       siteId: newSiteId,
       manifest: {
         siteId: newSiteId,
-        generatorVersion: 'SignumClient/0.7.0',
+        generatorVersion: 'SignumClient/1.2.0',
         title: siteTitle.trim(),
         description: siteDescription.trim(),
         theme: {
-          name: currentTheme,
-          config: {}, // Appearance config will be set later on the config page
+          name: selectedThemeInfo.id,
+          type: selectedThemeInfo.type,
+          config: {},
         },
         structure: [indexStructureNode],
       },
@@ -1431,9 +1604,7 @@ export default function CreateSitePage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">Create a New Site</h1>
-            <Button onClick={() => router.push('/')} variant="outline">
-              Cancel
-            </Button>
+            <Button onClick={() => router.push('/')} variant="outline">Cancel</Button>
         </div>
 
         <div className="space-y-4 p-6 border rounded-lg">
@@ -1461,27 +1632,33 @@ export default function CreateSitePage() {
                 />
             </div>
             <div>
-                <Label htmlFor="homepage-layout">Homepage Layout</Label>
-                <Select value={selectedLayout} onValueChange={setSelectedLayout} disabled={availablePageLayouts.length === 0}>
-                    <SelectTrigger id="homepage-layout" className="mt-1">
-                        <SelectValue placeholder="Select a layout..." />
+                <Label htmlFor="theme-select">Theme</Label>
+                <Select 
+                    value={selectedThemeInfo?.id || ''} 
+                    onValueChange={(themeId) => {
+                        const theme = CORE_THEMES.find(t => t.id === themeId);
+                        if(theme) setSelectedThemeInfo(theme);
+                    }} 
+                >
+                    <SelectTrigger id="theme-select" className="mt-1">
+                        <SelectValue placeholder="Select a theme..." />
                     </SelectTrigger>
                     <SelectContent>
-                        {availablePageLayouts.map(layout => (
-                            <SelectItem key={layout.id} value={layout.id}>
-                                {layout.name}
+                        {CORE_THEMES.map(theme => (
+                            <SelectItem key={theme.id} value={theme.id}>
+                                {theme.name}
                             </SelectItem>
                         ))}
                     </SelectContent>
                 </Select>
                  <p className="text-xs text-muted-foreground mt-1">
-                    Determines the fields and appearance of your main landing page.
+                    Choose the overall design for your site. You can change this later on the Appearance page.
                 </p>
             </div>
         </div>
 
         <div className="flex justify-end">
-            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedLayout} size="lg">
+            <Button onClick={handleSubmit} disabled={isLoading || !siteTitle.trim() || !selectedThemeInfo} size="lg">
                 {isLoading ? 'Creating...' : 'Create Site'}
             </Button>
         </div>
@@ -1534,6 +1711,7 @@ File: app/(browsing)/[siteId]/[[...slug]]/page.tsx
 
 import { useParams } from 'next/navigation';
 import { useEffect, useState, useMemo } from 'react';
+//import { marked } from 'marked';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
 import type { LocalSiteData } from '@/types';
@@ -1541,9 +1719,8 @@ import { Button } from '@/components/ui/button';
 import { AlertTriangle } from 'lucide-react';
 import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
 import Link from 'next/link';
-import { generateNavLinks } from '@/lib/navigationUtils';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { renderPageLayout } from '@/themes/default/layout';
+import { render as renderWithTheme } from '@/lib/themeEngine';
 
 enum PageRenderState { Loading, Display, NotFound, Error }
 
@@ -1588,29 +1765,28 @@ export default function CatchAllSitePage() {
 
       const resolution = resolvePageContent(fetchedSiteData, slugArray);
       const siteRootPathForLinks = `/${validParsedResult.rawParam}`;
-      const navLinks = generateNavLinks(fetchedSiteData, {isStaticExport: false, siteRootPath: siteRootPathForLinks});
       
-      switch (resolution.type) {
-        case PageType.SinglePage:
-        case PageType.CollectionListing:
-          // THIS IS THE CORRECTED CALL
-          const fullPageHtml = renderPageLayout(
-            fetchedSiteData.manifest,
-            fetchedSiteData.manifest.theme.config,
-            resolution.pageTitle || 'Untitled',
-            navLinks,
-            resolution.mainContentHtml || ''
-          );
-          setPageHtmlContent(fullPageHtml);
-          setPageMetaTitle(resolution.pageTitle || 'Untitled');
-          setRenderState(PageRenderState.Display);
-          break;
-        
-        case PageType.NotFound:
+      if (resolution.type === PageType.NotFound) {
           setRenderState(PageRenderState.NotFound);
           setErrorMessage(resolution.errorMessage || "Page not found.");
           setPageMetaTitle("Page Not Found");
-          break;
+          return;
+      }
+      
+      setPageMetaTitle(resolution.pageTitle || 'Untitled');
+      
+      try {
+        const fullPageHtml = await renderWithTheme(
+          fetchedSiteData,
+          resolution,
+          siteRootPathForLinks
+        );
+        setPageHtmlContent(fullPageHtml);
+        setRenderState(PageRenderState.Display);
+      } catch (e) {
+          console.error("Theme rendering failed:", e);
+          setErrorMessage(`Theme Error: ${(e as Error).message}`);
+          setRenderState(PageRenderState.Error);
       }
     }
     processAndRenderSiteContent(localParsedResult);
@@ -1656,8 +1832,8 @@ File: stores/useAppStore.ts
 import { create } from 'zustand';
 import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
-import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser'; // FIXED: Added 'stringifyToMarkdown' import
-import { RJSFSchema } from '@rjsf/utils'; // FIXED: Import RJSFSchema for type safety
+import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser';
+import { getParentPath } from '@/lib/fileTreeUtils';
 
 // Helper function to recursively find and update a node in the structure tree.
 const mapStructure = (nodes: StructureNode[], predicate: (node: StructureNode) => boolean, transform: (node: StructureNode) => StructureNode): StructureNode[] => {
@@ -1723,6 +1899,7 @@ export const useAppStore = create<AppStore>()(
         children: [],
         navOrder: site.manifest.structure.length,
         layout: layout,
+        itemLayout: 'page', // Default item layout for new collections
       };
       
       const newStructure = [...site.manifest.structure, newCollectionNode];
@@ -1731,21 +1908,13 @@ export const useAppStore = create<AppStore>()(
       await get().updateManifest(siteId, newManifest);
     },
     
-    // FIXED: Added 'RJSFSchema' type to avoid 'any'
-    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, frontmatterSchema: RJSFSchema): Promise<boolean> => {
+    // UPDATED: Signature now includes layoutId.
+    addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string): Promise<boolean> => {
       const site = get().sites.find(s => s.siteId === siteId);
       if (!site) return false;
 
       const { frontmatter: parsedFm, content } = parseMarkdownString(rawMarkdownContent);
       const isNewFile = !site.contentFiles.some(f => f.path === filePath);
-      
-      if (isNewFile && frontmatterSchema?.properties) {
-          for (const [key, prop] of Object.entries(frontmatterSchema.properties)) {
-              if (typeof prop === 'object' && prop !== null && 'default' in prop && parsedFm[key] === undefined) {
-                  parsedFm[key] = prop.default;
-              }
-          }
-      }
       
       const fileSlug = filePath.substring(filePath.lastIndexOf('/') + 1).replace('.md', '');
       const savedFile: ParsedMarkdownFile = { slug: fileSlug, path: filePath, frontmatter: parsedFm, content };
@@ -1761,11 +1930,13 @@ export const useAppStore = create<AppStore>()(
 
       let manifestChanged = false;
       let newStructure = site.manifest.structure;
+
       if (isNewFile) {
         manifestChanged = true;
         let parentFound = false;
-        const parentPath = filePath.substring(0, filePath.lastIndexOf('/'));
+        const parentPath = getParentPath(filePath);
 
+        // Try to add the new file as a child of its parent in the structure
         newStructure = mapStructure(site.manifest.structure, node => node.path === parentPath, parentNode => {
           parentFound = true;
           return {
@@ -1777,16 +1948,18 @@ export const useAppStore = create<AppStore>()(
                 title: parsedFm.title,
                 path: filePath,
                 slug: fileSlug,
-                layout: parentNode.itemLayout || 'page',
+                layout: layoutId, // Use the provided layoutId
               },
             ],
           };
         });
         
-        if (!parentFound) {
-            newStructure.push({ type: 'page', title: parsedFm.title, path: filePath, slug: fileSlug, layout: 'page' });
+        // If no parent was found (e.g., a new top-level page), add it to the root.
+        if (!parentFound && parentPath === 'content') {
+            newStructure.push({ type: 'page', title: parsedFm.title, path: filePath, slug: fileSlug, layout: layoutId, navOrder: newStructure.length });
         }
       } else {
+        // If an existing file's title changed, update it in the manifest.
         newStructure = mapStructure(site.manifest.structure, node => node.path === filePath, node => {
           if (node.title !== parsedFm.title) {
             manifestChanged = true;
@@ -2032,6 +2205,126 @@ export default function NewCollectionDialog({ children, existingSlugs, available
 
 ================================================================================
 
+File: components/publishing/AppearanceSettingsForm.tsx
+// src/components/publishing/AppearanceSettingsForm.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { RJSFSchema } from '@rjsf/utils';
+import { getThemeAppearanceSchema } from '@/lib/themeEngine';
+import SchemaDrivenForm from './SchemaDrivenForm';
+import { ThemeConfig } from '@/types';
+
+interface AppearanceSettingsFormProps {
+  themeId: string;
+  themeType: 'core' | 'contrib';
+  themeConfig: ThemeConfig['config'];
+  onConfigChange: (newConfig: ThemeConfig['config']) => void;
+}
+
+export default function AppearanceSettingsForm({ themeId, themeType, themeConfig, onConfigChange }: AppearanceSettingsFormProps) {
+  const [schema, setSchema] = useState<RJSFSchema | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    async function loadSchema() {
+      setIsLoading(true);
+      // CORRECTED: Pass both themeId and themeType
+      const appearanceSchema = await getThemeAppearanceSchema(themeId, themeType);
+      setSchema(appearanceSchema);
+      setIsLoading(false);
+    }
+    if (themeId && themeType) {
+        loadSchema();
+    }
+  }, [themeId, themeType]);
+
+  if (isLoading) {
+    return <p className="text-muted-foreground">Loading appearance settings...</p>;
+  }
+
+  if (!schema) {
+    return (
+      <div className="text-center border-2 border-dashed p-6 rounded-lg">
+        <p className="font-semibold">No Appearance Options</p>
+        <p className="text-sm text-muted-foreground">The current theme (&quot;{themeId}&quot;) does not provide any customizable appearance settings.</p>
+      </div>
+    );
+  }
+
+  return (
+    <SchemaDrivenForm
+      schema={schema}
+      formData={themeConfig}
+      onFormChange={(data) => onConfigChange(data as ThemeConfig['config'])}
+    />
+  );
+}
+
+================================================================================
+
+File: components/publishing/SiteSettingsForm.tsx
+// src/components/publishing/SiteSettingsForm.tsx
+'use client';
+
+//import { Manifest } from '@/types';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+
+interface SiteSettingsFormProps {
+  formData: {
+    title: string;
+    description: string;
+    author: string;
+  };
+  onFormChange: (newData: SiteSettingsFormProps['formData']) => void;
+}
+
+export default function SiteSettingsForm({ formData, onFormChange }: SiteSettingsFormProps) {
+  const handleChange = (field: keyof typeof formData, value: string) => {
+    onFormChange({ ...formData, [field]: value });
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <Label htmlFor="title">Site Title</Label>
+        <Input
+          id="title"
+          value={formData.title}
+          onChange={(e) => handleChange('title', e.target.value)}
+          placeholder="My Awesome Site"
+        />
+        <p className="text-sm text-muted-foreground">The main title for your website.</p>
+      </div>
+      <div className="space-y-2">
+        <Label htmlFor="description">Site Description</Label>
+        <Textarea
+          id="description"
+          value={formData.description}
+          onChange={(e) => handleChange('description', e.target.value)}
+          placeholder="A short, catchy description."
+          rows={3}
+        />
+         <p className="text-sm text-muted-foreground">Used for search engines and social media previews.</p>
+      </div>
+       <div className="space-y-2">
+        <Label htmlFor="author">Author (Optional)</Label>
+        <Input
+          id="author"
+          value={formData.author}
+          onChange={(e) => handleChange('author', e.target.value)}
+          placeholder="Your Name or Organization"
+        />
+         <p className="text-sm text-muted-foreground">The default author for content on this site.</p>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
 File: components/publishing/FileTree.tsx
 // src/components/publishing/FileTree.tsx
 'use client';
@@ -2066,14 +2359,16 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
     const style = { transform: CSS.Transform.toString(transform), transition };
 
     const isFolderType = node.type === 'collection' || (node.type === 'page' && node.children && node.children.length > 0);
+    
+    // CORRECTED: Generate links robustly using the full relative path for pages.
+    const relativeContentPath = node.path.replace(/^content\//, '').replace(/\.md$/, '');
     const href = node.type === 'collection'
         ? `${baseEditPath}/collection/${node.slug}`
-        : `${baseEditPath}/content/${node.slug}`; // All pages, including folder indexes, go to content editor.
+        : `${baseEditPath}/content/${relativeContentPath}`;
 
     const isSelected = activePath === node.path;
     const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'page' && node.children && node.children.length > 0 ? FolderGit2 : FileTextIcon);
 
-    // This handler is for when the children of THIS node are reordered.
     const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
         onStructureChange([{ ...node, children: reorderedChildren }]);
     };
@@ -2108,7 +2403,6 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
             </div>
             {isFolderType && isOpen && node.children && node.children.length > 0 && (
                 <div className="pl-6">
-                    {/* Recursive call to FileTree for nested items */}
                     <FileTree
                         nodes={node.children}
                         baseEditPath={baseEditPath}
@@ -2137,7 +2431,6 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
         const newIndex = nodeIds.indexOf(over.id as string);
         if (oldIndex !== -1 && newIndex !== -1) {
             const reorderedNodes = arrayMove(nodes, oldIndex, newIndex);
-            // Re-assign navOrder based on the new array index for items that should be in nav.
             const updatedNavOrderNodes = reorderedNodes.map((node, index) => {
                 if (node.navOrder !== undefined) {
                     return { ...node, navOrder: index };
@@ -2161,8 +2454,6 @@ export default function FileTree({ nodes, baseEditPath, activePath, onFileCreate
                         activePath={activePath} 
                         onFileCreate={onFileCreate} 
                         onStructureChange={(updatedChildNode) => {
-                            // This gets called from the recursive FileTree's onStructureChange
-                            // It finds the parent and replaces it with the one containing the reordered children
                             const newNodes = nodes.map(n => n.path === updatedChildNode[0].path ? updatedChildNode[0] : n);
                             onStructureChange(newNodes);
                         }}
@@ -2384,6 +2675,7 @@ export default function SchemaDrivenForm({
 ================================================================================
 
 File: components/publishing/FrontmatterSidebar.tsx
+// src/components/publishing/FrontmatterSidebar.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -2391,23 +2683,29 @@ import type { MarkdownFrontmatter } from '@/types';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { getLayoutSchema } from '@/lib/themeEngine';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
 
 interface FrontmatterSidebarProps {
-  // The current frontmatter data for the file being edited.
   frontmatter: MarkdownFrontmatter;
-  // Callback to update the parent component's state.
   onFrontmatterChange: (newFrontmatter: MarkdownFrontmatter) => void;
-  // The ID of the layout chosen for this content (e.g., "blog", "page").
   layoutId: string;
-  // The name of the theme currently being used.
-  themeName: string;
+  themeId: string;
+  themeType: 'core' | 'contrib';
+  isNewFileMode: boolean;
+  slug: string;
+  onSlugChange: (newSlug: string) => void;
 }
 
 export default function FrontmatterSidebar({
   frontmatter,
   onFrontmatterChange,
   layoutId,
-  themeName,
+  themeId,
+  themeType,
+  isNewFileMode,
+  slug,
+  onSlugChange,
 }: FrontmatterSidebarProps) {
   
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
@@ -2418,12 +2716,11 @@ export default function FrontmatterSidebar({
     async function loadSchemaForLayout() {
       setIsLoading(true);
       try {
-        const layoutSchemaData = await getLayoutSchema(themeName, layoutId);
+        const layoutSchemaData = await getLayoutSchema(themeId, themeType, layoutId);
         if (layoutSchemaData) {
-          // Determine if we should use the itemSchema (for collection items) or the main schema (for pages/collection listings)
-          const isItem = !!layoutSchemaData.itemSchema;
-          setSchema(isItem ? layoutSchemaData.itemSchema! : layoutSchemaData.schema);
-          setUiSchema(isItem ? layoutSchemaData.itemUiSchema : layoutSchemaData.uiSchema);
+          const isItemSchema = !!layoutSchemaData.itemSchema;
+          setSchema(isItemSchema ? layoutSchemaData.itemSchema! : layoutSchemaData.schema);
+          setUiSchema(isItemSchema ? layoutSchemaData.itemUiSchema : layoutSchemaData.uiSchema);
         } else {
           setSchema(null);
         }
@@ -2435,47 +2732,65 @@ export default function FrontmatterSidebar({
       }
     }
     
-    if (layoutId && themeName) {
+    if (layoutId && themeId && themeType) {
       loadSchemaForLayout();
+    } else {
+        setIsLoading(false);
+        setSchema(null);
     }
-  }, [layoutId, themeName]);
+  }, [layoutId, themeId, themeType]);
 
   const handleFormChange = (data: object) => {
-    // FIXED: Cast the generic 'object' from the form to the specific
-    // 'MarkdownFrontmatter' type that the parent component expects.
     onFrontmatterChange(data as MarkdownFrontmatter);
   };
 
   if (isLoading) {
     return (
-      <aside className="w-80 border-l bg-muted/20 p-4">
+      <aside className="w-80 border-l bg-muted/20 p-4 shrink-0">
         <p className="text-sm text-muted-foreground">Loading Form...</p>
       </aside>
     );
   }
 
-  if (!schema) {
-    return (
-       <aside className="w-80 border-l bg-muted/20 p-4">
-        <h2 className="text-lg font-semibold border-b pb-2">Fields</h2>
-        <div className="text-sm text-destructive-foreground bg-destructive p-2 rounded-md mt-4">
-            <p className="font-bold">Schema Error</p>
-            <p>Could not find a frontmatter schema for the layout &quot;{layoutId}&quot;.</p>
-        </div>
-       </aside>
-    );
-  }
-
   return (
     <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
-      <h2 className="text-lg font-semibold border-b pb-2">{schema.title || 'Content Fields'}</h2>
+      <div>
+        <h2 className="text-lg font-semibold border-b pb-2 mb-4">Content Settings</h2>
+        
+        <div className="space-y-2">
+            <Label htmlFor="slug-input">Slug (URL Path)</Label>
+            <Input 
+                id="slug-input"
+                value={slug}
+                onChange={(e) => onSlugChange(e.target.value)}
+                // CORRECTED: The field is now a normal, editable input.
+                // It is only disabled for EXISTING files, where the slug cannot be changed.
+                disabled={!isNewFileMode}
+                className={!isNewFileMode ? 'bg-muted/50 focus-visible:ring-0 focus-visible:ring-offset-0' : ''}
+            />
+            <p className="text-xs text-muted-foreground">
+              {isNewFileMode 
+                ? "Auto-generates from title, but you can edit it for a custom URL." 
+                : "The slug cannot be changed after the file is created."}
+            </p>
+        </div>
+      </div>
       
-      <SchemaDrivenForm
-        schema={schema}
-        uiSchema={uiSchema}
-        formData={frontmatter}
-        onFormChange={handleFormChange}
-      />
+      {schema ? (
+        <div className="border-t pt-6">
+            <SchemaDrivenForm
+                schema={schema}
+                uiSchema={uiSchema}
+                formData={frontmatter}
+                onFormChange={handleFormChange}
+            />
+        </div>
+      ) : (
+        <div className="text-sm text-destructive-foreground bg-destructive p-3 rounded-md mt-4">
+            <p className="font-bold">Schema Error</p>
+            <p>Could not find a valid schema for the layout &quot;{layoutId || 'none'}&quot;.</p>
+        </div>
+      )}
     </aside>
   );
 }
@@ -3647,137 +3962,162 @@ export function parseSiteIdentifier(siteIdParam: string | string[] | undefined):
 File: lib/siteExporter.ts
 // src/lib/siteExporter.ts
 import JSZip from 'jszip';
-import Handlebars from 'handlebars';
-import { marked } from 'marked';
-import { LocalSiteData, StructureNode, ParsedMarkdownFile, Manifest, NavLinkItem } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
-import { flattenStructureToPages } from './fileTreeUtils';
-
-// --- Type Definition for Template Context ---
-interface TemplateContext {
-    manifest: Manifest;
-    navLinks: NavLinkItem[];
-    collection?: StructureNode & { items: ParsedMarkdownFile[] };
-    frontmatter?: ParsedMarkdownFile['frontmatter'];
-    contentHtml?: string;
-    body?: string;
-}
-
-// --- Caching and Helper Functions ---
-const templateCache: { [key:string]: Handlebars.TemplateDelegate } = {};
-async function getTemplate(path: string): Promise<Handlebars.TemplateDelegate> {
-  if (templateCache[path]) return templateCache[path];
-  const res = await fetch(path);
-  if (!res.ok) throw new Error(`Template not found: ${path}`);
-  const source = await res.text();
-  const template = Handlebars.compile(source);
-  templateCache[path] = template;
-  return template;
-}
+import { flattenStructureToRenderableNodes } from './fileTreeUtils';
+import { resolvePageContent, PageType } from './pageResolver';
+import { render as renderWithTheme } from './themeEngine';
 
 function escapeForXml(str: string | undefined | unknown): string {
-  if (str === undefined || str === null) return '';
-  return String(str).replace(/[&<>"']/g, (match) => {
-    return { '<': '<', '>': '>', '&': '&', '"': '"', "'": "'" }[match] || match;
-  });
+    if (str === undefined || str === null) return '';
+    return String(str).replace(/[&<>"']/g, (match) => {
+      return { '<': '<', '>': '>', '&': '&', '"': '"', "'": "'" }[match] || match;
+    });
 }
+  
+function getUrlForNode(node: { slug: string, path: string, type: 'page' | 'collection' }, basePath: string = '/'): string {
+    if (node.slug === 'index' && node.type === 'page' && !node.path.includes('/')) {
+        return `${basePath}index.html`;
+    }
 
-function getUrlForNode(node: StructureNode, basePath: string = '/'): string {
-    if (node.slug === 'index') return basePath;
-    const path = `${basePath}/${node.slug}`.replace(/\/\//g, '/');
-    return path;
+    if (node.type === 'collection') {
+        return `${basePath}${node.slug}/index.html`.replace(/\/\//g, '/');
+    }
+    
+    const pathSegments = node.path.replace(/^content\//, '').replace(/\.md$/, '');
+    const path = `${basePath}${pathSegments}.html`;
+    return path.replace(/\/\//g, '/');
 }
 
 
 // --- Main Export Function ---
 export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
   const zip = new JSZip();
-  const themeName = siteData.manifest.theme.name;
-  const themeManifest = await fetch(`/themes/${themeName}/theme.json`).then(r => r.json());
+  const themeId = siteData.manifest.theme.name;
+  const themeType = siteData.manifest.theme.type;
+  const themePath = `/themes/${themeType}/${themeId}`;
 
-  // 1. Concatenate all CSS files
-  let finalCss = '';
-  const baseCss = await fetch(`/themes/${themeName}/assets/base.css`).then(r => r.text()).catch(() => '');
-  finalCss += baseCss + '\n';
-  for (const layoutId of themeManifest.layouts) {
-    const layoutCss = await fetch(`/themes/${themeName}/layouts/${layoutId}/style.css`).then(r => r.text()).catch(() => '');
-    finalCss += layoutCss + '\n';
-  }
-  zip.file('css/style.css', finalCss);
-  
-  // 2. Prepare for HTML Generation
-  const baseTemplate = await getTemplate(`/themes/${themeName}/base.hbs`);
-
-  // 3. Recursive HTML Generation
-  async function generateHtmlRecursive(nodes: StructureNode[], zipPathPrefix: string) {
-    for (const node of nodes) {
-      const context: TemplateContext = { manifest: siteData.manifest, navLinks: [] };
-      let layoutTemplate: Handlebars.TemplateDelegate;
-      let outputPath: string;
-      
-      if (node.type === 'collection') {
-        layoutTemplate = await getTemplate(`/themes/${themeName}/layouts/${node.layout}/index.hbs`);
-        const items = (node.children || [])
-          .map(child => siteData.contentFiles.find(f => f.path === child.path))
-          .filter((f): f is ParsedMarkdownFile => !!f);
-        
-        context.collection = { ...node, items };
-        outputPath = `${zipPathPrefix}${node.slug}/index.html`;
-
-      } else { // type === 'page'
-        const contentFile = siteData.contentFiles.find(f => f.path === node.path);
-        if (!contentFile) continue;
-        
-        const isIndexFileForCollection = node.path.endsWith('/index.md') && node.slug !== 'index';
-        const templateFile = isIndexFileForCollection ? 'index.hbs' : 'item.hbs';
-        layoutTemplate = await getTemplate(`/themes/${themeName}/layouts/${node.layout}/${templateFile}`);
-        
-        context.frontmatter = contentFile.frontmatter;
-        // FIXED: Use 'await' to ensure we get a string from the marked parser.
-        context.contentHtml = await marked.parse(contentFile.content);
-        
-        outputPath = node.slug === 'index' ? `index.html` : `${zipPathPrefix}${node.slug}.html`;
-      }
-      
-      const mainContentHtml = layoutTemplate(context);
-      const finalHtml = baseTemplate({ ...context, body: mainContentHtml });
-      zip.file(outputPath.replace(/^\//, ''), finalHtml);
-
-      if (node.children) {
-        await generateHtmlRecursive(node.children, `${zipPathPrefix}${node.slug}/`);
-      }
+  // 1. Correctly bundle all theme assets (CSS, JS)
+  try {
+    const themeManifest = await fetch(`${themePath}/theme.json`).then(r => r.json());
+    let finalCss = '';
+    
+    const baseCssPath = `${themePath}/assets/base.css`;
+    const baseCss = await fetch(baseCssPath).then(r => r.ok ? r.text() : '').catch(() => '');
+    finalCss += baseCss + '\n';
+    
+    if (themeManifest.layouts) {
+        for (const layoutId of themeManifest.layouts) {
+            const layoutCssPath = `${themePath}/layouts/${layoutId}/style.css`;
+            const layoutCss = await fetch(layoutCssPath).then(r => r.ok ? r.text() : '').catch(() => '');
+            finalCss += layoutCss + '\n';
+        }
     }
+    zip.file('style.css', finalCss);
+
+    const scriptsJsPath = `${themePath}/scripts.js`;
+    const scriptsJs = await fetch(scriptsJsPath).then(r => r.ok ? r.text() : '').catch(() => '');
+    if (scriptsJs) {
+        zip.file('scripts.js', scriptsJs);
+    }
+
+  } catch (e) {
+      console.warn("Could not bundle theme assets for export.", e);
   }
 
-  await generateHtmlRecursive(siteData.manifest.structure, '');
+  // 2. Generate all HTML pages using the correct node list
+  const allRenderableNodes = flattenStructureToRenderableNodes(siteData.manifest.structure);
+  
+  for (const node of allRenderableNodes) {
+      const slugArray = (node.type === 'collection') 
+          ? [node.slug] 
+          : node.path.replace(/^content\//, '').replace(/\.md$/, '').split('/').filter(Boolean);
+      
+      const resolution = resolvePageContent(siteData, slugArray);
+      
+      if (resolution.type === PageType.NotFound) {
+        console.warn(`Skipping export for node with missing content: ${node.path}`);
+        continue;
+      }
+      
+      const finalHtml = await renderWithTheme(siteData, resolution, '/');
+      
+      let outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' }, '/');
+      outputPath = outputPath.startsWith('/') ? outputPath.substring(1) : outputPath;
 
-  // 4. Add _signum source files
+      zip.file(outputPath, finalHtml);
+  }
+
+  // 3. Add _signum source files
   zip.file(`_signum/manifest.json`, JSON.stringify(siteData.manifest, null, 2));
   for (const file of siteData.contentFiles) {
     const rawMd = stringifyToMarkdown(file.frontmatter, file.content);
     zip.file(`_signum/${file.path}`, rawMd);
   }
 
+  // 4. Conditionally bundle custom theme source files
+  if (themeType === 'contrib') {
+    console.log(`Bundling 'contrib' theme source for: ${themeId}`);
+    const themeZipPrefix = `_signum/themes/contrib/${themeId}`;
+    const themeFetchPrefix = `/themes/contrib/${themeId}`;
+
+    const themeManifest = await fetch(`${themeFetchPrefix}/theme.json`).then(r => r.json());
+    
+    zip.file(`${themeZipPrefix}/theme.json`, JSON.stringify(themeManifest, null, 2));
+    
+    const addFileToTheme = async (filePath: string) => {
+        try {
+            const response = await fetch(filePath);
+            if (response.ok) {
+                const content = await response.text();
+                const zipPath = filePath.replace(themeFetchPrefix, themeZipPrefix);
+                zip.file(zipPath, content);
+            }
+        } catch {}
+    };
+
+    await addFileToTheme(`${themeFetchPrefix}/assets/base.css`);
+    await addFileToTheme(`${themeFetchPrefix}/scripts.js`);
+
+    // CORRECTED: Only bundle partials that are explicitly defined in the manifest.
+    if(themeManifest.partials) {
+        for (const key in themeManifest.partials) {
+            await addFileToTheme(themeManifest.partials[key]);
+        }
+    }
+
+    for (const layoutId of themeManifest.layouts) {
+        const layoutPath = `${themeFetchPrefix}/layouts/${layoutId}`;
+        await addFileToTheme(`${layoutPath}/schema.json`);
+        await addFileToTheme(`${layoutPath}/item.schema.json`);
+        await addFileToTheme(`${layoutPath}/index.hbs`);
+        await addFileToTheme(`${layoutPath}/item.hbs`);
+        await addFileToTheme(`${layoutPath}/style.css`);
+    }
+  }
+
   // 5. RSS and Sitemap Generation
-  const allPageNodes = flattenStructureToPages(siteData.manifest.structure);
+  const allPageNodes = allRenderableNodes.filter((n: StructureNode) => n.type === 'page');
   const siteBaseUrl = `https://${siteData.manifest.title.toLowerCase().replace(/\s+/g, '-') || 'example'}.com`;
 
+  type RssItem = { node: StructureNode, file?: ParsedMarkdownFile };
+
   const rssItems = allPageNodes
-    .map(p => ({ node: p, file: siteData.contentFiles.find(f => f.path === p.path) }))
-    .filter(item => item.file && item.file.frontmatter.date)
-    .sort((a,b) => new Date(b.file!.frontmatter.date as string).getTime() - new Date(a.file!.frontmatter.date as string).getTime())
+    .map((p: StructureNode): RssItem => ({ node: p, file: siteData.contentFiles.find(f => f.path === p.path) }))
+    .filter((item: RssItem) => item.file && item.file.frontmatter.date)
+    .sort((a: RssItem, b: RssItem) => new Date(b.file!.frontmatter.date as string).getTime() - new Date(a.file!.frontmatter.date as string).getTime())
     .slice(0, 20)
-    .map(item => {
-        const url = new URL(getUrlForNode(item.node!, '/').replace(/^\//, ''), siteBaseUrl).href + '.html';
-        const description = escapeForXml(item.file!.frontmatter.description || item.file!.frontmatter.summary);
+    .map((item: RssItem) => {
+        const url = new URL(getUrlForNode({ ...item.node!, type: 'page' }, '/'), siteBaseUrl).href;
+        const description = escapeForXml(item.file!.frontmatter.summary || '');
         return `<item><title>${escapeForXml(item.node!.title)}</title><link>${escapeForXml(url)}</link><guid isPermaLink="true">${escapeForXml(url)}</guid><pubDate>${new Date(item.file!.frontmatter.date as string).toUTCString()}</pubDate><description>${description}</description></item>`;
     }).join('');
   const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(siteData.manifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(siteData.manifest.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrl).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
   zip.file('rss.xml', rssFeed);
 
-  const sitemapUrls = allPageNodes.map(node => {
+  const sitemapUrls = allPageNodes.map((node: StructureNode) => {
       const file = siteData.contentFiles.find(f => f.path === node.path);
-      const url = new URL(getUrlForNode(node, '/').replace(/^\//, ''), siteBaseUrl).href + '.html';
+      const url = new URL(getUrlForNode({ ...node, type: 'page' }, '/'), siteBaseUrl).href;
       const lastMod = (file?.frontmatter.date as string || new Date().toISOString()).split('T')[0];
       return `<url><loc>${escapeForXml(url)}</loc><lastmod>${lastMod}</lastmod></url>`;
   }).join('');
@@ -3928,16 +4268,33 @@ export function findNodeByPath(nodes: StructureNode[], path: string): StructureN
 export function flattenStructureToPages(nodes: StructureNode[]): StructureNode[] {
   let pages: StructureNode[] = [];
   for (const node of nodes) {
-    // A 'page' type node can represent a single file or a folder with an index.md. Both are pages.
     if (node.type === 'page') {
       pages.push(node);
     }
-    // Recursively search in children, regardless of parent type.
     if (node.children) {
       pages = pages.concat(flattenStructureToPages(node.children));
     }
   }
   return pages;
+}
+
+/**
+ * Recursively traverses the structure tree and collects all nodes that can be rendered as a page.
+ * This includes single pages AND collection listing pages.
+ * @param nodes The array of nodes to traverse.
+ * @returns A flat array of all renderable StructureNodes.
+ */
+export function flattenStructureToRenderableNodes(nodes: StructureNode[]): StructureNode[] {
+  let renderableNodes: StructureNode[] = [];
+  for (const node of nodes) {
+    if (node.type === 'page' || node.type === 'collection') {
+      renderableNodes.push(node);
+    }
+    if (node.children) {
+      renderableNodes = renderableNodes.concat(flattenStructureToRenderableNodes(node.children));
+    }
+  }
+  return renderableNodes;
 }
 
 /**
@@ -3956,8 +4313,21 @@ export function getParentPath(path: string): string {
 File: lib/themeEngine.ts
 // src/lib/themeEngine.ts
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
+import Handlebars from 'handlebars';
+import { marked } from 'marked';
+import { PageResolutionResult, PageType } from './pageResolver';
+import { LocalSiteData, Manifest, NavLinkItem, ParsedMarkdownFile, StructureNode, ThemeConfig } from '@/types';
+import { generateNavLinks } from './navigationUtils';
+
+import baseSchemaFile from '@/config/base.schema.json';
 
 // --- Type Definitions for this module ---
+
+export interface ThemeInfo {
+  id: string;
+  name: string;
+  type: 'core' | 'contrib';
+}
 
 export interface ThemeLayout {
   id: string;
@@ -3972,24 +4342,36 @@ export interface LayoutSchema {
   itemUiSchema?: UiSchema;
 }
 
-// Specific types for the JSON files we expect to parse
 interface SchemaFile {
     schema: RJSFSchema;
     uiSchema?: UiSchema;
 }
 interface ThemeManifestFile {
     layouts: string[];
+    partials?: { [key: string]: string };
+    appearanceSchema?: RJSFSchema;
 }
 
-// --- Caching ---
+interface TemplateContext {
+    manifest: Manifest;
+    themeConfig: ThemeConfig['config'];
+    navLinks: NavLinkItem[];
+    year: number;
+    pageTitle: string;
+    body: string;
+    frontmatter?: ParsedMarkdownFile['frontmatter'];
+    contentHtml?: string;
+    collectionNode?: StructureNode;
+    items?: ParsedMarkdownFile[];
+}
+
+// --- Caching and Private Helpers ---
+const templateCache: { [key: string]: Handlebars.TemplateDelegate } = {};
 const jsonCache: { [key: string]: object } = {};
+let lastRegisteredTheme = '';
+// CORRECTED: Use a simple boolean flag at the module level.
+let helpersHaveBeenRegistered = false;
 
-
-// --- Core Functions ---
-
-/**
- * A private helper function to fetch and cache a JSON file, with type safety.
- */
 async function getJsonFile<T extends object>(path: string): Promise<T | null> {
   if (jsonCache[path]) {
     return jsonCache[path] as T;
@@ -4005,59 +4387,236 @@ async function getJsonFile<T extends object>(path: string): Promise<T | null> {
   }
 }
 
-/**
- * Retrieves the full schema definition for a given layout within a theme.
- */
-export async function getLayoutSchema(themeName: string, layoutId: string): Promise<LayoutSchema | null> {
-  const layoutPath = `/themes/${themeName}/layouts/${layoutId}`;
+async function getTemplate(path: string): Promise<Handlebars.TemplateDelegate> {
+  if (templateCache[path]) return templateCache[path];
+  const res = await fetch(path);
+  if (!res.ok) throw new Error(`Template not found: ${path}`);
+  const source = await res.text();
+  const template = Handlebars.compile(source);
+  templateCache[path] = template;
+  return template;
+}
+
+function registerHelpers() {
+    // CORRECTED: Check the simple boolean flag. This is cleaner and type-safe.
+    if (helpersHaveBeenRegistered) return;
+    
+    Handlebars.registerHelper('eq', (a: unknown, b: unknown) => a === b);
+    Handlebars.registerHelper('formatDate', (date: string | Date) => {
+        try {
+            const d = new Date(date);
+            return new Intl.DateTimeFormat('en-US', { 
+                year: 'numeric', 
+                month: 'long', 
+                day: 'numeric' 
+            }).format(d);
+        } catch {
+            return String(date);
+        }
+    });
+    // Set the flag after registration.
+    helpersHaveBeenRegistered = true;
+}
+
+
+async function registerPartials(themeId: string, themeType: 'core' | 'contrib') {
+    const themeIdentifier = `${themeType}-${themeId}`;
+    if (lastRegisteredTheme === themeIdentifier) return;
+
+    const partialNames = Object.keys(Handlebars.partials);
+    partialNames.forEach(name => Handlebars.unregisterPartial(name));
+
+    const themePath = `/themes/${themeType}/${themeId}`;
+    const themeManifest = await getJsonFile<ThemeManifestFile>(`${themePath}/theme.json`);
+    
+    const partialsToRegister = themeManifest?.partials || {};
+
+    for (const name in partialsToRegister) {
+        try {
+            const path = partialsToRegister[name as keyof typeof partialsToRegister];
+            const templateString = await fetch(path).then(res => res.text());
+            Handlebars.registerPartial(name, templateString);
+        } catch (e) {
+            console.warn(`Could not register partial: ${name} from path ${partialsToRegister[name as keyof typeof partialsToRegister]}`, e);
+        }
+    }
+    lastRegisteredTheme = themeIdentifier;
+}
+
+
+function mergeSchemas(base: SchemaFile, extension: SchemaFile | null): SchemaFile {
+    if (!extension) return base;
+
+    const mergedSchema: RJSFSchema = {
+        ...base.schema,
+        ...extension.schema,
+        properties: {
+            ...(base.schema.properties || {}),
+            ...(extension.schema.properties || {}),
+        },
+    };
+    if (extension.schema.required) {
+        mergedSchema.required = [...new Set([...(base.schema.required || []), ...extension.schema.required])];
+    }
+
+    const mergedUiSchema: UiSchema = {
+        ...base.uiSchema,
+        ...extension.uiSchema,
+    };
+
+    return { schema: mergedSchema, uiSchema: mergedUiSchema };
+}
+
+
+// --- Public API ---
+
+export async function getAvailableThemes(): Promise<ThemeInfo[]> {
+    const coreThemesPromise = getJsonFile<Omit<ThemeInfo, 'type'>[]>(`/themes/core/themes.json`);
+    const contribThemesPromise = getJsonFile<Omit<ThemeInfo, 'type'>[]>(`/themes/contrib/themes.json`);
+
+    const [coreThemes, contribThemes] = await Promise.all([coreThemesPromise, contribThemesPromise]);
+
+    const allThemes: ThemeInfo[] = [];
+
+    if (coreThemes) {
+        allThemes.push(...coreThemes.map(t => ({ ...t, type: 'core' as const })));
+    }
+    if (contribThemes) {
+        allThemes.push(...contribThemes.map(t => ({ ...t, type: 'contrib' as const })));
+    }
+    
+    allThemes.sort((a, b) => a.name.localeCompare(b.name));
+
+    return allThemes;
+}
+
+export async function getThemeAppearanceSchema(themeId: string, themeType: 'core' | 'contrib'): Promise<RJSFSchema | null> {
+    const themeManifest = await getJsonFile<ThemeManifestFile>(`/themes/${themeType}/${themeId}/theme.json`);
+    return themeManifest?.appearanceSchema || null;
+}
+
+
+export async function getLayoutSchema(themeId: string, themeType: 'core' | 'contrib', layoutId: string): Promise<LayoutSchema | null> {
+  const layoutPath = `/themes/${themeType}/${themeId}/layouts/${layoutId}`;
+
+  const coreBaseSchema = baseSchemaFile as SchemaFile;
+
+  const mainLayoutSchemaFile = await getJsonFile<SchemaFile>(`${layoutPath}/schema.json`);
+  const itemLayoutSchemaFile = await getJsonFile<SchemaFile>(`${layoutPath}/item.schema.json`);
+
+  let finalItemSchema: SchemaFile | null = null;
   
-  const mainSchemaFile = await getJsonFile<SchemaFile>(`${layoutPath}/schema.json`);
-  const itemSchemaFile = await getJsonFile<SchemaFile>(`${layoutPath}/item.schema.json`);
+  if (itemLayoutSchemaFile) {
+    finalItemSchema = mergeSchemas(coreBaseSchema, itemLayoutSchemaFile);
+  } else {
+    finalItemSchema = coreBaseSchema;
+  }
 
-  // The primary schema is the one for the main entity (page or collection listing)
-  const primarySchema = mainSchemaFile || itemSchemaFile;
+  const primarySchema = mainLayoutSchemaFile || finalItemSchema;
 
-  if (!primarySchema || !primarySchema.schema) {
-    return null; // The layout is invalid if it has no primary schema.
+  if (!primarySchema) {
+    return null;
   }
 
   return {
     schema: primarySchema.schema,
     uiSchema: primarySchema.uiSchema,
-    itemSchema: itemSchemaFile?.schema,
-    itemUiSchema: itemSchemaFile?.uiSchema,
+    itemSchema: finalItemSchema?.schema,
+    itemUiSchema: finalItemSchema?.uiSchema,
   };
 }
 
-/**
- * Retrieves a list of all available, declared layouts for a given theme.
- */
-export async function getAvailableLayouts(themeName: string): Promise<ThemeLayout[]> {
-  const themeManifest = await getJsonFile<ThemeManifestFile>(`/themes/${themeName}/theme.json`);
+export async function getAvailableLayouts(themeId: string, themeType: 'core' | 'contrib'): Promise<ThemeLayout[]> {
+  const themePath = `/themes/${themeType}/${themeId}/theme.json`;
+  const themeManifest = await getJsonFile<ThemeManifestFile>(themePath);
 
   if (!themeManifest || !Array.isArray(themeManifest.layouts)) {
-    console.error(`Theme manifest not found or invalid for theme: ${themeName}`);
+    console.error(`Theme manifest not found or invalid for theme: ${themeId}`);
     return [];
   }
 
   const layouts: ThemeLayout[] = [];
 
   for (const layoutId of themeManifest.layouts) {
-    const schemaData = await getLayoutSchema(themeName, layoutId);
+    const schemaData = await getLayoutSchema(themeId, themeType, layoutId);
     if (!schemaData) {
-      console.warn(`Layout "${layoutId}" is missing its required schema files.`);
+      console.warn(`Layout "${layoutId}" in theme "${themeId}" is missing its required schema files.`);
       continue;
     }
 
     const isCollection = !!schemaData.itemSchema;
     
+    const relevantSchema = isCollection ? schemaData.schema : schemaData.itemSchema;
+    
     layouts.push({
       id: layoutId,
-      name: schemaData.schema.title || layoutId.charAt(0).toUpperCase() + layoutId.slice(1),
+      name: relevantSchema?.title || layoutId.charAt(0).toUpperCase() + layoutId.slice(1),
       type: isCollection ? 'collection' : 'page',
     });
   }
   return layouts;
+}
+
+export async function render(
+    siteData: LocalSiteData, 
+    resolution: PageResolutionResult,
+    siteRootPath: string
+): Promise<string> {
+  const themeId = siteData.manifest.theme.name;
+  const themeType = siteData.manifest.theme.type;
+  const themePath = `/themes/${themeType}/${themeId}`;
+
+  registerHelpers();
+  await registerPartials(themeId, themeType);
+  
+  const baseTemplate = await getTemplate(`${themePath}/base.hbs`);
+  const navLinks = generateNavLinks(siteData, { isStaticExport: false, siteRootPath });
+
+  let bodyHtml = '<h1>Error</h1><p>Could not render content.</p>';
+  let pageTitle = 'Error';
+
+  const context: Partial<TemplateContext> = {
+      manifest: siteData.manifest,
+      themeConfig: siteData.manifest.theme.config,
+      navLinks,
+      year: new Date().getFullYear(),
+  };
+
+  switch(resolution.type) {
+    case PageType.SinglePage: {
+        const layoutTemplatePath = `${themePath}/layouts/${resolution.layout}/item.hbs`;
+        const layoutTemplate = await getTemplate(layoutTemplatePath);
+        
+        pageTitle = resolution.pageTitle;
+        context.frontmatter = resolution.contentFile.frontmatter;
+        context.contentHtml = await marked.parse(resolution.contentFile.content);
+        bodyHtml = layoutTemplate(context);
+        break;
+    }
+    case PageType.Collection: {
+        const layoutTemplatePath = `${themePath}/layouts/${resolution.layout}/index.hbs`;
+        const layoutTemplate = await getTemplate(layoutTemplatePath);
+        
+        pageTitle = resolution.pageTitle;
+        context.collectionNode = resolution.collectionNode;
+        context.items = resolution.items.map(item => ({
+            ...item,
+            contentHtml: marked.parse(item.content)
+        }));
+        bodyHtml = layoutTemplate(context);
+        break;
+    }
+    case PageType.NotFound: {
+        pageTitle = 'Not Found';
+        bodyHtml = `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
+        break;
+    }
+  }
+
+  context.body = bodyHtml;
+  context.pageTitle = pageTitle;
+
+  return baseTemplate(context as TemplateContext);
 }
 
 ================================================================================
@@ -4214,493 +4773,6 @@ export function generateNavLinks(
   const { structure } = siteData.manifest;
   return buildNavLinks(structure, options.siteRootPath, options.isStaticExport);
 }
-
-================================================================================
-
-File: themes/default/utils.ts
-// src/themes/default/utils.ts
-export function escapeHtml(unsafe: unknown): string {
-  if (typeof unsafe === 'string') {
-    return unsafe
-      .replace(/&/g, "&")
-      .replace(/</g, "<")
-      .replace(/>/g, ">")
-      .replace(/"/g, '"')
-      .replace(/'/g, "'");
-  }
-  if (unsafe === null || unsafe === undefined) {
-      return '';
-  }
-  // If it's not a string but is some other type (like a number), convert it to a string and then escape.
-  return String(unsafe)
-      .replace(/&/g, "&")
-      .replace(/</g, "<")
-      .replace(/>/g, ">")
-      .replace(/"/g, '"')
-      .replace(/'/g, "'");
-}
-
-================================================================================
-
-File: themes/default/engine.ts
-// src/themes/default/engine.ts (NEW FILE)
-import Handlebars from 'handlebars';
-
-// A simple cache to hold compiled templates
-const templateCache: { [key: string]: Handlebars.TemplateDelegate } = {};
-
-/**
- * Fetches and compiles a Handlebars template. Caches the result.
- * @param path The path to the .hbs template file (e.g., /themes/default/layout.hbs)
- * @returns A compiled Handlebars template function.
- */
-async function getTemplate(path: string): Promise<Handlebars.TemplateDelegate> {
-  if (templateCache[path]) {
-    return templateCache[path];
-  }
-
-  const response = await fetch(path);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch template: ${path}`);
-  }
-  const templateString = await response.text();
-  const compiledTemplate = Handlebars.compile(templateString);
-  templateCache[path] = compiledTemplate;
-  return compiledTemplate;
-}
-
-/**
- * The main ThemeEngine that orchestrates the rendering process.
- */
-export const ThemeEngine = {
-  /**
-   * Loads all partial templates and registers them with Handlebars.
-   * This should be called once when the theme is initialized.
-   */
-  async initializePartials() {
-    // List of partials to register. The key is the name used in templates (e.g., {{> head}})
-    const partialsToRegister: { [key: string]: string } = {
-      head: '/themes/default/partials/head.hbs',
-      header: '/themes/default/partials/header.hbs',
-      footer: '/themes/default/partials/footer.hbs',
-      '_nav-item': '/themes/default/partials/_nav-item.hbs', // A recursive partial for navigation
-    };
-
-    for (const name in partialsToRegister) {
-      const path = partialsToRegister[name];
-      const template = await getTemplate(path); // This also caches the partial's template
-      Handlebars.registerPartial(name, template);
-    }
-  },
-
-  /**
-   * Renders a complete page using the main layout template and a data context.
-   * @param data The context object containing all necessary data (manifest, themeConfig, etc.)
-   * @returns The fully rendered HTML string.
-   */
-  async render(data: object): Promise<string> {
-    const layoutTemplate = await getTemplate('/themes/default/layout.hbs');
-    return layoutTemplate(data);
-  },
-};
-
-================================================================================
-
-File: themes/default/layout.ts
-// src/themes/default/layout.ts
-import { Manifest, NavLinkItem, ThemeConfig } from '@/types';
-import { ThemeEngine } from './engine';
-
-let isThemeEngineInitialized = false;
-
-/**
- * This is now the single entry point for rendering a page with the theme.
- * It prepares the data context and calls the ThemeEngine.
- */
-export async function renderPageLayout(
-  manifest: Manifest,
-  themeConfig: ThemeConfig['config'],
-  pageTitle: string,
-  navLinks: NavLinkItem[],
-  mainContentHtml: string,
-): Promise<string> { // Return a promise as rendering is now async
-  
-  if (!isThemeEngineInitialized) {
-    await ThemeEngine.initializePartials();
-    isThemeEngineInitialized = true;
-  }
-
-  // Create the complete data context for Handlebars
-  const context = {
-    manifest,
-    themeConfig,
-    pageTitle,
-    navLinks,
-    mainContentHtml,
-    year: new Date().getFullYear(),
-  };
-
-  return ThemeEngine.render(context);
-}
-
-================================================================================
-
-File: themes/default/scripts.js
-// src/themes/default/scripts.js
-// This file will be used for the *exported static site*.
-// It can contain JavaScript for simple interactions like a mobile menu toggle.
-
-// Example: Mobile menu toggle
-// (This is a very basic example and assumes specific HTML structure from templates)
-document.addEventListener('DOMContentLoaded', () => {
-  // const menuToggle = document.querySelector('.mobile-menu-toggle'); // Hypothetical selector
-  // const siteNav = document.querySelector('.site-nav ul');          // Hypothetical selector
-
-  // if (menuToggle && siteNav) {
-  //   menuToggle.addEventListener('click', () => {
-  //     siteNav.classList.toggle('active');
-  //   });
-  // }
-  console.log("Signum default theme scripts loaded.");
-});
-
-================================================================================
-
-File: themes/default/style.css
-/* src/themes/default/style.css */
-/* This file will be used for the *exported static site*. */
-/* The live client preview uses globals.css and Tailwind. */
-
-:root {
-  /* Default primary color, overridden by <html style="--primary-color: #..."> if set in site config */
-  --primary-color: #007AFF; 
-  --text-color: #333;
-  --background-color: #fff;
-  --link-color: var(--primary-color);
-  --header-bg: #f4f4f4;
-  --header-text: #333;
-  --footer-text: #777;
-  --border-color: #ddd;
-  --muted-text: #666;
-}
-
-/* Example: Applying dark theme styles if a class is added to <html> by renderPageLayout */
-html.theme-dark { /* Class set by renderPageLayout if siteConfig.theme is 'dark' */
-  --text-color: #f0f0f0;
-  --background-color: #222;
-  --link-color: #6cb6ff; /* Lighter blue for dark mode */
-  --primary-color: #6cb6ff; /* Ensure primary color also adapts or is distinct */
-  --header-bg: #333;
-  --header-text: #f0f0f0;
-  --footer-text: #aaa;
-  --border-color: #555;
-  --muted-text: #bbb;
-}
-
-/* System preference can also be handled via prefers-color-scheme */
-@media (prefers-color-scheme: dark) {
-  html.theme-auto { /* Class set by renderPageLayout if siteConfig.theme is 'auto' */
-    --text-color: #f0f0f0;
-    --background-color: #222;
-    --link-color: #6cb6ff;
-    --primary-color: #6cb6ff;
-    --header-bg: #333;
-    --header-text: #f0f0f0;
-    --footer-text: #aaa;
-    --border-color: #555;
-    --muted-text: #bbb;
-  }
-}
-
-
-body {
-  /* font-family is set directly on <html> tag by renderPageLayout */
-  line-height: 1.65;
-  margin: 0;
-  padding: 0;
-  background-color: var(--background-color);
-  color: var(--text-color);
-  font-size: 16px; /* Base font size */
-}
-
-.site-container {
-  max-width: 800px; /* Adjust as needed */
-  margin: 0 auto;
-  padding: 20px 20px 40px 20px; /* Added more bottom padding */
-}
-
-.site-header {
-  background-color: var(--header-bg);
-  padding: 1rem 0;
-  border-bottom: 1px solid var(--border-color);
-  margin-bottom: 30px; /* Increased spacing */
-}
-
-.site-header .container {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  max-width: 800px; /* Match .site-container */
-  margin: 0 auto;
-  padding: 0 20px;
-}
-
-.site-title {
-  font-size: 1.8em;
-  margin: 0;
-  font-weight: 700;
-}
-.site-title-link {
-  text-decoration: none;
-  color: var(--header-text);
-}
-.site-title-link:hover {
-  color: var(--primary-color);
-}
-
-.site-nav ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-}
-
-.site-nav li {
-  margin-left: 20px; /* Increased spacing */
-}
-
-.site-nav a {
-  text-decoration: none;
-  color: var(--header-text);
-  font-weight: 500;
-  padding-bottom: 4px; /* For border alignment */
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s ease, border-color 0.2s ease;
-}
-.site-nav a:hover {
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
-}
-.site-nav li.active a { /* Assuming 'active' class is set by JS or template */
-  font-weight: 700;
-  color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
-}
-
-.site-content {
-  /* Main content area placeholder */
-}
-
-.site-footer {
-  text-align: center;
-  padding: 30px 0;
-  margin-top: 50px; /* Increased spacing */
-  border-top: 1px solid var(--border-color);
-  font-size: 0.9em;
-  color: var(--footer-text);
-}
-.site-footer p {
-    margin: 0.5em 0;
-}
-
-/* General Content Typography & Elements */
-a {
-  color: var(--link-color);
-  text-decoration: none;
-}
-a:hover {
-  text-decoration: underline;
-}
-
-h1, h2, h3, h4, h5, h6 {
-  margin-top: 1.8em;
-  margin-bottom: 0.8em;
-  line-height: 1.3;
-  font-weight: 700;
-}
-h1 { font-size: 2.2em; }
-h2 { font-size: 1.8em; }
-h3 { font-size: 1.5em; }
-h4 { font-size: 1.2em; }
-
-p {
-  margin-bottom: 1.2em;
-}
-
-ul, ol {
-  margin-bottom: 1.2em;
-  padding-left: 1.8em;
-}
-li {
-  margin-bottom: 0.5em;
-}
-
-blockquote {
-  margin: 1.5em 0;
-  padding: 0.5em 1.5em;
-  border-left: 4px solid var(--primary-color);
-  background-color: var(--header-bg); /* Slight background for blockquotes */
-  color: var(--muted-text);
-  font-style: italic;
-}
-blockquote p {
-    margin-bottom: 0.5em;
-}
-
-pre {
-  background-color: #f9f9f9; /* Keep code blocks light even in dark mode for readability, or adjust */
-  color: #333;
-  padding: 1em;
-  overflow-x: auto;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 0.9em;
-  margin: 1.5em 0;
-}
-html.theme-dark pre, html.theme-auto:has(body[style*="dark"]) pre { /* Example of specific dark mode for pre */
-    background-color: #2d2d2d;
-    color: #ccc;
-    border-color: #444;
-}
-
-
-code { /* Inline code */
-  font-family: monospace; /* Ensure this matches selected monospace if user chose that */
-  background-color: rgba(0,0,0,0.05);
-  padding: 0.2em 0.4em;
-  border-radius: 3px;
-  font-size: 0.9em;
-}
-html.theme-dark code, html.theme-auto:has(body[style*="dark"]) code {
-    background-color: rgba(255,255,255,0.1);
-}
-
-pre code { /* Code inside pre blocks should not have extra background */
-  background-color: transparent;
-  padding: 0;
-  font-size: inherit; /* Inherit pre's font size */
-}
-
-hr {
-    border: none;
-    border-top: 1px solid var(--border-color);
-    margin: 2em 0;
-}
-
-/* Post specific styles */
-.post {
-  margin-bottom: 40px;
-}
-.post-header {
-    margin-bottom: 1.5em;
-    padding-bottom: 1em;
-    border-bottom: 1px solid var(--border-color);
-}
-.post-header h1 {
-  font-size: 2.5em; /* Larger for post titles */
-  margin-top: 0; /* No top margin for main post title */
-  margin-bottom: 0.2em;
-}
-.post-date {
-  color: var(--muted-text);
-  font-size: 0.9em;
-  margin-bottom: 1em;
-}
-.post-summary {
-  font-style: italic;
-  color: var(--muted-text);
-  margin-bottom: 1.5em;
-  font-size: 1.1em;
-}
-.post-content {
-  /* Typography above generally applies */
-}
-
-
-/* Collection list styles */
-.collection {
-  /* Styles for collection container */
-}
-.collection-header h1 {
-  font-size: 2.2em; /* Consistent with post title */
-  margin-bottom: 1em;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 0.5em;
-}
-.collection-index-content { /* For content/collection/index.md body */
-    margin-bottom: 2em;
-}
-
-.collection-list {
-  list-style: none;
-  padding: 0;
-}
-.collection-item {
-  margin-bottom: 30px;
-  padding-bottom: 20px;
-  border-bottom: 1px dotted var(--border-color);
-}
-.collection-item:last-child {
-    border-bottom: none;
-}
-.collection-item-title {
-  font-size: 1.6em;
-  margin-bottom: 0.3em;
-  font-weight: 600;
-}
-.collection-item-title a {
-  text-decoration: none;
-  color: var(--text-color); /* Use main text color for titles */
-}
-.collection-item-title a:hover {
-  color: var(--primary-color);
-}
-.collection-item-date {
-  font-size: 0.85em;
-  color: var(--muted-text);
-  margin-bottom: 0.5em;
-}
-.collection-item-summary {
-  font-size: 0.95em;
-  color: var(--text-color); /* Regular text color for summary */
-  opacity: 0.9;
-  margin-bottom: 1em;
-}
-.collection-item-readmore {
-  display: inline-block;
-  font-size: 0.9em;
-  text-decoration: none;
-  font-weight: 600;
-  color: var(--primary-color);
-}
-.collection-item-readmore:hover {
-    text-decoration: underline;
-}
-
-/* Prose styles for markdown content - can be basic or more elaborate */
-.prose {
-    /* Basic prose styling can go here if not relying on Tailwind's @tailwindcss/typography in the exported site */
-}
-
-================================================================================
-
-File: themes/default/layouts/blog/style.css
-.post-list { display: grid; gap: 1rem; }
-.post-card { border: 1px solid #eee; padding: 1rem; }
-
-================================================================================
-
-File: themes/default/assets/base.css
-/* Global styles: typography, variables, header/footer layout */
-:root {
-  --primary-color: #0d6efd;
-  --text-color-light: #212529;
-  --background-color-light: #ffffff;
-  /* ... other vars ... */
-}
-body { font-family: sans-serif; }
-body.font-serif { font-family: serif; }
-/* ... etc ... */
 
 ================================================================================
 
