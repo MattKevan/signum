@@ -3,8 +3,11 @@
   "version": "1.0.0",
   "type": "page",
   "description": "A clean, single-column layout for standard pages.",
+  "stylesheets": [
+      "css/layout.css"
+    ],
   "pageSchema": {
-    "title": "Page Content",
+    "title": "Page content",
     "type": "object",
     "properties": {}
   }

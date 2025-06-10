@@ -1,12 +1,54 @@
-<header class="site-header">
-    <div class="container">
-        <h1 class="site-title"><a href="/" class="site-title-link">{{manifest.title}}</a></h1>
-        <nav class="site-nav">
-            <ul>
+<header class="sticky top-0 z-30 w-full border border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
+    <div class="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 items-center justify-between">
+            
+            {{!-- Site Logo/Title --}}
+            <div class="flex items-center">
+                <a href="/" class="text-xl font-bold text-gray-900 dark:text-white transition-colors hover:text-blue-600 dark:hover:text-blue-400">
+                    {{manifest.title}}
+                </a>
+            </div>
+
+            {{!-- Desktop Navigation --}}
+            <nav class="hidden md:flex items-center space-x-8">
                 {{#each navLinks}}
-                    <li class="{{#if this.isActive}}active{{/if}}"><a href="{{this.href}}">{{this.label}}</a></li>
+                    <a href="{{this.href}}" class="text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                        {{this.label}}
+                    </a>
                 {{/each}}
-            </ul>
-        </nav>
+            </nav>
+
+            {{!-- Mobile Menu Button --}}
+            <div class="md:hidden">
+                <button 
+                    @click="isMobileMenuOpen = !isMobileMenuOpen" 
+                    type="button" 
+                    class="inline-flex items-center justify-center rounded-md p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    aria-controls="mobile-menu" 
+                    aria-expanded="false"
+                >
+                    <span class="sr-only">Open main menu</span>
+                    {{!-- Icon toggles based on menu state --}}
+                    <svg x-show="!isMobileMenuOpen" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                    <svg x-show="isMobileMenuOpen" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    {{!-- Mobile Menu Panel --}}
+    <div x-show="isMobileMenuOpen" x-transition class="md:hidden" id="mobile-menu">
+        <div class="space-y-1 px-2 pt-2 pb-3 sm:px-3 border-t border-gray-200 dark:border-gray-800">
+            {{#each navLinks}}
+                <a 
+                    href="{{this.href}}" 
+                    class="block rounded-md px-3 py-2 text-base font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    @click="isMobileMenuOpen = false"
+                >
+                    {{this.label}}
+                </a>
+            {{/each}}
+        </div>
     </div>
 </header>

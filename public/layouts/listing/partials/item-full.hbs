@@ -1,4 +1,12 @@
-<article class="prose">
-  <header><h2><a href="/{{this.slug}}">{{frontmatter.title}}</a></h2><p class="text-muted">{{formatDate this.frontmatter.date}}</p></header>
-  {{{markdown content}}}
+{{! public/layouts/listing/partials/item-full.hbs (CORRECTED) }}
+{{!-- The context 'this' is a single item from the 'items' array. --}}
+<article class="prose dark:prose-invert max-w-none border-b dark:border-gray-700 pb-8 mb-8">
+    <header>
+        {{!-- CORRECT: Use this.frontmatter.title --}}
+        <h2><a href="{{this.url}}">{{this.frontmatter.title}}</a></h2>
+        <p class="text-gray-500 dark:text-gray-400">{{formatDate this.frontmatter.date}}</p>
+    </header>
+    
+    {{!-- CORRECT: Use this.content for the markdown body --}}
+    {{{markdown this.content}}}
 </article>

@@ -1,0 +1,335 @@
+FILE CONCATENATION REPORT
+Root Directory: public/
+Excluded Directories: ios, public, node_modules
+File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
+================================================================================
+
+File: layouts/page/layout.css
+@layer layout_structure { .prose { max-width: 45rem; margin: auto; } }
+
+================================================================================
+
+File: layouts/page/layout.json
+{
+  "name": "Page",
+  "version": "1.0.0",
+  "type": "page",
+  "description": "A clean, single-column layout for standard pages.",
+
+  "pageSchema": {
+    "title": "Page content",
+    "type": "object",
+    "properties": {}
+  }
+}
+
+================================================================================
+
+File: layouts/page/page.hbs
+{{!-- This is the default template for all standard pages. --}}
+<article class="prose dark:prose-invert lg:prose-xl max-w-none mx-auto">
+    <h1>{{contentFile.frontmatter.title}}</h1>
+    
+    {{#if contentFile.frontmatter.description}}
+        <p class="lead text-xl text-gray-500 dark:text-gray-400">{{contentFile.frontmatter.description}}</p>
+    {{/if}}
+
+    <hr />
+
+    {{{markdown contentFile.content}}}
+</article>
+
+================================================================================
+
+File: layouts/listing/layout.css
+@layer layout_structure { .listing-header { margin-bottom: 2rem; } .listing-items { display: flex; flex-direction: column; gap: 1.5rem; } }
+
+================================================================================
+
+File: layouts/listing/layout.json
+{
+  "name": "Listing",
+  "version": "1.0.0",
+  "type": "collection",
+  "description": "A flexible list for displaying collections.",
+  "partials": {
+    "item-teaser": "partials/item-teaser.hbs",
+    "item-full": "partials/item-full.hbs"
+  },
+  "layoutSchema": {
+    "title": "Listing settings",
+    "type": "object",
+    "properties": {
+      "description": { "title": "Description", "type": "string", "ui:widget": "textarea" },
+      "display_style": { "title": "Display", "type": "string", "enum": ["teaser", "full_post"], "enumNames": ["Teaser", "Full Post"], "default": "teaser" },
+      "sort_by": { "title": "Sort by", "type": "string", "enum": ["date", "title"], "default": "date" },
+      "sort_order": { "title": "Sort order", "type": "string", "enum": ["descending", "ascending"], "default": "descending" }
+    }
+  },
+  "pageSchema": {
+    "title": "Item Content",
+    "type": "object",
+    "properties": {
+      "summary": { "title": "Summary", "type": "string", "ui:widget": "textarea" }
+    }
+  },
+  "uiSchema": {
+    "ui:groups": [
+      { "title": "Display Options", "fields": ["display_style", "sort_by", "sort_order"] }
+    ]
+  }
+}
+
+================================================================================
+
+File: layouts/listing/page.hbs
+<article class="prose"><header><h1>{{frontmatter.title}}</h1><p class="text-muted">{{formatDate frontmatter.date}}</p></header>{{{markdown content}}}</article>
+
+================================================================================
+
+File: layouts/listing/listing.hbs
+<section class="listing-container">
+  <header class="listing-header">
+    {{! The title comes from the node's main title property }}
+    <h1 class="listing-title">{{collectionNode.title}}</h1>
+    {{! The description comes from the data saved via the layoutSchema }}
+    {{#if collectionNode.description}}
+      <p class="listing-description">{{collectionNode.description}}</p>
+    {{/if}}
+  </header>
+  
+  <div class="listing-items">
+    {{#each items}}
+      {{! It checks the display_style property on the same collectionNode }}
+      {{#if (eq ../collectionNode.display_style "full_post")}}
+        {{> item-full this}}
+      {{else}}
+        {{> item-teaser this}}
+      {{/if}}
+    {{else}}
+      <p class="text-muted">No items have been added to this listing yet.</p>
+    {{/each}}
+  </div>
+</section>
+
+================================================================================
+
+File: layouts/listing/partials/item-teaser.hbs
+<a href="/{{this.slug}}" class="card">
+  <h3 class="card-title">{{this.frontmatter.title}}</h3>
+  <p class="card-meta">{{formatDate this.frontmatter.date}}</p>
+  {{#if this.frontmatter.summary}}<p class="card-summary">{{this.frontmatter.summary}}</p>{{/if}}
+</a>
+
+================================================================================
+
+File: layouts/listing/partials/item-full.hbs
+<article class="prose">
+  <header><h2><a href="/{{this.slug}}">{{frontmatter.title}}</a></h2><p class="text-muted">{{formatDate this.frontmatter.date}}</p></header>
+  {{{markdown content}}}
+</article>
+
+================================================================================
+
+File: themes/default/theme.json
+{
+  "name": "Theme name",
+  "version": "1.0.0",
+  "partials": {
+    "head": "partials/head.hbs",
+    "header": "partials/header.hbs",
+    "footer": "partials/footer.hbs"
+  },
+  "appearanceSchema": {
+    "title": "Theme appearance",
+    "description": "Customise the look and feel of the default theme.",
+    "type": "object",
+    "properties": {
+      "color_scheme": {
+        "type": "string",
+        "title": "Color scheme",
+        "description": "Select the color mode for your site.",
+        "enum": ["auto", "light", "dark"],
+        "enumNames": ["Auto (System preference)", "Light mode", "Dark mode"],
+        "default": "auto"
+      },
+      "font_family": {
+        "type": "string",
+        "title": "Font family",
+        "description": "Choose the primary font for body text.",
+        "enum": ["sans-serif", "serif", "monospace"],
+        "enumNames": ["Sans-Serif", "Serif", "Monospace"],
+        "default": "sans-serif"
+      }
+    }
+  }
+}
+
+================================================================================
+
+File: themes/default/base.hbs
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+{{> head}}
+<body class="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 antialiased font-sans">
+    
+    <div x-data="{ isMobileMenuOpen: false }" class="flex flex-col min-h-screen">
+        
+        {{> header}}
+
+        <main class="flex-grow max-w-4xl mx-auto container px-4 py-8 sm:py-12">
+            {{{body}}}
+        </main>
+
+        {{> footer}}
+
+    </div>
+</body>
+</html>
+
+================================================================================
+
+File: themes/default/css/theme.css
+/*! tailwindcss v4.1.8 | MIT License | https://tailwindcss.com */
+@layer properties{@supports (((-webkit-hyphens:none)) and (not (margin-trim:inline))) or ((-moz-orient:inline) and (not (color:rgb(from red r g b)))){*,:before,:after,::backdrop{--tw-space-y-reverse:0;--tw-space-x-reverse:0;--tw-border-style:solid;--tw-font-weight:initial;--tw-blur:initial;--tw-brightness:initial;--tw-contrast:initial;--tw-grayscale:initial;--tw-hue-rotate:initial;--tw-invert:initial;--tw-opacity:initial;--tw-saturate:initial;--tw-sepia:initial;--tw-drop-shadow:initial;--tw-drop-shadow-color:initial;--tw-drop-shadow-alpha:100%;--tw-drop-shadow-size:initial;--tw-backdrop-blur:initial;--tw-backdrop-brightness:initial;--tw-backdrop-contrast:initial;--tw-backdrop-grayscale:initial;--tw-backdrop-hue-rotate:initial;--tw-backdrop-invert:initial;--tw-backdrop-opacity:initial;--tw-backdrop-saturate:initial;--tw-backdrop-sepia:initial}}}@layer theme{:root,:host{--font-sans:ui-sans-serif,system-ui,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji";--font-mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;--color-blue-400:oklch(70.7% .165 254.624);--color-blue-600:oklch(54.6% .245 262.881);--color-gray-100:oklch(96.7% .003 264.542);--color-gray-200:oklch(92.8% .006 264.531);--color-gray-300:oklch(87.2% .01 258.338);--color-gray-400:oklch(70.7% .022 261.325);--color-gray-500:oklch(55.1% .027 264.364);--color-gray-600:oklch(44.6% .03 256.802);--color-gray-800:oklch(27.8% .033 256.848);--color-gray-900:oklch(21% .034 264.665);--color-white:#fff;--spacing:.25rem;--container-4xl:56rem;--container-5xl:64rem;--text-sm:.875rem;--text-sm--line-height:calc(1.25/.875);--text-base:1rem;--text-base--line-height:calc(1.5/1);--text-xl:1.25rem;--text-xl--line-height:calc(1.75/1.25);--font-weight-medium:500;--font-weight-bold:700;--radius-md:.375rem;--blur-sm:8px;--default-transition-duration:.15s;--default-transition-timing-function:cubic-bezier(.4,0,.2,1);--default-font-family:var(--font-sans);--default-mono-font-family:var(--font-mono)}}@layer base{*,:after,:before,::backdrop{box-sizing:border-box;border:0 solid;margin:0;padding:0}::file-selector-button{box-sizing:border-box;border:0 solid;margin:0;padding:0}html,:host{-webkit-text-size-adjust:100%;tab-size:4;line-height:1.5;font-family:var(--default-font-family,ui-sans-serif,system-ui,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol","Noto Color Emoji");font-feature-settings:var(--default-font-feature-settings,normal);font-variation-settings:var(--default-font-variation-settings,normal);-webkit-tap-highlight-color:transparent}hr{height:0;color:inherit;border-top-width:1px}abbr:where([title]){-webkit-text-decoration:underline dotted;text-decoration:underline dotted}h1,h2,h3,h4,h5,h6{font-size:inherit;font-weight:inherit}a{color:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;-webkit-text-decoration:inherit;text-decoration:inherit}b,strong{font-weight:bolder}code,kbd,samp,pre{font-family:var(--default-mono-font-family,ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace);font-feature-settings:var(--default-mono-font-feature-settings,normal);font-variation-settings:var(--default-mono-font-variation-settings,normal);font-size:1em}small{font-size:80%}sub,sup{vertical-align:baseline;font-size:75%;line-height:0;position:relative}sub{bottom:-.25em}sup{top:-.5em}table{text-indent:0;border-color:inherit;border-collapse:collapse}:-moz-focusring{outline:auto}progress{vertical-align:baseline}summary{display:list-item}ol,ul,menu{list-style:none}img,svg,video,canvas,audio,iframe,embed,object{vertical-align:middle;display:block}img,video{max-width:100%;height:auto}button,input,select,optgroup,textarea{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}::file-selector-button{font:inherit;font-feature-settings:inherit;font-variation-settings:inherit;letter-spacing:inherit;color:inherit;opacity:1;background-color:#0000;border-radius:0}:where(select:is([multiple],[size])) optgroup{font-weight:bolder}:where(select:is([multiple],[size])) optgroup option{padding-inline-start:20px}::file-selector-button{margin-inline-end:4px}::placeholder{opacity:1}@supports (not ((-webkit-appearance:-apple-pay-button))) or (contain-intrinsic-size:1px){::placeholder{color:currentColor}@supports (color:color-mix(in lab, red, red)){::placeholder{color:color-mix(in oklab,currentcolor 50%,transparent)}}}textarea{resize:vertical}::-webkit-search-decoration{-webkit-appearance:none}::-webkit-date-and-time-value{min-height:1lh;text-align:inherit}::-webkit-datetime-edit{display:inline-flex}::-webkit-datetime-edit-fields-wrapper{padding:0}::-webkit-datetime-edit{padding-block:0}::-webkit-datetime-edit-year-field{padding-block:0}::-webkit-datetime-edit-month-field{padding-block:0}::-webkit-datetime-edit-day-field{padding-block:0}::-webkit-datetime-edit-hour-field{padding-block:0}::-webkit-datetime-edit-minute-field{padding-block:0}::-webkit-datetime-edit-second-field{padding-block:0}::-webkit-datetime-edit-millisecond-field{padding-block:0}::-webkit-datetime-edit-meridiem-field{padding-block:0}:-moz-ui-invalid{box-shadow:none}button,input:where([type=button],[type=reset],[type=submit]){appearance:button}::file-selector-button{appearance:button}::-webkit-inner-spin-button{height:auto}::-webkit-outer-spin-button{height:auto}[hidden]:where(:not([hidden=until-found])){display:none!important}}@layer components;@layer utilities{.sr-only{clip:rect(0,0,0,0);white-space:nowrap;border-width:0;width:1px;height:1px;margin:-1px;padding:0;position:absolute;overflow:hidden}.absolute{position:absolute}.sticky{position:sticky}.top-0{top:calc(var(--spacing)*0)}.z-30{z-index:30}.container{width:100%}@media (min-width:40rem){.container{max-width:40rem}}@media (min-width:48rem){.container{max-width:48rem}}@media (min-width:64rem){.container{max-width:64rem}}@media (min-width:80rem){.container{max-width:80rem}}@media (min-width:96rem){.container{max-width:96rem}}.mx-auto{margin-inline:auto}.mt-1{margin-top:calc(var(--spacing)*1)}.block{display:block}.flex{display:flex}.hidden{display:none}.inline-flex{display:inline-flex}.h-6{height:calc(var(--spacing)*6)}.h-16{height:calc(var(--spacing)*16)}.min-h-screen{min-height:100vh}.w-6{width:calc(var(--spacing)*6)}.w-full{width:100%}.max-w-4xl{max-width:var(--container-4xl)}.max-w-5xl{max-width:var(--container-5xl)}.flex-grow{flex-grow:1}.flex-col{flex-direction:column}.items-center{align-items:center}.justify-between{justify-content:space-between}.justify-center{justify-content:center}:where(.space-y-1>:not(:last-child)){--tw-space-y-reverse:0;margin-block-start:calc(calc(var(--spacing)*1)*var(--tw-space-y-reverse));margin-block-end:calc(calc(var(--spacing)*1)*calc(1 - var(--tw-space-y-reverse)))}:where(.space-x-8>:not(:last-child)){--tw-space-x-reverse:0;margin-inline-start:calc(calc(var(--spacing)*8)*var(--tw-space-x-reverse));margin-inline-end:calc(calc(var(--spacing)*8)*calc(1 - var(--tw-space-x-reverse)))}.scroll-smooth{scroll-behavior:smooth}.rounded-md{border-radius:var(--radius-md)}.border{border-style:var(--tw-border-style);border-width:1px}.border-t{border-top-style:var(--tw-border-style);border-top-width:1px}.border-gray-200{border-color:var(--color-gray-200)}.bg-white{background-color:var(--color-white)}.bg-white\/80{background-color:#fffc}@supports (color:color-mix(in lab, red, red)){.bg-white\/80{background-color:color-mix(in oklab,var(--color-white)80%,transparent)}}.p-2{padding:calc(var(--spacing)*2)}.px-2{padding-inline:calc(var(--spacing)*2)}.px-3{padding-inline:calc(var(--spacing)*3)}.px-4{padding-inline:calc(var(--spacing)*4)}.py-2{padding-block:calc(var(--spacing)*2)}.py-8{padding-block:calc(var(--spacing)*8)}.pt-2{padding-top:calc(var(--spacing)*2)}.pb-3{padding-bottom:calc(var(--spacing)*3)}.text-center{text-align:center}.font-sans{font-family:var(--font-sans)}.text-base{font-size:var(--text-base);line-height:var(--tw-leading,var(--text-base--line-height))}.text-sm{font-size:var(--text-sm);line-height:var(--tw-leading,var(--text-sm--line-height))}.text-xl{font-size:var(--text-xl);line-height:var(--tw-leading,var(--text-xl--line-height))}.font-bold{--tw-font-weight:var(--font-weight-bold);font-weight:var(--font-weight-bold)}.font-medium{--tw-font-weight:var(--font-weight-medium);font-weight:var(--font-weight-medium)}.text-gray-500{color:var(--color-gray-500)}.text-gray-600{color:var(--color-gray-600)}.text-gray-800{color:var(--color-gray-800)}.text-gray-900{color:var(--color-gray-900)}.underline{text-decoration-line:underline}.decoration-dotted{text-decoration-style:dotted}.underline-offset-4{text-underline-offset:4px}.antialiased{-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}.filter{filter:var(--tw-blur,)var(--tw-brightness,)var(--tw-contrast,)var(--tw-grayscale,)var(--tw-hue-rotate,)var(--tw-invert,)var(--tw-saturate,)var(--tw-sepia,)var(--tw-drop-shadow,)}.backdrop-blur-sm{--tw-backdrop-blur:blur(var(--blur-sm));-webkit-backdrop-filter:var(--tw-backdrop-blur,)var(--tw-backdrop-brightness,)var(--tw-backdrop-contrast,)var(--tw-backdrop-grayscale,)var(--tw-backdrop-hue-rotate,)var(--tw-backdrop-invert,)var(--tw-backdrop-opacity,)var(--tw-backdrop-saturate,)var(--tw-backdrop-sepia,);backdrop-filter:var(--tw-backdrop-blur,)var(--tw-backdrop-brightness,)var(--tw-backdrop-contrast,)var(--tw-backdrop-grayscale,)var(--tw-backdrop-hue-rotate,)var(--tw-backdrop-invert,)var(--tw-backdrop-opacity,)var(--tw-backdrop-saturate,)var(--tw-backdrop-sepia,)}.transition-colors{transition-property:color,background-color,border-color,outline-color,text-decoration-color,fill,stroke,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to;transition-timing-function:var(--tw-ease,var(--default-transition-timing-function));transition-duration:var(--tw-duration,var(--default-transition-duration))}@media (hover:hover){.hover\:bg-gray-100:hover{background-color:var(--color-gray-100)}.hover\:text-blue-600:hover{color:var(--color-blue-600)}}@media (min-width:40rem){.sm\:px-3{padding-inline:calc(var(--spacing)*3)}.sm\:px-6{padding-inline:calc(var(--spacing)*6)}.sm\:py-12{padding-block:calc(var(--spacing)*12)}}@media (min-width:48rem){.md\:flex{display:flex}.md\:hidden{display:none}}@media (min-width:64rem){.lg\:px-8{padding-inline:calc(var(--spacing)*8)}}@media (prefers-color-scheme:dark){.dark\:border-gray-800{border-color:var(--color-gray-800)}.dark\:bg-gray-900{background-color:var(--color-gray-900)}.dark\:bg-gray-900\/80{background-color:#101828cc}@supports (color:color-mix(in lab, red, red)){.dark\:bg-gray-900\/80{background-color:color-mix(in oklab,var(--color-gray-900)80%,transparent)}}.dark\:text-gray-200{color:var(--color-gray-200)}.dark\:text-gray-300{color:var(--color-gray-300)}.dark\:text-gray-400{color:var(--color-gray-400)}.dark\:text-white{color:var(--color-white)}@media (hover:hover){.dark\:hover\:bg-gray-800:hover{background-color:var(--color-gray-800)}.dark\:hover\:text-blue-400:hover{color:var(--color-blue-400)}}}}@property --tw-space-y-reverse{syntax:"*";inherits:false;initial-value:0}@property --tw-space-x-reverse{syntax:"*";inherits:false;initial-value:0}@property --tw-border-style{syntax:"*";inherits:false;initial-value:solid}@property --tw-font-weight{syntax:"*";inherits:false}@property --tw-blur{syntax:"*";inherits:false}@property --tw-brightness{syntax:"*";inherits:false}@property --tw-contrast{syntax:"*";inherits:false}@property --tw-grayscale{syntax:"*";inherits:false}@property --tw-hue-rotate{syntax:"*";inherits:false}@property --tw-invert{syntax:"*";inherits:false}@property --tw-opacity{syntax:"*";inherits:false}@property --tw-saturate{syntax:"*";inherits:false}@property --tw-sepia{syntax:"*";inherits:false}@property --tw-drop-shadow{syntax:"*";inherits:false}@property --tw-drop-shadow-color{syntax:"*";inherits:false}@property --tw-drop-shadow-alpha{syntax:"<percentage>";inherits:false;initial-value:100%}@property --tw-drop-shadow-size{syntax:"*";inherits:false}@property --tw-backdrop-blur{syntax:"*";inherits:false}@property --tw-backdrop-brightness{syntax:"*";inherits:false}@property --tw-backdrop-contrast{syntax:"*";inherits:false}@property --tw-backdrop-grayscale{syntax:"*";inherits:false}@property --tw-backdrop-hue-rotate{syntax:"*";inherits:false}@property --tw-backdrop-invert{syntax:"*";inherits:false}@property --tw-backdrop-opacity{syntax:"*";inherits:false}@property --tw-backdrop-saturate{syntax:"*";inherits:false}@property --tw-backdrop-sepia{syntax:"*";inherits:false}
+
+================================================================================
+
+File: themes/default/partials/footer.hbs
+<footer class="border-t border-gray-200 dark:border-gray-800">
+    <div class="container mx-auto px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+        <p>© {{year}} {{manifest.title}}. All Rights Reserved.</p>
+        <p class="mt-1">
+            Published with 
+            <a href="https://signum-project-url.com" target="_blank" rel="noopener" class="font-medium hover:text-blue-600 dark:hover:text-blue-400 underline decoration-dotted underline-offset-4">
+                Signum
+            </a>.
+        </p>
+    </div>
+</footer>
+
+================================================================================
+
+File: themes/default/partials/head.hbs
+{{! src/partials/head.hbs }}
+<head>
+    <meta charset="UTF--8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    {{!-- =================================================================
+        SEO & META TAGS
+        - Uses page-specific data first, then falls back to site-wide data.
+        - Assumes a `baseUrl` is configured in the site manifest for full URLs.
+    ================================================================== --}}
+    <title>{{pageTitle}} | {{manifest.title}}</title>
+    
+    {{#if contentFile.frontmatter.description}}
+        <meta name="description" content="{{contentFile.frontmatter.description}}">
+    {{else if collectionNode.description}}
+        <meta name="description" content="{{collectionNode.description}}">
+    {{else}}
+        <meta name="description" content="{{manifest.description}}">
+    {{/if}}
+
+    {{!-- The canonical URL should be the full, absolute URL to the page --}}
+    <link rel="canonical" href="{{manifest.baseUrl}}{{../pageUrl}}">
+
+    {{!-- Open Graph Tags (for Facebook, LinkedIn, etc.) --}}
+    <meta property="og:title" content="{{pageTitle}}">
+    {{#if contentFile.frontmatter.description}}
+        <meta property="og:description" content="{{contentFile.frontmatter.description}}">
+    {{else}}
+        <meta property="og:description" content="{{manifest.description}}">
+    {{/if}}
+    <meta property="og:url" content="{{manifest.baseUrl}}{{../pageUrl}}">
+    <meta property="og:site_name" content="{{manifest.title}}">
+    {{#if contentFile.frontmatter.image}}
+        <meta property="og:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
+    {{/if}}
+    <meta property="og:type" content="{{#if contentFile}}article{{else}}website{{/if}}">
+
+    {{!-- Twitter Card Tags --}}
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{pageTitle}}">
+    {{#if contentFile.frontmatter.description}}
+        <meta name="twitter:description" content="{{contentFile.frontmatter.description}}">
+    {{else}}
+        <meta name="twitter:description" content="{{manifest.description}}">
+    {{/if}}
+    {{#if contentFile.frontmatter.image}}
+        <meta name="twitter:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
+    {{/if}}
+
+    {{!-- Favicon Placeholder - Users should replace these --}}
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+    {{!-- =================================================================
+        STYLESHEETS & SCRIPTS
+        - These are automatically injected by the Signum theme engine.
+    ================================================================== --}}
+    {{{assetTags}}}
+    {{{styleOverrides}}}
+</head>
+
+================================================================================
+
+File: themes/default/partials/header.hbs
+<header class="sticky top-0 z-30 w-full border border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm">
+    <div class="container mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+        <div class="flex h-16 items-center justify-between">
+            
+            {{!-- Site Logo/Title --}}
+            <div class="flex items-center">
+                <a href="/" class="text-xl font-bold text-gray-900 dark:text-white transition-colors hover:text-blue-600 dark:hover:text-blue-400">
+                    {{manifest.title}}
+                </a>
+            </div>
+
+            {{!-- Desktop Navigation --}}
+            <nav class="hidden md:flex items-center space-x-8">
+                {{#each navLinks}}
+                    <a href="{{this.href}}" class="text-sm font-medium text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 transition-colors">
+                        {{this.label}}
+                    </a>
+                {{/each}}
+            </nav>
+
+            {{!-- Mobile Menu Button --}}
+            <div class="md:hidden">
+                <button 
+                    @click="isMobileMenuOpen = !isMobileMenuOpen" 
+                    type="button" 
+                    class="inline-flex items-center justify-center rounded-md p-2 text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    aria-controls="mobile-menu" 
+                    aria-expanded="false"
+                >
+                    <span class="sr-only">Open main menu</span>
+                    {{!-- Icon toggles based on menu state --}}
+                    <svg x-show="!isMobileMenuOpen" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+                    <svg x-show="isMobileMenuOpen" class="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+            </div>
+
+        </div>
+    </div>
+
+    {{!-- Mobile Menu Panel --}}
+    <div x-show="isMobileMenuOpen" x-transition class="md:hidden" id="mobile-menu">
+        <div class="space-y-1 px-2 pt-2 pb-3 sm:px-3 border-t border-gray-200 dark:border-gray-800">
+            {{#each navLinks}}
+                <a 
+                    href="{{this.href}}" 
+                    class="block rounded-md px-3 py-2 text-base font-medium text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+                    @click="isMobileMenuOpen = false"
+                >
+                    {{this.label}}
+                </a>
+            {{/each}}
+        </div>
+    </div>
+</header>
+
+================================================================================
+

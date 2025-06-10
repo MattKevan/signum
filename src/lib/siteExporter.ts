@@ -7,7 +7,7 @@ import { resolvePageContent, PageType } from './pageResolver';
 import { render } from './themeEngine';
 import { CORE_THEMES, CORE_LAYOUTS } from '@/config/editorConfig';
 import { getJsonAsset, LayoutManifest, ThemeManifest } from './configHelpers';
-
+import { getUrlForNode } from './urlUtils'; 
 // --- Helpers ---
 const isCoreTheme = (path: string): boolean => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
 const isCoreLayout = (path: string): boolean => CORE_LAYOUTS.some((l: LayoutInfo) => l.path === path);
@@ -15,12 +15,6 @@ const isCoreLayout = (path: string): boolean => CORE_LAYOUTS.some((l: LayoutInfo
 function escapeForXml(str: unknown): string {
     if (str === undefined || str === null) return '';
     return String(str).replace(/[&<>"']/g, (match) => ({'<': '<', '>': '>', '&': '&', '"': '"', "'": "'"}[match] || match));
-}
-
-function getUrlForNode(node: { slug: string, path: string, type: 'page' | 'collection' }): string {
-    if (node.slug === 'index' && node.type === 'page' && !node.path.includes('/')) return 'index.html';
-    if (node.type === 'collection') return `${node.slug}/index.html`;
-    return `${node.path.replace(/^content\//, '').replace(/\.md$/, '')}.html`;
 }
 
 /**
@@ -32,7 +26,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const allRenderableNodes = flattenStructureToRenderableNodes(manifest.structure);
     
     const cssFolder = zip.folder('css');
-    const jsFolder = zip.folder('js');
     const addedAssets = new Set<string>();
 
     // Helper to copy a declared asset file to the zip
@@ -80,12 +73,10 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     
     const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
     for (const file of themeManifest?.stylesheets || []) { await addAssetToZip('theme', themePath, file, cssFolder); }
-    for (const file of themeManifest?.scripts || []) { await addAssetToZip('theme', themePath, file, jsFolder); }
     
     for (const layoutPath of uniqueLayoutPaths) {
         const layoutManifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
         for (const file of layoutManifest?.stylesheets || []) { await addAssetToZip('layout', layoutPath, file, cssFolder); }
-        for (const file of layoutManifest?.scripts || []) { await addAssetToZip('layout', layoutPath, file, jsFolder); }
     }
 
     // --- 2. Generate All HTML Pages ---
@@ -94,7 +85,7 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         const resolution = resolvePageContent(siteData, slugArray);
         if (resolution.type === PageType.NotFound) continue;
         
-        const outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' });
+        const outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' }, true);
         const depth = (outputPath.match(/\//g) || []).length;
         const relativePrefix = '../'.repeat(depth);
 
@@ -130,7 +121,8 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
         .slice(0, 20)
         .map((item) => {
-            const url = new URL(getUrlForNode(item.node), siteBaseUrl).href;
+            const relativeUrl = getUrlForNode(item.node, true);
+            const url = new URL(relativeUrl, siteBaseUrl).href;
             const description = escapeForXml(item.file.frontmatter.summary);
             const pubDate = new Date(item.file.frontmatter.date as string).toUTCString();
             return `<item><title>${escapeForXml(item.node.title)}</title><link>${escapeForXml(url)}</link><guid isPermaLink="true">${escapeForXml(url)}</guid><pubDate>${pubDate}</pubDate><description>${description}</description></item>`;
@@ -140,7 +132,8 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     
     const sitemapUrls = allPageNodes.map((node) => {
         const file = siteData.contentFiles.find(f => f.path === node.path);
-        const url = new URL(getUrlForNode(node), siteBaseUrl).href;
+        const relativeUrl = getUrlForNode(node, true);
+        const url = new URL(relativeUrl, siteBaseUrl).href;
         const lastMod = (file?.frontmatter.date as string || new Date().toISOString()).split('T')[0];
         return `<url><loc>${escapeForXml(url)}</loc><lastmod>${lastMod}</lastmod></url>`;
     }).join('');

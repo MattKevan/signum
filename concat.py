@@ -3,7 +3,7 @@ import fnmatch
 import argparse
 
 def concatenate_files(root_dir, output_file):
-    extensions = ('*.ts', '*.tsx', '*.js', '*.jsx', '*.css', '*.html')
+    extensions = ('*.ts', '*.tsx', '*.js', '*.jsx', '*.css', '*.html', '*.json', '*.hbs')
     excluded_dirs = {'node_modules', 'ios', 'public'}
     
     with open(output_file, 'w', encoding='utf-8') as outfile:

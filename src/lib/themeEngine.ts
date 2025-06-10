@@ -6,6 +6,8 @@ import { LocalSiteData, ParsedMarkdownFile, ThemeInfo, LayoutInfo } from '@/type
 import { generateNavLinks } from './navigationUtils';
 import { getJsonAsset, getLayoutManifest, ThemeManifest } from './configHelpers';
 import { CORE_THEMES, CORE_LAYOUTS } from '@/config/editorConfig';
+import DOMPurify from 'dompurify'
+import { getUrlForNode } from './urlUtils';
 
 // --- Type Definition ---
 export interface RenderOptions {
@@ -55,11 +57,16 @@ async function registerPartialsFromManifest(siteData: LocalSiteData, partialsMap
 }
 
 function registerHelpers() {
-  if (helpersRegistered) return;
-  Handlebars.registerHelper('eq', (a, b) => a === b);
-  Handlebars.registerHelper('formatDate', (date) => (date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''));
-  Handlebars.registerHelper('markdown', (md) => new Handlebars.SafeString(marked.parse(md || '', { async: false })));
-  helpersRegistered = true;
+    if (helpersRegistered) return;
+    Handlebars.registerHelper('eq', (a, b) => a === b);
+    Handlebars.registerHelper('formatDate', (date) => (date ? new Date(date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : ''));
+    Handlebars.registerHelper('markdown', (md) => {
+        if (!md) return '';
+        const unsafeHtml = marked.parse(md, { async: false }) as string;
+        const safeHtml = DOMPurify.sanitize(unsafeHtml);
+        return new Handlebars.SafeString(safeHtml);
+    });
+    helpersRegistered = true;
 }
 
 /**
@@ -88,6 +95,18 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
     const sortBy = (resolution.collectionNode.sort_by as string) || 'date';
     const sortOrder = resolution.collectionNode.sort_order || 'descending';
     resolution.items.sort((a: ParsedMarkdownFile, b: ParsedMarkdownFile) => {
+        resolution.items = resolution.items.map(item => {
+            const itemUrl = getUrlForNode({
+                slug: item.slug,
+                path: item.path,
+                type: 'page'
+            }, options.isExport);
+            return {
+              ...item,
+              url: itemUrl 
+            };
+        });
+
         const valA = (a.frontmatter as Record<string, unknown>)[sortBy] || '';
         const valB = (b.frontmatter as Record<string, unknown>)[sortBy] || '';
         const orderModifier = sortOrder === 'ascending' ? 1 : -1;
@@ -99,6 +118,12 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
         return 0;
     });
   }
+    const pageUrl = getUrlForNode(
+        resolution.type === PageType.SinglePage 
+            ? { slug: resolution.contentFile.slug, path: resolution.contentFile.path, type: 'page' }
+            : { slug: resolution.collectionNode.slug, path: resolution.collectionNode.path, type: 'collection' },
+        options.isExport
+    );
 
   const mainTemplateFile = resolution.type === PageType.Collection ? 'listing.hbs' : 'page.hbs';
   const layoutTemplate = await getTemplateAsset(siteData, 'layout', layoutPath, mainTemplateFile);
@@ -106,23 +131,27 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
 
   const allAssets = [
     { type: 'stylesheet', path: '/css/signum-base.css' },
+    { type: 'script', path: 'https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js', isExternal: true },
     ...(themeManifest?.stylesheets || []).map((file: string) => ({ type: 'stylesheet', path: `/themes/${themePath}/${file}` })),
     ...(layoutManifest?.stylesheets || []).map((file: string) => ({ type: 'stylesheet', path: `/layouts/${layoutPath}/${file}` })),
-    ...(themeManifest?.scripts || []).map((file: string) => ({ type: 'script', path: `/themes/${themePath}/${file}` })),
-    ...(layoutManifest?.scripts || []).map((file: string) => ({ type: 'script', path: `/layouts/${layoutPath}/${file}` })),
   ];
   
-  const assetTags = allAssets.map(asset => {
-    let href = asset.path;
-    if (options.isExport) {
-        const destFileName = href.substring(1).replace(/[^a-zA-Z0-9.\-_]/g, '-');
-        const destFolder = asset.type === 'stylesheet' ? 'css' : 'js';
-        href = `${options.relativeAssetPath || ''}${destFolder}/${destFileName}`;
-    }
-    return asset.type === 'stylesheet' 
-        ? `<link rel="stylesheet" href="${href}">` 
-        : `<script src="${href}" defer></script>`;
-  }).join('\n');
+    const assetTags = allAssets.map(asset => {
+        let href: string;
+        if (asset.isExternal) {
+            href = asset.path;
+        } else {
+            href = asset.path;
+            if (options.isExport) {
+                const destFileName = href.substring(1).replace(/[^a-zA-Z0-9.\-_]/g, '-');
+                const destFolder = asset.type === 'stylesheet' ? 'css' : 'js';
+                href = `${options.relativeAssetPath || ''}${destFolder}/${destFileName}`;
+            }
+        }
+        return asset.type === 'stylesheet' 
+            ? `<link rel="stylesheet" href="${href}">` 
+            : `<script src="${href}" defer></script>`;
+    }).join('\n');
 
   let styleOverrides = '';
   if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) {
@@ -139,6 +168,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       manifest,
       navLinks,
       pageTitle: resolution.pageTitle,
+      pageUrl: pageUrl,
       body: new Handlebars.SafeString(bodyHtml),
       assetTags: new Handlebars.SafeString(assetTags),
       styleOverrides: new Handlebars.SafeString(styleOverrides),

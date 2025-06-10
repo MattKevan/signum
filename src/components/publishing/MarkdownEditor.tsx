@@ -1,85 +1,52 @@
 // src/components/publishing/MarkdownEditor.tsx
 'use client';
 
-import React, { useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { Crepe } from "@milkdown/crepe";
-import { Ctx } from '@milkdown/ctx'; // Import Ctx for typing the listener callback
-
-// Import only the necessary theme styles
-import '@milkdown/crepe/theme/common/prosemirror.css';
-import '@milkdown/crepe/theme/common/reset.css';
-import '@milkdown/crepe/theme/frame.css';
-import '@milkdown/crepe/theme/frame-dark.css';
+import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 
 interface MarkdownEditorProps {
   initialValue: string;
+  // onContentChange is now used primarily by the parent to trigger its own state updates
   onContentChange: (markdown: string) => void;
 }
 
+// The ref now needs to expose a method to get the current content
 export interface MarkdownEditorRef {
   getMarkdown: () => string;
 }
 
 const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
   ({ initialValue, onContentChange }, ref) => {
-    const editorRootRef = useRef<HTMLDivElement>(null);
-    const crepeInstanceRef = useRef<Crepe | null>(null);
+    // We'll manage the textarea's value with local state
+    const [content, setContent] = useState(initialValue);
 
+    // If the initialValue prop changes from the parent (e.g., loading a new file),
+    // we update the local state.
+    useEffect(() => {
+      setContent(initialValue);
+    }, [initialValue]);
+
+    // Expose a function for the parent component to get the current content
     useImperativeHandle(ref, () => ({
       getMarkdown: () => {
-        if (!crepeInstanceRef.current) return '';
-        return crepeInstanceRef.current.getMarkdown();
+        return content;
       },
     }));
 
-    useEffect(() => {
-      if (!editorRootRef.current) return;
-
-      if (crepeInstanceRef.current) {
-        crepeInstanceRef.current.destroy();
-        crepeInstanceRef.current = null;
-      }
-      
-      const crepe = new Crepe({
-        root: editorRootRef.current,
-        defaultValue: initialValue,
-      });
-
-      crepeInstanceRef.current = crepe;
-      
-      crepe.create()
-        .then(() => {
-          // Use the .on() method from the Crepe instance.
-          // The `api` object passed to this callback is the ListenerManager.
-          crepe.on((api) => {
-            // FIXED: Use the 'markdownUpdated' method, which exists on the ListenerManager.
-            // This is the most direct and efficient way to get markdown changes.
-            api.markdownUpdated((_ctx: Ctx, markdown: string, prevMarkdown: string) => {
-              if (markdown !== prevMarkdown) {
-                onContentChange(markdown);
-              }
-            });
-          });
-        })
-        .catch((error: unknown) => {
-            console.error("Failed to create Milkdown editor:", error);
-        });
-
-      return () => {
-        if (crepeInstanceRef.current) {
-          crepeInstanceRef.current.destroy();
-          crepeInstanceRef.current = null;
-        }
-      };
-    }, [initialValue, onContentChange]);
+    // This handler updates both local state and informs the parent of a change
+    const handleChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+      const newContent = event.target.value;
+      setContent(newContent);
+      onContentChange(newContent); // Let the parent know things have changed
+    };
 
     return (
-      <div
-        ref={editorRootRef}
-        className="prose prose-neutral dark:prose-invert max-w-none 
-                   p-4 border rounded-md shadow-sm bg-background
-                   min-h-[calc(100%-50px)] w-full
-                   focus-within:ring-1 focus-within:ring-ring"
+      <textarea
+        value={content}
+        onChange={handleChange}
+        placeholder="Start writing your Markdown here..."
+        className="w-full h-full p-4 border rounded-md shadow-sm bg-background 
+                   text-base font-mono leading-relaxed resize-none 
+                   focus:ring-2 focus:ring-ring focus:outline-none"
       />
     );
   }

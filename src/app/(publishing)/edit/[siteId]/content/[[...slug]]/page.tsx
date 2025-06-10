@@ -1,4 +1,3 @@
-// src/app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
@@ -82,7 +81,11 @@ export default function EditContentPage() {
     }
   }, [isNewFileMode]);
 
+  // =========================================================================
+  // --- MODIFIED SECTION 1: The Save Handler ---
+  // =========================================================================
   const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
+    // Revert to getting the latest content from the ref at the moment of saving.
     const latestBodyContent = editorRef.current?.getMarkdown();
 
     if (typeof latestBodyContent !== 'string') {
@@ -126,12 +129,15 @@ export default function EditContentPage() {
       }
     }
 
+    // Use the content fetched from the ref.
     const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, latestBodyContent);
-    setCurrentBodyContent(latestBodyContent);
-
+    
     try {
       await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutPath);
       
+      // After a successful save, update the component's state to match.
+      setCurrentBodyContent(latestBodyContent);
+
       if (!isAutosave) toast.success(`Content "${title}" saved successfully!`);
       setHasUnsavedChanges(false);
       setAutoSaveStatus("saved");
@@ -151,6 +157,7 @@ export default function EditContentPage() {
       if (!isAutosave) setIsSaving(false);
     }
   }, [
+    // Remove currentBodyContent from the dependency array, as the ref provides the value.
     currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode,
     parentPathForNewFile, site?.contentFiles, addOrUpdateContentFileAction,
     router, layoutPath
@@ -212,13 +219,17 @@ export default function EditContentPage() {
     setIsLoading(false);
   }, [site, siteId, targetPathForExistingFile, isNewFileIntent, parentPathForNewFile, router]);
 
-
+  // =========================================================================
+  // --- MODIFIED SECTION 2: The Autosave Trigger ---
+  // =========================================================================
+  // The `useEffect` that triggers autosave no longer needs to depend on `currentBodyContent`.
+  // It only cares about the frontmatter changing or the `hasUnsavedChanges` flag.
   useEffect(() => {
     if (!isLoading && hasUnsavedChanges) {
       triggerAutoSave();
     }
     return () => { if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current); };
-  }, [currentFrontmatter, currentBodyContent, isLoading, hasUnsavedChanges, triggerAutoSave]);
+  }, [currentFrontmatter, isLoading, hasUnsavedChanges, triggerAutoSave]);
 
 
   const handleFrontmatterChange = useCallback((newData: Partial<MarkdownFrontmatter>) => {
@@ -229,6 +240,16 @@ export default function EditContentPage() {
     setHasUnsavedChanges(true);
     setAutoSaveStatus("unsaved");
   }, [updateSlugFromTitle]);
+
+  // =========================================================================
+  // --- MODIFIED SECTION 3: The New Change Handler ---
+  // =========================================================================
+  // This function will be passed to the new MarkdownEditor's onContentChange prop.
+  // Its only job is to signal that the content has changed and an autosave is needed.
+  const handleEditorContentChange = useCallback(() => {
+    setHasUnsavedChanges(true);
+    setAutoSaveStatus("unsaved");
+  }, []);
 
 
   const handleDeleteContentFile = async () => {
@@ -321,12 +342,7 @@ export default function EditContentPage() {
                         ref={editorRef}
                         key={currentFilePath || 'new-file-editor'}
                         initialValue={currentBodyContent}
-                        onContentChange={(newContent: string) => {
-                            // This is a direct callback from the editor component
-                            setCurrentBodyContent(newContent);
-                            setHasUnsavedChanges(true);
-                            setAutoSaveStatus("unsaved");
-                        }}
+                        onContentChange={handleEditorContentChange}
                     />
                 </div>
             </>

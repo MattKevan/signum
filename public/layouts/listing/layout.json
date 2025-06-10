@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "type": "collection",
   "description": "A flexible list for displaying collections.",
+  "stylesheets": [
+      "css/layout.css"
+    ],
   "partials": {
     "item-teaser": "partials/item-teaser.hbs",
     "item-full": "partials/item-full.hbs"

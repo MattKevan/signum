@@ -1,6 +1,7 @@
-// src/lib/config-driven-helpers.ts
+// src/lib/configHelpers.ts
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
-import { CORE_LAYOUTS, CORE_THEMES } from '@/config/editorConfig';
+// MODIFIED: Import BASE_SCHEMA directly from your config file, removing the need to fetch it.
+import { CORE_LAYOUTS, CORE_THEMES, BASE_SCHEMA } from '@/config/editorConfig';
 import {
     LocalSiteData,
     Manifest,
@@ -16,7 +17,6 @@ interface BaseAssetManifest {
   name: string;
   partials?: PartialsMap;
   stylesheets?: string[];
-  scripts?: string[];
 }
 export type ThemeManifest = BaseAssetManifest;
 export interface LayoutManifest extends BaseAssetManifest {
@@ -27,74 +27,109 @@ export interface LayoutManifest extends BaseAssetManifest {
 }
 
 // --- Caching and Core Helpers ---
-let _baseSchemaCache: { schema: RJSFSchema, uiSchema: StrictUiSchema } | null = null;
+
+// A persistent cache for theme/layout assets fetched from the `/public` directory.
+const fileContentCache = new Map<string, Promise<string | null>>();
 
 const isCoreTheme = (path: string) => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
 const isCoreLayout = (path: string) => CORE_LAYOUTS.some((l: LayoutInfo) => l.path === path);
 
-async function getBaseSchema(): Promise<{ schema: RJSFSchema, uiSchema: StrictUiSchema } | null> {
-    if (_baseSchemaCache) {
-        return _baseSchemaCache;
-    }
-    try {
-        const response = await fetch('/config/base.schema.json');
-        if (!response.ok) {
-            console.error("FATAL: Could not fetch /config/base.schema.json");
-            return null;
-        }
-        const data = await response.json();
-        _baseSchemaCache = data;
-        return data;
-    } catch (error) {
-        console.error("Error fetching or parsing base.schema.json:", error);
-        return null;
-    }
+/**
+ * Returns the universal base schema. This is now a synchronous function
+ * that reads from the imported constant, eliminating network errors.
+ */
+function getBaseSchema(): { schema: RJSFSchema, uiSchema: UiSchema } {
+    return BASE_SCHEMA;
 }
 
-// FIXED: Restored full implementation for getAssetContent
+/**
+ * Fetches the raw text content of a theme or layout asset.
+ * This is still needed for layout-specific manifests, templates, and stylesheets.
+ * It is hardened against server fallbacks that return HTML instead of the requested asset.
+ */
 export async function getAssetContent(siteData: LocalSiteData, assetType: 'theme' | 'layout', path: string, fileName: string): Promise<string | null> {
     const isCore = assetType === 'theme' ? isCoreTheme(path) : isCoreLayout(path);
     const sourcePath = `/${assetType}s/${path}/${fileName}`;
 
     if (isCore) {
-      const fileContentCache = new Map<string, Promise<string | null>>();
-      if (fileContentCache.has(sourcePath)) return fileContentCache.get(sourcePath)!;
-      const promise = fetch(sourcePath).then(res => (res.ok ? res.text() : null)).catch(() => null);
+      if (fileContentCache.has(sourcePath)) {
+        return fileContentCache.get(sourcePath)!;
+      }
+
+      const promise = fetch(sourcePath)
+        .then(res => {
+          if (!res.ok) {
+            return null;
+          }
+          // CRITICAL: Prevent parsing HTML fallback pages as assets.
+          const contentType = res.headers.get('content-type');
+          if (contentType && contentType.includes('text/html')) {
+            console.warn(`Asset fetch for "${sourcePath}" returned an HTML page, likely a 404 fallback. Treating as not found.`);
+            return null;
+          }
+          return res.text();
+        })
+        .catch((e) => {
+            console.error(`Network error fetching asset "${sourcePath}":`, e);
+            return null;
+        });
+
       fileContentCache.set(sourcePath, promise);
       return promise;
     } else {
+      // Logic for custom user-provided files from local storage.
       const fileStore: RawFile[] | undefined = assetType === 'theme' ? siteData.themeFiles : siteData.layoutFiles;
       const fullPath = `${assetType}s/${path}/${fileName}`;
       return fileStore?.find(f => f.path === fullPath)?.content ?? null;
     }
 }
 
-// FIXED: Restored full implementation for getJsonAsset
+/**
+ * Fetches and safely parses a JSON asset (like a layout.json or theme.json).
+ * Returns null if the file doesn't exist or contains invalid JSON.
+ */
 export async function getJsonAsset<T>(siteData: LocalSiteData, assetType: 'theme' | 'layout', path: string, fileName: string): Promise<T | null> {
     const content = await getAssetContent(siteData, assetType, path, fileName);
     if (!content) return null;
-    try { return JSON.parse(content) as T; } catch (e) { console.error(`Failed to parse JSON from ${assetType}/${path}/${fileName}:`, e); return null; }
+
+    try {
+      return JSON.parse(content) as T;
+    } catch (e) {
+      console.error(`Failed to parse JSON from ${assetType}/${path}/${fileName}:`, e);
+      return null;
+    }
 }
 
-// FIXED: Restored full implementation for mergeSchemas
+/**
+ * Merges a layout-specific schema into the base schema.
+ */
 function mergeSchemas(base: RJSFSchema, specific?: RJSFSchema): RJSFSchema {
     if (!specific) return { ...base };
-    return { ...base, ...specific, properties: { ...(base.properties || {}), ...(specific.properties || {}) }, required: [...new Set([...(base.required || []), ...(specific.required || [])])] };
+    return {
+        ...base,
+        ...specific,
+        properties: { ...(base.properties || {}), ...(specific.properties || {}) },
+        required: [...new Set([...(base.required || []), ...(specific.required || [])])]
+    };
 }
 
 // --- Public API ---
 
-// FIXED: Restored full implementation for getAvailableLayouts
 export function getAvailableLayouts(manifest?: Manifest): LayoutInfo[] {
   const available = [...CORE_LAYOUTS];
-  if (manifest?.layouts) { const customLayouts = manifest.layouts.filter(cl => !available.some(coreL => coreL.path === cl.path)); available.push(...customLayouts); }
+  if (manifest?.layouts) {
+    const customLayouts = manifest.layouts.filter(cl => !available.some(coreL => coreL.path === cl.path));
+    available.push(...customLayouts);
+  }
   return available;
 }
 
-// FIXED: Restored full implementation for getAvailableThemes
 export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
   const available = [...CORE_THEMES];
-  if (manifest?.themes) { const customThemes = manifest.themes.filter(ct => !available.some(coreT => coreT.path === ct.path)); available.push(...customThemes); }
+  if (manifest?.themes) {
+    const customThemes = manifest.themes.filter(ct => !available.some(coreT => coreT.path === ct.path));
+    available.push(...customThemes);
+  }
   return available;
 }
 
@@ -104,29 +139,37 @@ export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
  */
 export async function getLayoutManifest(siteData: LocalSiteData, layoutPath: string): Promise<LayoutManifest | null> {
     const layoutManifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
-    if (!layoutManifest) {
-      console.error(`Could not load layout.json for layout: "${layoutPath}".`);
-      return null;
-    }
-    
-    const baseSchemaData = await getBaseSchema();
 
-    if (baseSchemaData) {
-        layoutManifest.pageSchema = mergeSchemas(baseSchemaData.schema, layoutManifest.pageSchema);
-        layoutManifest.uiSchema = { ...(baseSchemaData.uiSchema || {}), ...(layoutManifest.uiSchema || {}) };
+    // Get the base schema directly from the imported constant. No `await` is needed.
+    const baseSchemaData = getBaseSchema();
+
+    // If a layout has no `layout.json`, we can still build a valid manifest for it
+    // by using the base schema as its default.
+    if (!layoutManifest) {
+      return {
+          name: layoutPath,
+          type: 'page', // Assume 'page' as a safe default
+          pageSchema: baseSchemaData.schema,
+          uiSchema: baseSchemaData.uiSchema
+      }
     }
-    
-    // Always remove hardcoded fields to prevent them from appearing in generic forms.
+
+    // If a layout.json exists, merge its schema with the base schema.
+    layoutManifest.pageSchema = mergeSchemas(baseSchemaData.schema, layoutManifest.pageSchema);
+    layoutManifest.uiSchema = { ...(baseSchemaData.uiSchema || {}), ...(layoutManifest.uiSchema || {}) };
+
+    // This logic prevents fields handled by dedicated UI components (like PrimaryContentFields)
+    // from being rendered again by the generic form generator.
     if (layoutManifest.pageSchema?.properties) {
       delete layoutManifest.pageSchema.properties.title;
       delete layoutManifest.pageSchema.properties.description;
       delete layoutManifest.pageSchema.properties.slug;
     }
-    
+
     if (layoutManifest.layoutSchema?.properties) {
         delete layoutManifest.layoutSchema.properties.title;
         delete layoutManifest.layoutSchema.properties.description;
     }
-    
+
     return layoutManifest;
 }

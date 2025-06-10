@@ -1,0 +1,61 @@
+{{! src/partials/head.hbs }}
+<head>
+    <meta charset="UTF--8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    {{!-- =================================================================
+        SEO & META TAGS
+        - Uses page-specific data first, then falls back to site-wide data.
+        - Assumes a `baseUrl` is configured in the site manifest for full URLs.
+    ================================================================== --}}
+    <title>{{pageTitle}} | {{manifest.title}}</title>
+    
+    {{#if contentFile.frontmatter.description}}
+        <meta name="description" content="{{contentFile.frontmatter.description}}">
+    {{else if collectionNode.description}}
+        <meta name="description" content="{{collectionNode.description}}">
+    {{else}}
+        <meta name="description" content="{{manifest.description}}">
+    {{/if}}
+
+    {{!-- The canonical URL should be the full, absolute URL to the page --}}
+    <link rel="canonical" href="{{manifest.baseUrl}}{{../pageUrl}}">
+
+    {{!-- Open Graph Tags (for Facebook, LinkedIn, etc.) --}}
+    <meta property="og:title" content="{{pageTitle}}">
+    {{#if contentFile.frontmatter.description}}
+        <meta property="og:description" content="{{contentFile.frontmatter.description}}">
+    {{else}}
+        <meta property="og:description" content="{{manifest.description}}">
+    {{/if}}
+    <meta property="og:url" content="{{manifest.baseUrl}}{{../pageUrl}}">
+    <meta property="og:site_name" content="{{manifest.title}}">
+    {{#if contentFile.frontmatter.image}}
+        <meta property="og:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
+    {{/if}}
+    <meta property="og:type" content="{{#if contentFile}}article{{else}}website{{/if}}">
+
+    {{!-- Twitter Card Tags --}}
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="{{pageTitle}}">
+    {{#if contentFile.frontmatter.description}}
+        <meta name="twitter:description" content="{{contentFile.frontmatter.description}}">
+    {{else}}
+        <meta name="twitter:description" content="{{manifest.description}}">
+    {{/if}}
+    {{#if contentFile.frontmatter.image}}
+        <meta name="twitter:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
+    {{/if}}
+
+    {{!-- Favicon Placeholder - Users should replace these --}}
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+
+    {{!-- =================================================================
+        STYLESHEETS & SCRIPTS
+        - These are automatically injected by the Signum theme engine.
+    ================================================================== --}}
+    {{{assetTags}}}
+    {{{styleOverrides}}}
+</head>

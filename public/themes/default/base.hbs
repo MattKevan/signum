@@ -1,21 +1,18 @@
 <!DOCTYPE html>
-<html lang="en" class="{{themeConfig.color_scheme}}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{pageTitle}} | {{manifest.title}}</title>
-    <meta name="description" content="{{manifest.description}}">
-    <link rel="stylesheet" href="/themes/default/style.css">
-    {{#if themeConfig.font_family}}
-    <style>:root { --font-family: {{themeConfig.font-family}}; }</style>
-    {{/if}}
-</head>
-<body class="site-container">
-    {{> header }}
-    <main class="site-content">
-        {{{ body }}}
-    </main>
-    {{> footer }}
-    <script src="/themes/default/scripts.js"></script>
+<html lang="en" class="scroll-smooth">
+{{> head}}
+<body class="bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 antialiased font-sans">
+    
+    <div x-data="{ isMobileMenuOpen: false }" class="flex flex-col min-h-screen">
+        
+        {{> header}}
+
+        <main class="flex-grow max-w-4xl mx-auto container px-4 py-8 sm:py-12">
+            {{{body}}}
+        </main>
+
+        {{> footer}}
+
+    </div>
 </body>
 </html>

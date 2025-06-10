@@ -2,7 +2,6 @@
   "schema": {
     "title": "Base Content Fields",
     "type": "object",
-    "required": ["title"],
     "properties": {
       "slug": {
         "type": "string",

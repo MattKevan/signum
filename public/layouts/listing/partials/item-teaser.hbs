@@ -1,5 +1,10 @@
-<a href="/{{this.slug}}" class="card">
-  <h3 class="card-title">{{this.frontmatter.title}}</h3>
-  <p class="card-meta">{{formatDate this.frontmatter.date}}</p>
-  {{#if this.frontmatter.summary}}<p class="card-summary">{{this.frontmatter.summary}}</p>{{/if}}
+{{! public/layouts/listing/partials/item-teaser.hbs (CORRECTED) }}
+{{!-- The context 'this' is a single item from the 'items' array. --}}
+{{!-- We now assume the themeEngine provides a pre-computed 'url' property for robust linking. --}}
+<a href="{{this.url}}" class="block p-6 border rounded-lg hover:shadow-lg transition-shadow dark:border-gray-700">
+    <h3 class="text-xl font-semibold mb-2 text-gray-900 dark:text-white group-hover:text-blue-600 dark:hover:text-blue-400">{{this.frontmatter.title}}</h3>
+    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{formatDate this.frontmatter.date}}</p>
+    {{#if this.frontmatter.summary}}
+        <p class="text-gray-600 dark:text-gray-400 line-clamp-3">{{this.frontmatter.summary}}</p>
+    {{/if}}
 </a>

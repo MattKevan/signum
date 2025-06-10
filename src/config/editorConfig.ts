@@ -1,5 +1,6 @@
 // src/config/editorConfig.ts
 import type { ThemeInfo, LayoutInfo } from '@/types';
+import { RJSFSchema, UiSchema } from '@rjsf/utils'; 
 
 /**
  * The official version of the Signum generator client.
@@ -41,10 +42,69 @@ export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 export const DEFAULT_COLLECTION_LAYOUT_PATH = 'listing';
 
 export const CORE_LAYOUTS: LayoutInfo[] = [
-  { id: 'page', name: 'Standard Page', type: 'page', path: 'page' },
-  { id: 'listing', name: 'Standard Listing', type: 'collection', path: 'listing' },
+  { id: 'page', name: 'Page', type: 'page', path: 'page' },
+  { id: 'listing', name: 'Listing', type: 'collection', path: 'listing' },
 ];
 
 export const CORE_THEMES: ThemeInfo[] = [
   { id: 'default', name: 'Default Theme', path: 'default' },
 ];
+
+
+/**
+ * The universal base schema for all content frontmatter.
+ * This object is imported directly, eliminating network requests.
+ * Fields like 'title' and 'description' are not included here because they
+ * are handled by dedicated UI components, not the generic form generator.
+ */
+export const BASE_SCHEMA: { schema: RJSFSchema; uiSchema: UiSchema } = {
+  schema: {
+    title: 'Base content fields',
+    type: 'object',
+    properties: {
+      slug: {
+        type: 'string',
+        title: 'Slug (URL Path)',
+        description: 'The URL-friendly version of the title. Auto-generated, but can be edited.',
+      },
+      image: {
+        type: 'string',
+        title: 'Image',
+        description: 'URL or path to a featured image for this content.',
+      },
+      date: {
+        type: 'string',
+        title: 'Publication date',
+        format: 'date',
+      },
+      status: {
+        type: 'string',
+        title: 'Status',
+        enum: ['published', 'draft'],
+        default: 'draft',
+      },
+      author: {
+        type: 'string',
+        title: 'Author',
+      },
+      tags: {
+        type: 'array',
+        title: 'Tags',
+        items: {
+          type: 'string',
+        },
+      },
+    },
+  },
+  uiSchema: {
+    slug: {
+      'ui:widget': 'hidden',
+    },
+    tags: {
+      'ui:options': {
+        addable: true,
+        removable: true,
+      },
+    },
+  },
+};
