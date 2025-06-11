@@ -34,8 +34,8 @@ export default function PrimaryContentFields({
 
   return (
     <div className="space-y-4 shrink-0">
-      <div className="space-y-1.5">
-        <Label htmlFor="content-title" className="text-sm font-medium sr-only">
+      <div className="space-y-2 mb-6 border-b pb-3">
+        <Label htmlFor="content-title" className="text-[10px] font-medium uppercase text-gray-400">
           Title
         </Label>
         <Input
@@ -49,17 +49,17 @@ export default function PrimaryContentFields({
       </div>
 
       {showDescription && (
-        <div className="space-y-1.5">
-          <Label htmlFor="content-description" className="text-sm font-medium sr-only">
+        <div className="space-y-2 mb-6 border-b pb-3">
+          <Label htmlFor="content-description" className="text-[10px] font-medium uppercase text-gray-400">
             Description
           </Label>
           <Textarea
-            id="content-description"
-            placeholder="Add a short description... (optional)"
+            
+            placeholder="Add a short description..."
             value={frontmatter.description || ''}
             onChange={(e) => handleChange('description', e.target.value)}
             // Style for a clean, borderless textarea
-            className="p-0 border-0 shadow-none focus-visible:ring-0 text-muted-foreground bg-transparent resize-none"
+            className="p-0 border-0 shadow-none focus-visible:ring-0 bg-transparent resize-none text-2xl text-black"
             rows={1}
           />
         </div>

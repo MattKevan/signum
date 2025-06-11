@@ -115,12 +115,13 @@ File: app/layout.tsx
 
 import { useEffect, useState, Suspense } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import Navbar from '@/components/core/Navbar'; 
-import Footer from '@/components/core/Footer';   
+//import Navbar from '@/components/core/Navbar'; 
+//import Footer from '@/components/core/Footer';   
 import './globals.css'; 
 import { Toaster } from "@/components/ui/sonner"; 
 import { ThemeProvider } from "@/components/core/ThemeProvider"; 
-
+import { LiaEdit } from "react-icons/lia";
+import { Link } from '@/components/ui/link';
 // Loading component to show during initialization or suspense
 function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
   return (
@@ -133,7 +134,7 @@ function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
         <p className="text-lg">Loading Signum...</p>
       </div>
     </div>
-  ); // <<< MISSING RETURN WAS HERE
+  ); 
 }
 
 
@@ -170,19 +171,26 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
         >
-          <div className="flex flex-col min-h-screen bg-background text-foreground">
+          <div className=" min-h-screen bg-background text-foreground">
             {showLoading ? (
               <AppLoadingIndicator /> // Now correctly used
             ) : (
-              <>
-                <Navbar />
-                <main className="flex-grow container mx-auto px-4 py-8 sm:px-6 lg:px-8"> 
+              <div className=" flex flex-row h-full">
+                <div className='w-[60px] flex-none flex flex-col gap-4 h-screen sticky top-0 border-r'>
+                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
+                  
+
+                    </div>
+                    <Link href=""><LiaEdit className='size-7 mx-auto'/></Link>
+                </div>
+                <main className="flex-grow"> 
                   <Suspense fallback={<AppLoadingIndicator />}>
                     {children}
                   </Suspense>
+                  
                 </main>
-                <Footer />
-              </>
+                
+              </div>
             )}
           </div>
           <Toaster richColors position="top-right" />
@@ -261,8 +269,7 @@ export default function HomePageDashboard() {
                   </Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
-                  {/* FIXED: Changed `siteId` to `site.siteId` to correctly reference the property of the mapped object. */}
-                  <Link href={`/edit/${site.siteId}`}>
+                  <Link href={`/${site.siteId}/edit`}>
                      <Edit3 className="mr-2 h-4 w-4" /> Edit
                   </Link>
                 </Button>
@@ -425,7 +432,167 @@ File: app/globals.css
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/layout.tsx
+File: app/sites/layout.tsx
+// src/app/layout.tsx
+'use client'; 
+
+import { useEffect, useState, Suspense } from 'react';
+import { useAppStore } from '@/stores/useAppStore';
+//import Navbar from '@/components/core/Navbar'; 
+//import Footer from '@/components/core/Footer';   
+//import './globals.css'; 
+import { Toaster } from "@/components/ui/sonner"; 
+import { ThemeProvider } from "@/components/core/ThemeProvider"; 
+import { LiaEdit } from "react-icons/lia";
+import { Link } from '@/components/ui/link';
+// Loading component to show during initialization or suspense
+
+
+export default function SitesLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
+  const initialize = useAppStore(state => state.initialize);
+  const isInitialized = useAppStore(state => state.isInitialized);
+  const [clientMounted, setClientMounted] = useState(false);
+
+  useEffect(() => {
+    setClientMounted(true); 
+    if (!isInitialized) {
+      initialize();
+    }
+  }, [initialize, isInitialized]); 
+
+  const showLoading = clientMounted && !isInitialized;
+
+  return (
+   
+              <div className=" flex flex-row h-full">
+                <div className='w-[60px] flex-none flex flex-col gap-4 h-screen sticky top-0 border-r'>
+                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
+                  
+
+                    </div>
+                    <Link href=""><LiaEdit className='size-7 mx-auto'/></Link>
+                </div>
+                <main className="flex-grow"> 
+                    {children}
+                  
+                </main>
+                
+              </div>
+            )}
+          
+  );
+}
+
+================================================================================
+
+File: app/sites/page.tsx
+// src/app/page.tsx
+'use client';
+
+import Link from 'next/link';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { PlusCircle, Edit3, Eye, Trash2, FilePlus2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+
+export default function HomePageDashboard() {
+  const sites = useAppStore((state) => state.sites);
+  const deleteSiteAndState = useAppStore((state) => state.deleteSiteAndState);
+
+  const handleDeleteSite = async (siteId: string, siteTitle: string) => {
+    try {
+      await deleteSiteAndState(siteId);
+      toast.success(`Site "${siteTitle}" has been deleted.`);
+    } catch (error) {
+      toast.error(`Failed to delete site "${siteTitle}".`);
+      console.error("Error deleting site:", error);
+    }
+  };
+
+  const validSites = sites.filter(site => site && site.manifest);
+
+  return (
+    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
+        <h1 className="text-3xl font-bold text-foreground">My Signum Sites</h1>
+        <Button asChild size="lg">
+          <Link href="/create-site">
+            <FilePlus2 className="mr-2 h-5 w-5" /> Create New Site
+          </Link>
+        </Button>
+      </div>
+
+      {validSites.length === 0 ? (
+        <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
+          <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
+          <p className="text-muted-foreground mb-4">Click &quot;Create New Site&quot; to get started.</p>
+          <Button asChild>
+            <Link href="/create-site">
+                <PlusCircle className="mr-2 h-4 w-4" /> Start Creating
+            </Link>
+          </Button>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {validSites.map((site) => (
+            <div key={site.siteId} className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-lg transition-shadow flex flex-col justify-between">
+              <div>
+                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.manifest.title}>
+                  {site.manifest.title || "Untitled Site"}
+                </h2>
+                <p className="text-sm text-muted-foreground mb-4 line-clamp-2" title={site.manifest.description}>
+                  {site.manifest.description || 'No description provided.'}
+                </p>
+              </div>
+              <div className="mt-4 flex flex-wrap justify-start gap-2">
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/${site.siteId}`} target="_blank" rel="noopener noreferrer">
+                    <Eye className="mr-2 h-4 w-4" /> View
+                  </Link>
+                </Button>
+                <Button variant="default" size="sm" asChild>
+                  <Link href={`/${site.siteId}/edit`}>
+                     <Edit3 className="mr-2 h-4 w-4" /> Edit
+                  </Link>
+                </Button>
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" size="sm">
+                      <Trash2 className="mr-2 h-4 w-4" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will permanently delete &quot;{site.manifest.title || 'this site'}&quot; from local storage.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => handleDeleteSite(site.siteId, site.manifest.title || 'Untitled Site')}>
+                        Yes, delete site
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/sites/[siteId]/edit/layout.tsx
 // src/app/(publishing)/edit/[siteId]/layout.tsx
 'use client';
 
@@ -542,7 +709,12 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className='h-screen'>
+    <div className='border-b h-[60px]'>
+
+    </div>
+    <div className="flex  bg-background w-full">
+        
       <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
         <h2 className="text-xl font-semibold truncate mb-4" title={site.manifest.title}>
             {site.manifest.title || 'Site Editor'}
@@ -576,7 +748,7 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
           <FileTree 
             nodes={siteStructure} 
-            baseEditPath={`/edit/${siteId}`}
+            baseEditPath={`/${siteId}/edit/`}
             activePath={activePath}
             onFileCreate={handleNavigateToNewFile} 
             onStructureChange={handleStructureChange}
@@ -595,19 +767,18 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <div className="flex-1 overflow-y-auto p-6">
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-      </div>
+    </div>
     </div>
   );
 }
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/page.tsx
-// src/app/(publishing)/edit/[siteId]/page.tsx
+File: app/sites/[siteId]/edit/page.tsx
+// src/app/(publishing)/[siteId]/edit/page.tsx
 'use client';
 
 import { useEffect } from 'react';
@@ -621,7 +792,6 @@ export default function SiteEditorRootPage() {
 
   useEffect(() => {
     if (siteId) {
-      router.replace(`/edit/${siteId}/settings/site`);
     }
   }, [siteId, router]);
 
@@ -634,7 +804,7 @@ export default function SiteEditorRootPage() {
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
+File: app/sites/[siteId]/edit/settings/appearance/page.tsx
 // src/app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
 'use client';
 
@@ -758,7 +928,7 @@ export default function AppearanceSettingsPage() {
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/settings/site/page.tsx
+File: app/sites/[siteId]/edit/settings/site/page.tsx
 // src/app/(publishing)/edit/[siteId]/settings/site/page.tsx
 'use client';
 
@@ -864,7 +1034,7 @@ export default function SiteSettingsPage() {
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
+File: app/sites/[siteId]/edit/collection/[collectionName]/page.tsx
 // src/app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
 'use client';
 
@@ -1058,7 +1228,7 @@ export default function EditCollectionPage() {
 
 ================================================================================
 
-File: app/(publishing)/edit/[siteId]/content/[[...slug]]/page.tsx
+File: app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
@@ -1358,9 +1528,10 @@ export default function EditContentPage() {
   const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
 
   return (
-    <div className="flex flex-row h-full gap-6">
-      <main className="flex-1 flex flex-col p-6 overflow-hidden">
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 shrink-0">
+    <div className="flex flex-row h-full gap-6 w-full">
+      <main className="flex-grow flex flex-col p-6 overflow-hidden">
+
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
           <h1 className="text-xl font-bold truncate">
             {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
           </h1>
@@ -1413,6 +1584,7 @@ export default function EditContentPage() {
       </main>
       
       {currentFrontmatter && site && layoutPath && (
+        <div className='flex-none sticky top-0 right-0'>
         <FrontmatterSidebar
             site={site}
             layoutPath={layoutPath}
@@ -1428,6 +1600,7 @@ export default function EditContentPage() {
                 }
             }}
         />
+        </div>
       )}
     </div>
   );
@@ -1435,7 +1608,135 @@ export default function EditContentPage() {
 
 ================================================================================
 
-File: app/(publishing)/create-site/page.tsx
+File: app/sites/[siteId]/[[...slug]]/page.tsx
+// src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useEffect, useState, useMemo } from 'react';
+import * as localSiteFs from '@/lib/localSiteFs';
+import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
+import type { LocalSiteData } from '@/types';
+import { Button } from '@/components/ui/button';
+import { AlertTriangle } from 'lucide-react';
+import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
+import Link from 'next/link';
+import { resolvePageContent, PageType } from '@/lib/pageResolver';
+import { render as renderWithTheme } from '@/lib/themeEngine'; // The name is aliased
+import ErrorBoundary from '@/components/core/ErrorBoundary';
+
+enum PageRenderState { Loading, Display, NotFound, Error }
+
+export default function CatchAllSitePage() {
+  const paramsHook = useParams();
+  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
+  const [renderState, setRenderState] = useState<PageRenderState>(PageRenderState.Loading);
+  const [pageHtmlContent, setPageHtmlContent] = useState<string>("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading...");
+  const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
+
+  const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
+  const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
+
+  useEffect(() => {
+    setRenderState(PageRenderState.Loading);
+    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
+    if (!localParsedResult) {
+        setErrorMessage("Invalid site identifier in URL.");
+        setRenderState(PageRenderState.Error);
+        return;
+    }
+    setParsedPageIdentifier(localParsedResult);
+
+    async function processAndRenderSiteContent(validParsedResult: ParsedSiteIdentifier) {
+      let fetchedSiteData: LocalSiteData | null = null;
+      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
+        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
+        if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote site: ${validParsedResult.remoteBaseUrl}.`);
+      } else if (!validParsedResult.isRemote) {
+        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
+        if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
+      }
+
+      if (!fetchedSiteData) {
+        setSiteData(null); 
+        setRenderState(PageRenderState.Error); 
+        return;
+      }
+      setSiteData(fetchedSiteData);
+
+      const resolution = resolvePageContent(fetchedSiteData, slugArray);
+      
+      if (resolution.type === PageType.NotFound) {
+          setRenderState(PageRenderState.NotFound);
+          setErrorMessage(resolution.errorMessage || "Page not found.");
+          setPageMetaTitle("Page Not Found");
+          return;
+      }
+      
+      setPageMetaTitle(resolution.pageTitle || 'Untitled');
+      
+      try {
+        // FIXED: The call to renderWithTheme now passes a single options object.
+        const fullPageHtml = await renderWithTheme(
+          fetchedSiteData,
+          resolution,
+          {
+            siteRootPath: `/${validParsedResult.rawParam}`,
+            isExport: false // This is a live preview, not an export
+          }
+        );
+        setPageHtmlContent(fullPageHtml);
+        setRenderState(PageRenderState.Display);
+      } catch (e) {
+          console.error("Theme rendering failed:", e);
+          setErrorMessage(`Theme Error: ${(e as Error).message}`);
+          setRenderState(PageRenderState.Error);
+      }
+    }
+    processAndRenderSiteContent(localParsedResult);
+  }, [siteIdParamValue, slugArray]);
+
+  useEffect(() => {
+    if (renderState === PageRenderState.Loading) {
+        document.title = "Loading... | Signum";
+    } else {
+        let title = pageMetaTitle;
+        if (siteData?.manifest?.title) title += ` | ${siteData.manifest.title}`;
+        document.title = title;
+    }
+  }, [renderState, pageMetaTitle, siteData]);
+
+  if (renderState === PageRenderState.Loading) {
+    return <div className="container mx-auto p-8"><p>Loading content...</p></div>;
+  }
+
+  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
+  if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
+      return (
+        <div className="container mx-auto p-8 text-center">
+          <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
+          <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>
+          <Button asChild variant="outline" className="mt-6">
+              <Link href={siteData ? siteHomeLinkForError : '/'}>
+                  {siteData ? 'Go to Site Home' : 'Go to Dashboard'}
+              </Link>
+          </Button>
+        </div>
+      );
+  }
+
+  return (
+  <ErrorBoundary>
+    <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />
+  </ErrorBoundary>);
+}
+
+================================================================================
+
+File: app/create-site/page.tsx
 // src/app/(publishing)/create-site/page.tsx
 'use client';
 
@@ -1643,10 +1944,10 @@ export default function SiteBrowsingLayout({ children }: { children: React.React
   }
 
   return (
-    <>
+    <div className='flex-grow flex-col h-screen bg-background overflow-hidden'>
       {/* This top-level navbar is part of the Signum App UI, not the browsed site's UI */}
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-sm">
-        <div className="container flex h-14 items-center justify-end">
+        <div className=" flex h-14 items-center justify-end">
           <Button asChild variant="outline" size="sm">
             <Link href="/">Back to Signum Dashboard</Link>
           </Button>
@@ -1654,7 +1955,7 @@ export default function SiteBrowsingLayout({ children }: { children: React.React
       </header>
       {/* The page component will render the full themed site below this bar */}
       {children}
-    </>
+    </div>
   );
 }
 
@@ -1767,7 +2068,7 @@ export default function CatchAllSitePage() {
   const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
   if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
       return (
-        <div className="container mx-auto p-8 text-center">
+        <div className="w-full mx-auto p-8 text-center">
           <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
           <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>
@@ -2147,6 +2448,7 @@ File: components/publishing/MarkdownEditor.tsx
 'use client';
 
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { Label } from '@/components/ui/label';
 
 interface MarkdownEditorProps {
   initialValue: string;
@@ -2185,14 +2487,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     };
 
     return (
+      <div className="space-y-2 h-full">
+      <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400">
+            Description
+          </Label>
       <textarea
+        id="content-body"
         value={content}
         onChange={handleChange}
         placeholder="Start writing your Markdown here..."
-        className="w-full h-full p-4 border rounded-md shadow-sm bg-background 
+        className="w-full h-full bg-background 
                    text-base font-mono leading-relaxed resize-none 
                    focus:ring-2 focus:ring-ring focus:outline-none"
       />
+      </div>
     );
   }
 );
@@ -2239,8 +2547,8 @@ export default function PrimaryContentFields({
 
   return (
     <div className="space-y-4 shrink-0">
-      <div className="space-y-1.5">
-        <Label htmlFor="content-title" className="text-sm font-medium sr-only">
+      <div className="space-y-2 mb-6 border-b pb-3">
+        <Label htmlFor="content-title" className="text-[10px] font-medium uppercase text-gray-400">
           Title
         </Label>
         <Input
@@ -2254,17 +2562,17 @@ export default function PrimaryContentFields({
       </div>
 
       {showDescription && (
-        <div className="space-y-1.5">
-          <Label htmlFor="content-description" className="text-sm font-medium sr-only">
+        <div className="space-y-2 mb-6 border-b pb-3">
+          <Label htmlFor="content-description" className="text-[10px] font-medium uppercase text-gray-400">
             Description
           </Label>
           <Textarea
-            id="content-description"
-            placeholder="Add a short description... (optional)"
+            
+            placeholder="Add a short description..."
             value={frontmatter.description || ''}
             onChange={(e) => handleChange('description', e.target.value)}
             // Style for a clean, borderless textarea
-            className="p-0 border-0 shadow-none focus-visible:ring-0 text-muted-foreground bg-transparent resize-none"
+            className="p-0 border-0 shadow-none focus-visible:ring-0 bg-transparent resize-none text-2xl text-black"
             rows={1}
           />
         </div>

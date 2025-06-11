@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud, Palette } from 'lucide-react';
+import { Eye, Home,  UploadCloud } from 'lucide-react';
 import FileTree from '@/components/publishing/FileTree';
 import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
 import { useEffect, useState, useCallback, useMemo } from 'react';
@@ -15,6 +15,7 @@ import { slugify } from '@/lib/utils';
 import { StructureNode, LayoutInfo } from '@/types'; // FIXED: Import LayoutInfo
 import { getAvailableLayouts } from '@/lib/configHelpers'; // FIXED: Correct import path
 import ErrorBoundary from '@/components/core/ErrorBoundary';
+import { TbFilePlus, TbLayoutGrid } from "react-icons/tb";
 
 const NEW_FILE_SLUG_MARKER = '_new';
 
@@ -46,21 +47,22 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   // This useEffect correctly determines the active file in the sidebar tree.
   useEffect(() => {
     const pathSegments = pathname.split('/');
-    if (pathname.includes('/collection/')) {
+    if (pathname.includes('/edit/collection/')) {
         const slug = pathSegments[pathSegments.indexOf('collection') + 1];
         setActivePath(`content/${slug}`);
-    } else if (pathname.includes('/content/')) {
-        const contentPath = pathname.substring(pathname.indexOf('/content/') + 8).replace(/\/$/, '');
+    } else if (pathname.includes('/edit/content/')) {
+        // Correctly handle the root index page and nested pages
+        const contentPath = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
         const pathWithExt = `content/${contentPath}.md`;
-        const existingFile = site?.contentFiles.find(f => f.path === pathWithExt);
-        setActivePath(existingFile?.path);
+        setActivePath(site?.contentFiles.find(f => f.path === pathWithExt)?.path);
     } else {
-        setActivePath(undefined);
+        // If we are at the root of /edit, highlight the index file
+        setActivePath('content/index.md');
     }
   }, [pathname, site?.contentFiles]);
 
 
-  const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
+   const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
       if (!site) return;
       const newManifest = { ...site.manifest, structure: reorderedNodes };
       updateManifest(siteId, newManifest);
@@ -68,7 +70,8 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
 
   const handleNavigateToNewFile = (parentPath: string = 'content') => {
     const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
-    const newFileRoute = `/edit/${siteId}/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
+    // Use the new route structure
+    const newFileRoute = `/sites/${siteId}/edit/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
     router.push(newFileRoute.replace(/\/\//g, '/'));
   };
   
@@ -76,8 +79,10 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
     if (!site) return;
     await addNewCollection(siteId, name, slug, layout);
     toast.success(`Collection "${name}" created!`);
-    router.push(`/edit/${siteId}/collection/${slug}`);
+    router.push(`/sites/${siteId}/edit/collection/${slug}`);
   };
+  
+
 
   const handlePublishSite = async () => {
     if (!site) {
@@ -103,62 +108,55 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         setIsPublishing(false);
     }
   };
-  
   const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map(c => c.slug) || [], [site?.manifest.structure]);
 
   if (!site) {
-    return <div className="p-6">Loading site editor...</div>;
+    return <div className="p-6">Loading editor...</div>;
   }
 
-  const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/site`);
+  const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/`);
   const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
     <div className='h-screen'>
-    <div className='border-b h-[60px]'>
-
-    </div>
+   
     <div className="flex  bg-background w-full">
         
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
-        <h2 className="text-xl font-semibold truncate mb-4" title={site.manifest.title}>
-            {site.manifest.title || 'Site Editor'}
-        </h2>
+      <aside className="w-[280px] fixed top-[60px] border-r flex flex-col shrink-0 h-full">
+    
 
-        <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${isSiteSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/settings/site`}><Settings className="mr-2 h-4 w-4" /> Site Settings</Link>
-          </Button>
-          <Button variant="ghost" asChild className={`justify-start ${isAppearanceSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/settings/appearance`}><Palette className="mr-2 h-4 w-4" /> Appearance</Link>
-          </Button>
-        </nav>
-        
-        <div className="border-t pt-4 mt-4">
-            <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase mb-2">Content</h3>
-            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start w-full">
-              <PlusCircle className="mr-2 h-4 w-4" /> New Page
+        <div className='flex w-full justify-between items-center border-b py-2 px-3'>
+          <h4 className='text-[11px] uppercase'>Content</h4>
+          <div className='flex flex-row gap-2 items-center'>
+            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="!p-0.5 !m-0 h-3 hover:cursor-pointer">
+              <TbFilePlus className="h-4 w-4" /> 
             </Button>
             <NewCollectionDialog 
                 existingSlugs={existingTopLevelSlugs} 
                 availableLayouts={availableCollectionLayouts}
                 onSubmit={handleCreateNewCollection}
             >
-                <Button variant="ghost" className="w-full justify-start">
-                    <FolderPlus className="mr-2 h-4 w-4" /> New Collection
-                </Button>
+              <Button variant="ghost" className="!p-0.5 !m-0 h-3 hover:cursor-pointer">
+
+                <TbLayoutGrid className="h-4 w-4" />
+              </Button>
             </NewCollectionDialog>
+          </div>
         </div>
 
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
+        <div className="flex-grow overflow-y-auto py-2 pl-2 pr-3">
           <FileTree 
             nodes={siteStructure} 
-            baseEditPath={`/${siteId}/edit/`}
+            baseEditPath={`/sites/${siteId}/edit/`}
             activePath={activePath}
             onFileCreate={handleNavigateToNewFile} 
             onStructureChange={handleStructureChange}
           />
         </div>
+ 
+        
+        
+        
 
         <div className="mt-auto space-y-2 pt-4 border-t shrink-0">
             <Button variant="default" onClick={handlePublishSite} disabled={isPublishing} className="w-full">
@@ -172,9 +170,11 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
+      <div className='ml-[340px] w-full'>
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
+        </div>
     </div>
     </div>
   );

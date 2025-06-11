@@ -4,13 +4,13 @@
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { type StructureNode } from '@/types';
-import { Folder, FileText as FileTextIcon, PlusSquare, GripVertical, ChevronRight, FolderGit2 } from 'lucide-react';
+import { PlusSquare, GripVertical, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-
+import { TbFileDescription, TbLayoutGrid, TbSquareDashed, TbSquarePlus } from "react-icons/tb";
 interface FileTreeProps {
   nodes: StructureNode[];
   baseEditPath: string;
@@ -39,7 +39,7 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
         : `${baseEditPath}/content/${relativeContentPath}`;
 
     const isSelected = activePath === node.path;
-    const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'page' && node.children && node.children.length > 0 ? FolderGit2 : FileTextIcon);
+    const NodeIcon = node.type === 'collection' ? TbLayoutGrid : (node.type === 'page' && node.children && node.children.length > 0 ? TbLayoutGrid : TbFileDescription);
 
     const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
         onStructureChange([{ ...node, children: reorderedChildren }]);
@@ -51,26 +51,20 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
                 <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none">
                     <GripVertical className="h-4 w-4 text-muted-foreground/50" />
                 </div>
-                <div className={cn("flex-grow flex items-center py-1.5 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
+                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
                     {isFolderType && (
                         <ChevronRight 
                             className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90", !node.children?.length && "invisible")} 
                             onClick={() => setIsOpen(!isOpen)} 
                         />
                     )}
-                    <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-amber-500' : 'text-sky-500', !isFolderType && 'ml-5')} />
+                    <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-foreground' : 'text-foreground', !isFolderType && 'ml-5')} />
                     
-                    <Link href={href} className="truncate flex-grow mx-1.5" title={node.title}>
+                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={node.title}>
                         {node.title}
                     </Link>
 
-                    {isFolderType && (
-                        <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-6 w-6" title="New File" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
-                                <PlusSquare className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    )}
+                    
                 </div>
             </div>
             {isFolderType && isOpen && node.children && node.children.length > 0 && (

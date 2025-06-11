@@ -300,7 +300,7 @@ export default function EditContentPage() {
     <div className="flex flex-row h-full gap-6 w-full">
       <main className="flex-grow flex flex-col p-6 overflow-hidden">
 
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 shrink-0">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
           <h1 className="text-xl font-bold truncate">
             {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
           </h1>

@@ -3,14 +3,12 @@
 
 import { useEffect, useState, Suspense } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import Navbar from '@/components/core/Navbar'; 
-import Footer from '@/components/core/Footer';   
 import './globals.css'; 
 import { Toaster } from "@/components/ui/sonner"; 
-import { ThemeProvider } from "@/components/core/ThemeProvider"; 
+import { ThemeProvider } from "@/components/core/ThemeProvider";
 
-// Loading component to show during initialization or suspense
-function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
+
+function AppLoadingIndicator() {
   return (
     <div className="flex items-center justify-center h-screen bg-background text-foreground">
       <div className="flex flex-col items-center">
@@ -21,9 +19,8 @@ function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
         <p className="text-lg">Loading Signum...</p>
       </div>
     </div>
-  ); // <<< MISSING RETURN WAS HERE
+  ); 
 }
-
 
 export default function RootLayout({
   children,
@@ -32,15 +29,18 @@ export default function RootLayout({
 }) {
   const initialize = useAppStore(state => state.initialize);
   const isInitialized = useAppStore(state => state.isInitialized);
+  // Track if the client has mounted to prevent hydration mismatches
   const [clientMounted, setClientMounted] = useState(false);
 
   useEffect(() => {
     setClientMounted(true); 
+    // Initialize the app state from storage only once
     if (!isInitialized) {
       initialize();
     }
   }, [initialize, isInitialized]); 
 
+  // Show the loading indicator only on the client and before initialization is complete
   const showLoading = clientMounted && !isInitialized;
 
   return (
@@ -49,7 +49,6 @@ export default function RootLayout({
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Signum - Decentralized Publishing</title>
-        {/* Ensure no stray characters or whitespace directly in <head> */}
       </head>
       <body>
         <ThemeProvider
@@ -58,26 +57,20 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
         >
-          <div className=" min-h-screen bg-background text-foreground">
-            {showLoading ? (
-              <AppLoadingIndicator /> // Now correctly used
-            ) : (
-              <div className=" flex flex-row h-full">
-                <div className='w-[60px] flex-none h-screen sticky top-0 border-r'>
-                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
-
-                    </div>
-                </div>
-                <main className="flex-grow"> 
-                  <Suspense fallback={<AppLoadingIndicator />}>
-                    {children}
-                  </Suspense>
-                  
-                </main>
-                
-              </div>
-            )}
-          </div>
+          {showLoading ? (
+            <AppLoadingIndicator />
+          ) : (
+            <div className="min-h-screen flex flex-col">
+              {/* This is a minimal header for the entire app, including the marketing page */}
+              
+              {/* The main content (marketing page or the app itself) renders here */}
+              <main className="flex-grow">
+                <Suspense fallback={<AppLoadingIndicator />}>
+                  {children}
+                </Suspense>
+              </main>
+            </div>
+          )}
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>

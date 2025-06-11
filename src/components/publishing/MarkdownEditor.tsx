@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { Label } from '@/components/ui/label';
 
 interface MarkdownEditorProps {
   initialValue: string;
@@ -40,14 +41,20 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     };
 
     return (
+      <div className="space-y-2 h-full">
+      <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400">
+            Description
+          </Label>
       <textarea
+        id="content-body"
         value={content}
         onChange={handleChange}
         placeholder="Start writing your Markdown here..."
-        className="w-full h-full p-4 border rounded-md shadow-sm bg-background 
+        className="w-full h-full bg-background 
                    text-base font-mono leading-relaxed resize-none 
                    focus:ring-2 focus:ring-ring focus:outline-none"
       />
+      </div>
     );
   }
 );
