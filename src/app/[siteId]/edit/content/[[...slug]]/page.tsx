@@ -297,8 +297,9 @@ export default function EditContentPage() {
   const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
 
   return (
-    <div className="flex flex-row h-full gap-6">
-      <main className="flex-1 flex flex-col p-6 overflow-hidden">
+    <div className="flex flex-row h-full gap-6 w-full">
+      <main className="flex-grow flex flex-col p-6 overflow-hidden">
+
         <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4 shrink-0">
           <h1 className="text-xl font-bold truncate">
             {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
@@ -352,6 +353,7 @@ export default function EditContentPage() {
       </main>
       
       {currentFrontmatter && site && layoutPath && (
+        <div className='flex-none sticky top-0 right-0'>
         <FrontmatterSidebar
             site={site}
             layoutPath={layoutPath}
@@ -367,6 +369,7 @@ export default function EditContentPage() {
                 }
             }}
         />
+        </div>
       )}
     </div>
   );

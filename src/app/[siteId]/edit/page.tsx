@@ -1,4 +1,4 @@
-// src/app/(publishing)/edit/[siteId]/page.tsx
+// src/app/(publishing)/[siteId]/edit/page.tsx
 'use client';
 
 import { useEffect } from 'react';
@@ -12,7 +12,6 @@ export default function SiteEditorRootPage() {
 
   useEffect(() => {
     if (siteId) {
-      router.replace(`/edit/${siteId}/settings/site`);
     }
   }, [siteId, router]);
 

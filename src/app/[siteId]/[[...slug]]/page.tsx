@@ -104,7 +104,7 @@ export default function CatchAllSitePage() {
   const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
   if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
       return (
-        <div className="w-full mx-auto p-8 text-center">
+        <div className="container mx-auto p-8 text-center">
           <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
           <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
           <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>

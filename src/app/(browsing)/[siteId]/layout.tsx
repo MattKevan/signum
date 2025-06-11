@@ -16,10 +16,10 @@ export default function SiteBrowsingLayout({ children }: { children: React.React
   }
 
   return (
-    <>
+    <div className='flex-grow flex-col h-screen bg-background overflow-hidden'>
       {/* This top-level navbar is part of the Signum App UI, not the browsed site's UI */}
       <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-sm">
-        <div className="container flex h-14 items-center justify-end">
+        <div className=" flex h-14 items-center justify-end">
           <Button asChild variant="outline" size="sm">
             <Link href="/">Back to Signum Dashboard</Link>
           </Button>
@@ -27,6 +27,6 @@ export default function SiteBrowsingLayout({ children }: { children: React.React
       </header>
       {/* The page component will render the full themed site below this bar */}
       {children}
-    </>
+    </div>
   );
 }

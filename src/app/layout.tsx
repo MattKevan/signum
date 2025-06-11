@@ -58,19 +58,24 @@ export default function RootLayout({
             enableSystem
             disableTransitionOnChange
         >
-          <div className="flex flex-col min-h-screen bg-background text-foreground">
+          <div className=" min-h-screen bg-background text-foreground">
             {showLoading ? (
               <AppLoadingIndicator /> // Now correctly used
             ) : (
-              <>
-                <Navbar />
-                <main className="flex-grow container mx-auto px-4 py-8 sm:px-6 lg:px-8"> 
+              <div className=" flex flex-row h-full">
+                <div className='w-[60px] flex-none h-screen sticky top-0 border-r'>
+                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
+
+                    </div>
+                </div>
+                <main className="flex-grow"> 
                   <Suspense fallback={<AppLoadingIndicator />}>
                     {children}
                   </Suspense>
+                  
                 </main>
-                <Footer />
-              </>
+                
+              </div>
             )}
           </div>
           <Toaster richColors position="top-right" />

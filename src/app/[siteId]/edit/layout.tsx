@@ -114,7 +114,12 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
-    <div className="flex h-screen bg-background overflow-hidden">
+    <div className='h-screen'>
+    <div className='border-b h-[60px]'>
+
+    </div>
+    <div className="flex  bg-background w-full">
+        
       <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
         <h2 className="text-xl font-semibold truncate mb-4" title={site.manifest.title}>
             {site.manifest.title || 'Site Editor'}
@@ -148,7 +153,7 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
         <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
           <FileTree 
             nodes={siteStructure} 
-            baseEditPath={`/edit/${siteId}`}
+            baseEditPath={`/${siteId}/edit/`}
             activePath={activePath}
             onFileCreate={handleNavigateToNewFile} 
             onStructureChange={handleStructureChange}
@@ -167,11 +172,10 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <div className="flex-1 overflow-y-auto p-6">
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-      </div>
+    </div>
     </div>
   );
 }

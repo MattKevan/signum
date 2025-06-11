@@ -64,8 +64,7 @@ export default function HomePageDashboard() {
                   </Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
-                  {/* FIXED: Changed `siteId` to `site.siteId` to correctly reference the property of the mapped object. */}
-                  <Link href={`/edit/${site.siteId}`}>
+                  <Link href={`/${site.siteId}/edit`}>
                      <Edit3 className="mr-2 h-4 w-4" /> Edit
                   </Link>
                 </Button>
