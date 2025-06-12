@@ -43,7 +43,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     return (
       <div className="space-y-2 h-full">
       <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400">
-            Description
+            Content
           </Label>
       <textarea
         id="content-body"

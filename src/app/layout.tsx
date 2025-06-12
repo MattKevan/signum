@@ -60,16 +60,11 @@ export default function RootLayout({
           {showLoading ? (
             <AppLoadingIndicator />
           ) : (
-            <div className="min-h-screen flex flex-col">
-              {/* This is a minimal header for the entire app, including the marketing page */}
-              
-              {/* The main content (marketing page or the app itself) renders here */}
-              <main className="flex-grow">
+         
                 <Suspense fallback={<AppLoadingIndicator />}>
                   {children}
                 </Suspense>
-              </main>
-            </div>
+              
           )}
           <Toaster richColors position="top-right" />
         </ThemeProvider>

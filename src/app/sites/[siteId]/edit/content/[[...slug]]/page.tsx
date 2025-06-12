@@ -297,48 +297,51 @@ export default function EditContentPage() {
   const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
 
   return (
-    <div className="flex flex-row h-full gap-6 w-full">
-      <main className="flex-grow flex flex-col p-6 overflow-hidden">
+    <div className='flex flex-row'>
 
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
-          <h1 className="text-xl font-bold truncate">
-            {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
-          </h1>
-          <div className="flex items-center gap-2">
-            <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">{renderAutoSaveIndicator()}</div>
-            {!isNewFileMode && (
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm" className="text-destructive border-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/50">
-                            <Trash2 className="h-4 w-4 mr-1.5" /> Delete
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent> 
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
-                            <AlertDialogDescription>Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;?</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">Yes, Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            )}
-            <Button onClick={() => handleSaveContent(false)} disabled={isSaveDisabled} size="sm" title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}>
-              <Save className="h-4 w-4 mr-1.5" />{isSaving ? 'Saving...' : 'Save Now'}
-            </Button>
+      <div className=" p-6 flex-grow">
+
+        <div className='container max-w-[900px] mx-auto'>
+
+          <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4  max-w-4xl mx-auto">
+            <h1 className="text-xl font-bold truncate">
+              {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
+            </h1>
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">{renderAutoSaveIndicator()}</div>
+              {!isNewFileMode && (
+                  <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                          <Button variant="outline" size="sm" className="text-destructive border-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/50">
+                              <Trash2 className="h-4 w-4 mr-1.5" /> Delete
+                          </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent> 
+                          <AlertDialogHeader>
+                              <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
+                              <AlertDialogDescription>Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;?</AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">Yes, Delete</AlertDialogAction>
+                          </AlertDialogFooter>
+                      </AlertDialogContent>
+                  </AlertDialog>
+              )}
+              <Button onClick={() => handleSaveContent(false)} disabled={isSaveDisabled} size="sm" title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}>
+                <Save className="h-4 w-4 mr-1.5" />{isSaving ? 'Saving...' : 'Save Now'}
+              </Button>
+            </div>
           </div>
-        </div>
         
-        {currentFrontmatter ? (
+          {currentFrontmatter ? (
             <>
                 <PrimaryContentFields
                     frontmatter={currentFrontmatter}
                     onFrontmatterChange={handleFrontmatterChange}
                     showDescription={true}
                 />
-                <div className="flex-grow mt-6">
+                <div className="flex-grow mt-6 h-full">
                     <MarkdownEditor
                         ref={editorRef}
                         key={currentFilePath || 'new-file-editor'}
@@ -347,13 +350,14 @@ export default function EditContentPage() {
                     />
                 </div>
             </>
-        ) : (
-             <div className="flex-grow flex items-center justify-center text-muted-foreground"><p>Initializing editor...</p></div>
-        )}
-      </main>
+          ) : (
+              <div className="flex-grow flex items-center justify-center text-muted-foreground"><p>Initializing editor...</p></div>
+          )}
+        </div>
+      </div>
       
       {currentFrontmatter && site && layoutPath && (
-        <div className='flex-none sticky top-0 right-0'>
+        <div className='flex-none  sticky top-0 h-full right-0 bg-background overflow-y-auto'>
         <FrontmatterSidebar
             site={site}
             layoutPath={layoutPath}

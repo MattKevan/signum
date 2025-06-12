@@ -56,34 +56,13 @@ export default function SingleSiteLayout({ children }: { children: React.ReactNo
   const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
   return (
-    <div className='h-screen w-full'>
-      <div className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-sm">
-                <div className=" flex h-[60px] items-center">
-                  
-                  <div className='w-[60px] h-[60px] border-r flex items-center'>
-                    <Link href="/sites" title="Sites" className='m-auto '>
-                      <Image src="/signum.svg" alt='Signum' width={26} height={26}/>
-                    </Link>
-                  </div>
-                  
-                  <div className='px-4'> 
-                    
-                    <div className="text-xl font-bold text-foreground hidden sm:inline">
-                      {site.manifest.title}
-                    </div>
-                    <Button asChild variant="ghost">
-                      <Link href="/sites">Dashboard</Link>
-                    </Button>
-                  </div>
-                </div>
-              </div>
+      
               
-    <div className="flex flex-row w-full h-full">
+    <div className="relative isolate flex flex-col min-h-screen w-full dark:bg-black">
    
     
-      {/* This is the persistent vertical menu for the site context */}
-      <aside className="w-[60px]  flex-none flex flex-col gap-4 h-screen fixed top-[60px] border-r bg-muted/20">
-        <div className="mt-3 flex flex-col gap-2">
+      <aside className="w-[60px] flex-0 gap-4 h-full border-r bg-muted/20 fixed top-0">
+        <div className="mt-3 flex flex-col gap-2  left-2.5">
           <Link href={`/sites/${site.siteId}/view`} 
             className={`p-1 rounded-sm aspect-square size-10 mx-auto flex items-center ${isViewActive && ('bg-gray-100')}`}
           >
@@ -109,12 +88,11 @@ export default function SingleSiteLayout({ children }: { children: React.ReactNo
       
 
       {/* The content (preview, editor, settings) renders here */}
-      <main className="flex-1 ml-[60px] overflow-y-auto bg-white dark:bg-zinc-900">
+      <div className=" bg-white dark:bg-zinc-900  h-full">
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
-      </main>
-    </div>
+      </div>
     </div>
   );
 }

@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { Eye, Home,  UploadCloud } from 'lucide-react';
+import { Eye, Home,  Leaf,  UploadCloud } from 'lucide-react';
 import FileTree from '@/components/publishing/FileTree';
 import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
 import { useEffect, useState, useCallback, useMemo } from 'react';
@@ -118,11 +118,20 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
   const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
 
   return (
-    <div className='h-screen'>
+    <div className='flex flex-col h-full'>
    
-    <div className="flex  bg-background w-full">
-        
-      <aside className="w-[280px] fixed top-[60px] border-r flex flex-col shrink-0 h-full">
+        <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-sm">
+                <div className="container mx-auto flex h-16 items-center justify-between px-4">
+                  <Link href="/" className="flex items-center gap-2">
+                    <Leaf className="h-7 w-7 text-primary" />
+                    <span className="text-2xl font-bold text-foreground hidden sm:inline">Signum</span>
+                  </Link>
+                  <Button asChild variant="ghost">
+                    <Link href="/sites">Dashboard</Link>
+                  </Button>
+                </div>
+              </header>
+      <aside className="w-[280px] border-r flex flex-col h-full fixed top-[60px] left-[60px]">
     
 
         <div className='flex w-full justify-between items-center border-b py-2 px-3'>
@@ -170,12 +179,11 @@ export default function EditSiteLayout({ children }: { children: React.ReactNode
             </Button>
         </div>
       </aside>
-      <div className='ml-[340px] w-full'>
+      <div className=' ml-[340px] flex-grow h-full'>
         <ErrorBoundary>
           {children}
         </ErrorBoundary>
         </div>
-    </div>
     </div>
   );
 }
