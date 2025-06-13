@@ -1,5 +1,5 @@
 // src/lib/localSiteFs.ts
-import { LocalSiteData, Manifest, ParsedMarkdownFile } from '@/types';
+import { LocalSiteData, Manifest, ParsedMarkdownFile, RawFile } from '@/types'; // Ensure RawFile is imported
 import localforage from 'localforage';
 import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
 
@@ -34,11 +34,49 @@ export async function loadAllSiteManifests(): Promise<Manifest[]> {
   return manifests;
 }
 
-// --- Function to get content files for a single site on demand ---
+/**
+ * Fetches the manifest for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<Manifest | null>} A Promise that resolves to the Manifest object, or null if not found.
+ */
+export async function getManifestById(siteId: string): Promise<Manifest | null> {
+  const manifest = await siteManifestsStore.getItem<Manifest>(siteId);
+  return manifest ?? null;
+}
+
+/**
+ * Fetches the content files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<ParsedMarkdownFile[]>} A Promise that resolves to an array of parsed markdown files.
+ */
 export async function getSiteContentFiles(siteId: string): Promise<ParsedMarkdownFile[]> {
     const contentFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId);
     return contentFiles ?? [];
 }
+
+// --- START OF NEW FUNCTIONS TO FIX THE ERRORS ---
+
+/**
+ * Fetches the custom layout files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<RawFile[]>} A Promise that resolves to an array of raw layout files.
+ */
+export async function getSiteLayoutFiles(siteId: string): Promise<RawFile[]> {
+    const layoutFiles = await siteLayoutFilesStore.getItem<RawFile[]>(siteId);
+    return layoutFiles ?? [];
+}
+
+/**
+ * Fetches the custom theme files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<RawFile[]>} A Promise that resolves to an array of raw theme files.
+ */
+export async function getSiteThemeFiles(siteId: string): Promise<RawFile[]> {
+    const themeFiles = await siteThemeFilesStore.getItem<RawFile[]>(siteId);
+    return themeFiles ?? [];
+}
+
+// --- END OF NEW FUNCTIONS ---
 
 
 export async function saveSite(siteData: LocalSiteData): Promise<void> {

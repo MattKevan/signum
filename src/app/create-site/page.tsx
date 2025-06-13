@@ -108,7 +108,7 @@ export default function CreateSitePage() {
     try {
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
-      router.push(`/edit/${newSiteId}/content/index`);
+      router.push(`/sites/${newSiteId}/edit/content/index`);
     } catch (error) {
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {

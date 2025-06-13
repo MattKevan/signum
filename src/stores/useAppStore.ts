@@ -1,119 +1,138 @@
 // src/stores/useAppStore.ts
 import { create } from 'zustand';
-import { produce } from 'immer';
+import { produce, enableMapSet } from 'immer';
 import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { getParentPath } from '@/lib/fileTreeUtils';
 import { DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
+import { toast } from 'sonner';
 
-/**
- * The interface for the main application store, extending the base state
- * with initialization and lazy-loading capabilities.
- */
+// Enable the Immer plugin for Map and Set support
+enableMapSet();
+
 interface AppStoreWithInit extends AppState {
-  /** A flag to track if the initial data has been loaded from storage. */
   isInitialized: boolean;
-  /** The action to initialize the store on application startup. */
+  loadingSites: Set<string>;
   initialize: () => Promise<void>;
-  /** The action to lazy-load content files for a specific site. */
-  loadContentForSite: (siteId: string) => Promise<void>;
-  /** A lightweight action for updating only the in-memory state of a content file, used for autosaving. */
+  loadSite: (siteId: string) => Promise<void>;
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => void;
 }
 
-/**
- * The main application store, created with Zustand.
- * This store manages the state of all user-created sites, handling all
- * CRUD (Create, Read, Update, Delete) operations and orchestrating the
- * interaction between the UI, the in-memory state, and the persistent
- * browser storage (`localforage`).
- */
 export const useAppStore = create<AppStoreWithInit>()(
   (set, get) => ({
     sites: [],
     isInitialized: false,
+    loadingSites: new Set(),
 
-    /**
-     * Initializes the store on application startup.
-     * This function performs a lightweight load, fetching only the manifests for all sites
-     * to ensure the application starts quickly. The actual content of each site is lazy-loaded later.
-     */
     initialize: async () => {
       if (get().isInitialized) return;
-      try {
-        const manifests = await localSiteFs.loadAllSiteManifests();
-        
-        const sites: LocalSiteData[] = manifests.map(manifest => ({
-          siteId: manifest.siteId,
-          manifest,
-        }));
-
-        set({ sites, isInitialized: true });
-      } catch (error) {
-        console.error("Failed to initialize app store:", error);
-        set({ isInitialized: true }); // Mark as initialized even on error to prevent loops
-      }
+      console.log('[AppStore] Initializing application state...');
+      set({ isInitialized: true });
     },
 
     /**
-     * Performs the on-demand lazy-loading of a site's content files.
-     * This is called when a user navigates to a specific site's context (e.g., editor or view).
-     * It fetches the content from storage and injects it into the site's state object.
-     * The function is idempotent and will not re-fetch content that is already loaded.
-     * @param {string} siteId - The unique identifier of the site whose content should be loaded.
+     * Ensures a site is fully loaded into the store using an atomic update.
+     * It fetches all necessary data first, then commits it to the store in a single update.
+     * @param {string} siteId - The unique identifier of the site to load.
      */
-    loadContentForSite: async (siteId: string) => {
-      const site = get().getSiteById(siteId);
-      if (!site || site.contentFiles) return; 
+    loadSite: async (siteId: string) => {
+      const state = get();
+      if (state.loadingSites.has(siteId)) {
+        console.log(`[AppStore.loadSite] Load already in progress for siteId: ${siteId}.`);
+        return;
+      }
+
+      const existingSite = state.getSiteById(siteId);
+      if (existingSite && existingSite.contentFiles) {
+        console.log(`[AppStore.loadSite] Site ${siteId} is already fully loaded.`);
+        return;
+      }
+      
+      console.log(`[AppStore.loadSite] Starting atomic load for siteId: ${siteId}...`);
+      set(produce((draft) => { draft.loadingSites.add(siteId); }));
 
       try {
+        // --- Step 1: Gather all required data asynchronously ---
+        const manifest = await localSiteFs.getManifestById(siteId);
+        if (!manifest) {
+          toast.error(`Site data could not be found for ID: ${siteId}`);
+          throw new Error(`Failed to load manifest for siteId: ${siteId}`);
+        }
+
         const contentFiles = await localSiteFs.getSiteContentFiles(siteId);
-        
+        const layoutFiles = await localSiteFs.getSiteLayoutFiles(siteId); // Also fetch layout/theme files
+        const themeFiles = await localSiteFs.getSiteThemeFiles(siteId);
+
+        // --- Step 2: Assemble the final, complete site object ---
+        const loadedSiteData: LocalSiteData = {
+          siteId,
+          manifest,
+          contentFiles,
+          layoutFiles,
+          themeFiles,
+        };
+
+        // --- Step 3: Commit the final state in a single, atomic update ---
         set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-          if (siteToUpdate) {
-            siteToUpdate.contentFiles = contentFiles;
+          const siteIndex = draft.sites.findIndex((s: LocalSiteData) => s.siteId === siteId);
+          if (siteIndex > -1) {
+            draft.sites[siteIndex] = loadedSiteData;
+          } else {
+            draft.sites.push(loadedSiteData);
           }
         }));
+
+        console.log(`[AppStore.loadSite] Atomic load successful for siteId: ${siteId}.`);
+
       } catch (error) {
-        console.error(`Failed to load content for site ${siteId}:`, error);
+        console.error(`[AppStore.loadSite] Error during atomic load for ${siteId}:`, error);
+      } finally {
+        console.log(`[AppStore.loadSite] Finished load process for siteId: ${siteId}.`);
+        set(produce((draft) => { draft.loadingSites.delete(siteId); }));
       }
     },
 
     /**
-     * Adds a new site to both the persistent storage and the application state.
-     * @param {LocalSiteData} newSiteData - The complete data object for the new site to be created.
+     * Adds a new site to persistent storage and then atomically updates the application state.
+     * @param {LocalSiteData} newSiteData - The complete data object for the new site.
      */
     addSite: async (newSiteData: LocalSiteData) => {
+      console.log(`[AppStore.addSite] Creating new site: "${newSiteData.manifest.title}" (ID: ${newSiteData.siteId})`);
+      
+      // --- Step 1: Perform the async operation ---
       await localSiteFs.saveSite(newSiteData);
-      set((state) => ({ sites: [...state.sites, newSiteData] }));
+      
+      // --- Step 2: Perform the atomic state update ---
+      set(produce((draft: AppStoreWithInit) => {
+        // Prevent duplicates in case of race conditions
+        if (!draft.sites.some((s: LocalSiteData) => s.siteId === newSiteData.siteId)) {
+          draft.sites.push(newSiteData);
+        }
+      }));
+      
+      console.log(`[AppStore.addSite] Site "${newSiteData.siteId}" successfully saved and added to state.`);
     },
 
     /**
      * Updates a site's manifest in both persistent storage and the current application state.
-     * This is used for changes to site-wide metadata, such as the title, description, or file structure.
      * @param {string} siteId - The ID of the site whose manifest is being updated.
      * @param {Manifest} newManifest - The new manifest object to save.
      */
     updateManifest: async (siteId: string, newManifest: Manifest) => {
+      console.log(`[AppStore.updateManifest] Updating manifest for siteId: ${siteId}`);
       await localSiteFs.saveManifest(siteId, newManifest);
       set(produce((draft: AppStoreWithInit) => {
-        const site = draft.sites.find((s) => s.siteId === siteId);
+        const site = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
         if (site) {
           site.manifest = newManifest;
         }
       }));
     },
     
-    /**
-     * A user-facing action to create a new collection within a site.
-     * It constructs the new collection node, updates the manifest structure, and persists the change.
-     * @param {string} siteId - The ID of the parent site.
-     * @param {string} name - The display name for the new collection.
-     * @param {string} slug - The URL-friendly slug for the collection folder.
-     * @param {string} layout - The path to the layout to be used for this collection's listing page.
-     */
+    // ... (The rest of the store actions (addNewCollection, updateContentFileOnly, etc.) remain the same as they were already correct) ...
+
     addNewCollection: async (siteId: string, name: string, slug: string, layout: string) => {
+      console.log(`[AppStore.addNewCollection] Adding collection "${name}" to site ${siteId}`);
       const site = get().getSiteById(siteId);
       if (!site) return;
 
@@ -135,18 +154,13 @@ export const useAppStore = create<AppStoreWithInit>()(
       await get().updateManifest(siteId, newManifest);
     },
     
-    /**
-     * Performs a lightweight, in-memory update of a single content file's state.
-     * This is used by the autosave feature to keep the UI in sync without the overhead
-     * of updating the manifest on every change. It does NOT persist the manifest.
-     * @param {string} siteId - The ID of the site being edited.
-     * @param {ParsedMarkdownFile} savedFile - The parsed content file object to update in the state.
-     */
     updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => {
         set(produce((draft: AppStoreWithInit) => {
-            const site = draft.sites.find(s => s.siteId === siteId);
-            // Guard against the content not being loaded yet.
-            if (!site?.contentFiles) return;
+            const site = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
+            if (!site?.contentFiles) {
+              console.warn(`[AppStore.updateContentFileOnly] Attempted to update file, but content for site ${siteId} is not loaded. Aborting.`);
+              return;
+            }
 
             const fileIndex = site.contentFiles.findIndex(f => f.path === savedFile.path);
             if (fileIndex !== -1) {
@@ -157,23 +171,14 @@ export const useAppStore = create<AppStoreWithInit>()(
         }));
     },
 
-    /**
-     * Handles the complete save/update process for a content file. This is a "heavy" operation
-     * that persists the file to storage, updates the manifest structure, updates the in-memory
-     * state for both the file and the manifest, and finally persists the updated manifest.
-     * @param {string} siteId - The ID of the site.
-     * @param {string} filePath - The path of the file to save (e.g., 'content/posts/my-post.md').
-     * @param {string} rawMarkdownContent - The full string content of the file.
-     * @param {string} layoutId - The ID of the layout associated with this content file.
-     * @returns {Promise<boolean>} A promise that resolves to true on success.
-     */
     addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string): Promise<boolean> => {
+      console.log(`[AppStore.addOrUpdateContentFile] Saving file "${filePath}" for site ${siteId}.`);
       const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
       
       const site = get().getSiteById(siteId);
-      if (!site) return false;
+      if (!site || !site.contentFiles) return false;
 
-      const isNewFile = !site.contentFiles?.some(f => f.path === filePath);
+      const isNewFile = !site.contentFiles.some(f => f.path === filePath);
 
       const newManifest = produce(site.manifest, draft => {
           let parentFound = false;
@@ -200,7 +205,7 @@ export const useAppStore = create<AppStoreWithInit>()(
       });
       
       set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          const siteToUpdate = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
           if (siteToUpdate) {
               if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
 
@@ -218,24 +223,16 @@ export const useAppStore = create<AppStoreWithInit>()(
       return true;
     },
         
-    /**
-     * Permanently deletes an entire site from both persistent storage and the application state.
-     * @param {string} siteId - The ID of the site to delete.
-     */
     deleteSiteAndState: async (siteId: string) => {
+        console.warn(`[AppStore.deleteSiteAndState] DELETING siteId: ${siteId}`);
         await localSiteFs.deleteSite(siteId);
         set(state => ({
-            sites: state.sites.filter(s => s.siteId !== siteId),
+            sites: state.sites.filter((s: LocalSiteData) => s.siteId !== siteId),
         }));
     },
 
-    /**
-     * Deletes a single content file from storage, updates the site manifest to remove
-     * its entry, and syncs the state to reflect these changes.
-     * @param {string} siteId - The ID of the site containing the file.
-     * @param {string} filePath - The path of the content file to delete.
-     */
     deleteContentFileAndState: async (siteId: string, filePath: string) => {
+      console.warn(`[AppStore.deleteContentFileAndState] DELETING file "${filePath}" from site ${siteId}`);
       const site = get().getSiteById(siteId);
       if (!site) return;
 
@@ -256,7 +253,7 @@ export const useAppStore = create<AppStoreWithInit>()(
       await localSiteFs.saveManifest(siteId, newManifest);
       
       set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          const siteToUpdate = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
           if(siteToUpdate) {
             if (siteToUpdate.contentFiles) {
                 siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
@@ -266,13 +263,8 @@ export const useAppStore = create<AppStoreWithInit>()(
       }));
     },
 
-    /**
-     * A synchronous getter to retrieve a site's data object from the current state by its ID.
-     * @param {string} siteId - The ID of the site to retrieve.
-     * @returns {LocalSiteData | undefined} The site data object, or undefined if not found in the state.
-     */
     getSiteById: (siteId: string): LocalSiteData | undefined => {
-      return get().sites.find((s) => s.siteId === siteId);
+      return get().sites.find((s: LocalSiteData) => s.siteId === siteId);
     },
   })
 );
