@@ -2,7 +2,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useEditor } from '@/contexts/EditorContext';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useUIStore } from '@/stores/uiStore';
@@ -22,8 +22,11 @@ import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
-// This sub-component renders the right sidebar UI for editing collection settings.
-const CollectionSettingsSidebar = ({
+/**
+ * A sub-component that renders the right sidebar UI for editing collection settings.
+ * It is memoized to prevent re-renders unless its specific props change.
+ */
+const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar({
     collectionNodeData,
     availableLayouts,
     layoutManifest,
@@ -37,8 +40,7 @@ const CollectionSettingsSidebar = ({
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
     onFormChange: (data: Partial<StructureNode>) => void,
-}) => {
-    // Extract fields that are handled by dedicated components vs. the generic form.
+}) {
     const { title, description, ...otherFields } = collectionNodeData;
     const primaryFields = {
         title: typeof title === 'string' ? title : '',
@@ -84,59 +86,74 @@ const CollectionSettingsSidebar = ({
             </div>
         </div>
     );
-};
+});
 
+
+/**
+ * The main page component for editing a collection's settings and viewing its items.
+ * It relies on the parent `SiteLoaderLayout` to command the loading of site data
+ * and reacts to that data becoming available in the `useAppStore`.
+ */
 export default function EditCollectionPage() {
     const params = useParams();
     const router = useRouter();
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
     
+    // --- Context and Store Hooks ---
     const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction, setLeftSidebar, setRightSidebar } = useEditor();
     const { setLeftAvailable, setRightAvailable } = useUIStore((state) => state.sidebar);
     
+    // Subscribe to the site data. This component will re-render when the data is loaded by the parent layout.
     const site = useAppStore(state => state.getSiteById(siteId));
-    const loadContentForSite = useAppStore((state) => state.loadContentForSite);
-    const { updateManifest } = useAppStore.getState();
+    const updateManifest = useAppStore(state => state.updateManifest);
 
-    // State to manage the loading process and prevent rendering until data is ready.
+    // --- Component State ---
     const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
     const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutInfo[]>([]);
 
     const collectionPath = `content/${collectionName}`;
+
     const originalCollectionNode = useMemo(() => {
         if (!site?.manifest) return undefined;
         return site.manifest.structure.find((node: StructureNode) => node.path === collectionPath);
     }, [site?.manifest, collectionPath]);
     
-    // Effect 1: The main data orchestrator. It triggers lazy-loading and sets the initial state.
+    /**
+     * This is the main data orchestrator effect. It *reacts* to the `site` data from the store.
+     * It does NOT command data loading.
+     */
     useEffect(() => {
-        async function loadData() {
-            if (!site) return; // Wait for the manifest to be loaded first.
-
-            // *** THE KEY FIX ***
-            // If content isn't loaded, trigger the load and wait for the hook to re-run.
-            if (!site.contentFiles) {
-                await loadContentForSite(siteId);
-                return; // Let the hook re-run after the store updates with content.
-            }
-
-            // At this point, contentFiles are guaranteed to be loaded.
-            if (originalCollectionNode) {
-                setCollectionNodeData(originalCollectionNode);
-                setHasUnsavedChanges(false);
-                setIsDataReady(true); // Data is ready, we can now render.
-            } else if (site.contentFiles) {
-                // If content is loaded but we still can't find the node, it's a 404.
-                toast.error(`Collection "${collectionName}" not found.`);
-                router.push(`/sites/${siteId}/edit`);
-            }
+        // Guard 1: Wait for the site manifest to be loaded by the parent layout.
+        if (!site?.manifest) {
+            console.log(`[EditCollectionPage] Waiting for site manifest for ${siteId}...`);
+            return;
         }
-        loadData();
-    }, [site, originalCollectionNode, collectionName, siteId, router, loadContentForSite, setHasUnsavedChanges]);
 
+        // Guard 2: Wait for the site content to be loaded by the parent layout.
+        if (!site.contentFiles) {
+            console.log(`[EditCollectionPage] Waiting for site content files for ${siteId}...`);
+            // The UI will show a loading indicator because isDataReady is false.
+            return;
+        }
+
+        // --- Data is now guaranteed to be loaded ---
+        console.log(`[EditCollectionPage] All required site data is loaded for ${siteId}.`);
+        if (originalCollectionNode) {
+            setCollectionNodeData(originalCollectionNode);
+            setHasUnsavedChanges(false);
+            setIsDataReady(true); // Data is ready, we can now render the full UI.
+        } else {
+            // If content is loaded but we still can't find the node, it's a 404.
+            toast.error(`Collection "${collectionName}" not found.`);
+            router.push(`/sites/${siteId}/edit`);
+        }
+    }, [site, originalCollectionNode, collectionName, siteId, router, setHasUnsavedChanges]);
+
+
+    // --- Handlers (Memoized for performance) ---
     const handleFormChange = useCallback((data: Partial<StructureNode>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasUnsavedChanges(true);
@@ -154,7 +171,7 @@ export default function EditCollectionPage() {
 
     const handleSaveChanges = useCallback(async () => {
         if (!site?.manifest || !collectionNodeData) {
-            throw new Error("Cannot save, data not found.");
+            throw new Error("Cannot save, essential data not found.");
         }
         const newStructure = site.manifest.structure.map((node: StructureNode) =>
             node.path === collectionPath ? collectionNodeData : node
@@ -165,6 +182,7 @@ export default function EditCollectionPage() {
         toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
     }, [site?.manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
 
+    // --- Effect for registering save action and autosave ---
     useEffect(() => {
         registerSaveAction(handleSaveChanges);
     }, [handleSaveChanges, registerSaveAction]);
@@ -176,6 +194,7 @@ export default function EditCollectionPage() {
         onSave: handleSaveChanges,
     });
     
+    // --- Effects for loading schemas and setting up sidebars ---
     useEffect(() => {
         if(site?.manifest) {
             const allLayouts = getAvailableLayouts(site.manifest);
@@ -194,7 +213,6 @@ export default function EditCollectionPage() {
         loadSchema();
     }, [collectionNodeData?.layout, site?.manifest, site?.layoutFiles, site?.themeFiles]);
 
-    // This effect manages setting the sidebars. It depends on `collectionNodeData` which is only set when ready.
     useEffect(() => {
         setLeftAvailable(true);
         setLeftSidebar(<LeftSidebar />);
@@ -222,17 +240,18 @@ export default function EditCollectionPage() {
         };
     }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
     
+    
     // --- RENDER GUARD ---
-    // This is the crucial fix. We show a loading state until `isDataReady` is true.
+    // This is the crucial fix. We show a loading state until isDataReady is true.
     if (!isDataReady || !collectionNodeData) {
-        return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection Content...</p></div>;
+        return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection...</p></div>;
     }
 
-    // Main component render, safe to access all data now.
+    // --- Main Component Render ---
     return (
         <div className="h-full flex flex-col p-6">
             <div className="flex shrink-0 items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold">Editing Collection: {originalCollectionNode?.title}</h1>
+                <h1 className="text-3xl font-bold truncate pr-4">Editing: {originalCollectionNode?.title}</h1>
                 <Button asChild>
                     <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
                         <PlusCircle className="mr-2 h-4 w-4" /> New Item
