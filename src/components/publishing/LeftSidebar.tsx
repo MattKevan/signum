@@ -1,3 +1,4 @@
+// src/components/publishing/LeftSidebar.tsx
 'use client';
 
 import Link from 'next/link';
@@ -12,7 +13,7 @@ import FileTree from '@/components/publishing/FileTree';
 import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
 
 // --- Type, Util, and Config Imports ---
-import type { StructureNode, LayoutInfo } from '@/types';
+import type { StructureNode, LayoutInfo, ParsedMarkdownFile } from '@/types'; // Added ParsedMarkdownFile
 import { getAvailableLayouts } from '@/lib/configHelpers';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -35,13 +36,11 @@ export default function LeftSidebar() {
   // --- State & Store Hooks ---
   const [activePath, setActivePath] = useState<string | undefined>();
   
-  // --- CORRECTED STATE SELECTION ---
-  // Select each piece of state individually. This is type-safe and performant.
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
   const isDesktop = useUIStore((state) => state.screen.isDesktop);
-  // --- END CORRECTION ---
 
+  // FIX: Changed `getById` to the correct `getSiteById`
   const site = useAppStore((state) => state.getSiteById(siteId));
   const addNewCollection = useAppStore((state) => state.addNewCollection);
   const updateManifest = useAppStore((state) => state.updateManifest);
@@ -54,12 +53,16 @@ export default function LeftSidebar() {
     return getAvailableLayouts(site.manifest).filter((l: LayoutInfo) => l.type === 'collection');
   }, [site?.manifest]);
 
-  const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map(c => c.slug) || [], [site?.manifest.structure]);
+  // FIX: Explicitly typed `c` as `StructureNode` to resolve implicit 'any' error.
+  const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map((c: StructureNode) => c.slug) || [], [site?.manifest.structure]);
 
   // --- Effects ---
   // Determines which file/collection is currently active based on the URL
   useEffect(() => {
-    if (!site) return;
+    // Guard to ensure contentFiles is loaded before proceeding.
+    if (!site || !site.contentFiles) {
+      return;
+    }
 
     const pathSegments = pathname.split('/');
     let currentPath = '';
@@ -70,12 +73,16 @@ export default function LeftSidebar() {
     } else if (pathname.includes('/edit/content/')) {
         const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
         const pathWithExt = `content/${contentSlug}.md`;
-        currentPath = site.contentFiles.find(f => f.path === pathWithExt)?.path || pathWithExt;
+        
+        // FIX: Explicitly typed `f` as `ParsedMarkdownFile` to resolve implicit 'any' error.
+        currentPath = site.contentFiles.find((f: ParsedMarkdownFile) => f.path === pathWithExt)?.path || pathWithExt;
     } else {
+        // Fallback for root edit pages that redirect
         currentPath = 'content/index.md';
     }
     setActivePath(currentPath);
-  }, [pathname, site]);
+    
+  }, [pathname, site, site?.contentFiles]);
 
   // --- Handlers ---
   const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
@@ -99,10 +106,10 @@ export default function LeftSidebar() {
     if (!isDesktop) toggleLeftSidebar();
   }, [site, siteId, addNewCollection, router, isDesktop, toggleLeftSidebar]);
 
+  // Render a loading state or null if the site manifest hasn't even loaded yet.
   if (!site) {
     return null;
   }
-
 
   return (
     <>
@@ -120,7 +127,7 @@ export default function LeftSidebar() {
       {/* The main sidebar container */}
       <div
         className={cn(
-          'flex h-full flex-col' // The container is simpler now
+          'flex h-full flex-col'
         )}
       >
         <div className="flex px-3 py-1 shrink-0 items-center justify-between border-b ">

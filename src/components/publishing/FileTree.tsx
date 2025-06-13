@@ -4,13 +4,13 @@
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { type StructureNode } from '@/types';
-import { PlusSquare, GripVertical, ChevronRight } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { GripVertical, ChevronRight } from 'lucide-react';
+
 import { cn } from '@/lib/utils';
 import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { TbFileDescription, TbLayoutGrid, TbSquareDashed, TbSquarePlus } from "react-icons/tb";
+import { TbFileDescription, TbLayoutGrid } from "react-icons/tb";
 interface FileTreeProps {
   nodes: StructureNode[];
   baseEditPath: string;

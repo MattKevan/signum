@@ -25,7 +25,6 @@ export interface LayoutInfo {
   id: string;
   name: string;
   type: 'page' | 'collection';
-  // Path is RELATIVE to the site's `_signum/layouts` directory
   path: string; 
   description?: string;
 }
@@ -34,7 +33,6 @@ export interface LayoutInfo {
 export interface ThemeInfo {
   id: string;
   name: string;
-  // Path is RELATIVE to the site's `_signum/themes` directory
   path: string; 
 }
 
@@ -70,8 +68,7 @@ export interface NavLinkItem {
 // Represents the fields within a content file's frontmatter.
 export interface MarkdownFrontmatter {
   title: string;
-  // This allows any other string key, accommodating custom frontmatter.
-  [key: string]: unknown; // 'unknown' is safer than 'any'. It forces type checks.
+  [key: string]: unknown; 
 }
 
 export interface RawFile {
@@ -79,11 +76,11 @@ export interface RawFile {
   content: string; // The raw text content of the file
 }
 
-// The complete data for a site held in the app's state.
+
 export interface LocalSiteData {
   siteId: string;
   manifest: Manifest;
-  contentFiles: ParsedMarkdownFile[];
+  contentFiles?: ParsedMarkdownFile[]; 
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
 }

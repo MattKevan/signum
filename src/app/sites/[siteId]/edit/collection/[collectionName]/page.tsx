@@ -1,12 +1,12 @@
+// src/app/sites/[siteId]/edit/collection/[collectionName]/page.tsx
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState, useEffect, useCallback } from 'react';
-import { useLayout } from '@/contexts/LayoutContext';
+import { useEditor } from '@/contexts/EditorContext';
+import { useAutosave } from '@/hooks/useAutosave';
 import { useUIStore } from '@/stores/uiStore';
 import { useAppStore } from '@/stores/useAppStore';
-
-// --- Component Imports ---
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -14,41 +14,37 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
 import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
-
-// --- Type, Util, and Config Imports ---
 import { toast } from 'sonner';
-import { FileText, PlusCircle, Save } from 'lucide-react';
+import { FileText, PlusCircle } from 'lucide-react';
 import type { StructureNode, LayoutInfo, MarkdownFrontmatter, LocalSiteData } from '@/types';
 import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/lib/configHelpers';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
-// A helper type for the stable data we need for the sidebar
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
+// This sub-component renders the right sidebar UI for editing collection settings.
 const CollectionSettingsSidebar = ({
     collectionNodeData,
     availableLayouts,
     layoutManifest,
-    hasChanges,
     onLayoutChange,
     onPrimaryFieldsChange,
     onFormChange,
-    onSaveChanges
 }: {
     collectionNodeData: StructureNode,
     availableLayouts: LayoutInfo[],
     layoutManifest: LayoutManifest | null,
-    hasChanges: boolean,
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
     onFormChange: (data: Partial<StructureNode>) => void,
-    onSaveChanges: () => void,
 }) => {
+    // Extract fields that are handled by dedicated components vs. the generic form.
     const { title, description, ...otherFields } = collectionNodeData;
     const primaryFields = {
         title: typeof title === 'string' ? title : '',
         description: typeof description === 'string' ? description : '',
     };
+
     return (
         <div className="flex h-full flex-col p-4">
             <div className="flex-grow space-y-6">
@@ -86,12 +82,6 @@ const CollectionSettingsSidebar = ({
                     )}
                 </div>
             </div>
-            <div className="mt-auto pt-4">
-                <Button onClick={onSaveChanges} disabled={!hasChanges} className="w-full">
-                    <Save className="mr-2 h-4 w-4" />
-                    {hasChanges ? 'Save Settings' : 'Settings up to date'}
-                </Button>
-            </div>
         </div>
     );
 };
@@ -102,98 +92,109 @@ export default function EditCollectionPage() {
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
     
-    // --- Store and Context Hooks ---
-    const { setLeftSidebar, setRightSidebar } = useLayout();
-    const setLeftAvailable = useUIStore((state) => state.sidebar.setLeftAvailable);
-    const setRightAvailable = useUIStore((state) => state.sidebar.setRightAvailable);
+    const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction, setLeftSidebar, setRightSidebar } = useEditor();
+    const { setLeftAvailable, setRightAvailable } = useUIStore((state) => state.sidebar);
     
-    // --- START OF FIX: Select stable data individually ---
-    const manifest = useAppStore(state => state.getSiteById(siteId)?.manifest);
-    const layoutFiles = useAppStore(state => state.getSiteById(siteId)?.layoutFiles);
-    const themeFiles = useAppStore(state => state.getSiteById(siteId)?.themeFiles);
+    const site = useAppStore(state => state.getSiteById(siteId));
+    const loadContentForSite = useAppStore((state) => state.loadContentForSite);
     const { updateManifest } = useAppStore.getState();
-    // --- END OF FIX ---
 
-    // --- State Management ---
-    const collectionPath = `content/${collectionName}`;
+    // State to manage the loading process and prevent rendering until data is ready.
+    const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
     const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutInfo[]>([]);
-    const [hasChanges, setHasChanges] = useState(false);
 
+    const collectionPath = `content/${collectionName}`;
     const originalCollectionNode = useMemo(() => {
-        // --- FIX: Use the individually selected `manifest` ---
-        return manifest?.structure.find((node: StructureNode) => node.path === collectionPath);
-    }, [manifest?.structure, collectionPath]);
+        if (!site?.manifest) return undefined;
+        return site.manifest.structure.find((node: StructureNode) => node.path === collectionPath);
+    }, [site?.manifest, collectionPath]);
+    
+    // Effect 1: The main data orchestrator. It triggers lazy-loading and sets the initial state.
+    useEffect(() => {
+        async function loadData() {
+            if (!site) return; // Wait for the manifest to be loaded first.
 
-    // --- Handlers (wrapped in useCallback for stability) ---
+            // *** THE KEY FIX ***
+            // If content isn't loaded, trigger the load and wait for the hook to re-run.
+            if (!site.contentFiles) {
+                await loadContentForSite(siteId);
+                return; // Let the hook re-run after the store updates with content.
+            }
+
+            // At this point, contentFiles are guaranteed to be loaded.
+            if (originalCollectionNode) {
+                setCollectionNodeData(originalCollectionNode);
+                setHasUnsavedChanges(false);
+                setIsDataReady(true); // Data is ready, we can now render.
+            } else if (site.contentFiles) {
+                // If content is loaded but we still can't find the node, it's a 404.
+                toast.error(`Collection "${collectionName}" not found.`);
+                router.push(`/sites/${siteId}/edit`);
+            }
+        }
+        loadData();
+    }, [site, originalCollectionNode, collectionName, siteId, router, loadContentForSite, setHasUnsavedChanges]);
+
     const handleFormChange = useCallback((data: Partial<StructureNode>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
-        setHasChanges(true);
-    }, []);
+        setHasUnsavedChanges(true);
+    }, [setHasUnsavedChanges]);
 
     const handlePrimaryFieldsChange = useCallback((data: Partial<MarkdownFrontmatter>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
-        setHasChanges(true);
-    }, []);
+        setHasUnsavedChanges(true);
+    }, [setHasUnsavedChanges]);
 
     const handleLayoutChange = useCallback((newLayoutPath: string) => {
-        setCollectionNodeData(prev => prev ? { 
-            ...prev, 
-            layout: newLayoutPath,
-            itemLayout: DEFAULT_PAGE_LAYOUT_PATH
-        } : null);
-        setHasChanges(true);
-    }, []);
+        setCollectionNodeData(prev => prev ? { ...prev, layout: newLayoutPath, itemLayout: DEFAULT_PAGE_LAYOUT_PATH } : null);
+        setHasUnsavedChanges(true);
+    }, [setHasUnsavedChanges]);
 
     const handleSaveChanges = useCallback(async () => {
-        if (!manifest || !collectionNodeData) {
-            toast.error("Cannot save, data not found.");
-            return;
+        if (!site?.manifest || !collectionNodeData) {
+            throw new Error("Cannot save, data not found.");
         }
-        // --- FIX: Use the individually selected `manifest` and type `node` ---
-        const newStructure = manifest.structure.map((node: StructureNode) =>
+        const newStructure = site.manifest.structure.map((node: StructureNode) =>
             node.path === collectionPath ? collectionNodeData : node
         );
-        const newManifest = { ...manifest, structure: newStructure };
-        try {
-            await updateManifest(siteId, newManifest);
-            setHasChanges(false);
-            toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
-        } catch (error) {
-            toast.error(`Failed to update collection: ${(error as Error).message}`);
-        }
-    }, [manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
+        const newManifest = { ...site.manifest, structure: newStructure };
+        
+        await updateManifest(siteId, newManifest);
+        toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
+    }, [site?.manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
 
-    // --- Effects ---
     useEffect(() => {
-        if (originalCollectionNode) {
-            setCollectionNodeData(originalCollectionNode);
-            setHasChanges(false);
-        } else if (manifest) {
-            toast.error(`Collection "${collectionName}" not found.`);
-            router.push(`/sites/${siteId}/edit`);
-        }
-    }, [originalCollectionNode, manifest, collectionName, siteId, router]);
+        registerSaveAction(handleSaveChanges);
+    }, [handleSaveChanges, registerSaveAction]);
+    
+    useAutosave<StructureNode | null>({
+        dataToSave: collectionNodeData,
+        hasUnsavedChanges,
+        isSaveable: !!collectionNodeData,
+        onSave: handleSaveChanges,
+    });
     
     useEffect(() => {
-        if(manifest) {
-            const allLayouts = getAvailableLayouts(manifest);
+        if(site?.manifest) {
+            const allLayouts = getAvailableLayouts(site.manifest);
             setAvailableLayouts(allLayouts.filter((l: LayoutInfo) => l.type === 'collection'));
         }
-    }, [manifest]);
+    }, [site?.manifest]);
 
     useEffect(() => {
         async function loadSchema() {
-            if (manifest && layoutFiles && themeFiles && collectionNodeData?.layout) {
-                const siteForAssets: StableSiteDataForSidebar = { manifest, layoutFiles, themeFiles };
+            if (site?.manifest && site.layoutFiles && site.themeFiles && collectionNodeData?.layout) {
+                const siteForAssets: StableSiteDataForSidebar = { manifest: site.manifest, layoutFiles: site.layoutFiles, themeFiles: site.themeFiles };
                 const loadedManifest = await getLayoutManifest(siteForAssets, collectionNodeData.layout);
                 setLayoutManifest(loadedManifest);
             }
         }
         loadSchema();
-    }, [collectionNodeData?.layout, manifest, layoutFiles, themeFiles]);
+    }, [collectionNodeData?.layout, site?.manifest, site?.layoutFiles, site?.themeFiles]);
 
+    // This effect manages setting the sidebars. It depends on `collectionNodeData` which is only set when ready.
     useEffect(() => {
         setLeftAvailable(true);
         setLeftSidebar(<LeftSidebar />);
@@ -204,11 +205,9 @@ export default function EditCollectionPage() {
                     collectionNodeData={collectionNodeData}
                     availableLayouts={availableLayouts}
                     layoutManifest={layoutManifest}
-                    hasChanges={hasChanges}
                     onLayoutChange={handleLayoutChange}
                     onPrimaryFieldsChange={handlePrimaryFieldsChange}
                     onFormChange={handleFormChange}
-                    onSaveChanges={handleSaveChanges}
                 />
             );
         } else {
@@ -221,14 +220,15 @@ export default function EditCollectionPage() {
             setLeftSidebar(null);
             setRightSidebar(null);
         };
-    // --- FIX: Added all missing function dependencies ---
-    }, [collectionNodeData, availableLayouts, layoutManifest, hasChanges, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, handleSaveChanges, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
+    }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
     
-    // --- Render Logic ---
-    if (!manifest || !collectionNodeData) {
-        return <div className="p-6">Loading collection data...</div>;
+    // --- RENDER GUARD ---
+    // This is the crucial fix. We show a loading state until `isDataReady` is true.
+    if (!isDataReady || !collectionNodeData) {
+        return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection Content...</p></div>;
     }
 
+    // Main component render, safe to access all data now.
     return (
         <div className="h-full flex flex-col p-6">
             <div className="flex shrink-0 items-center justify-between mb-4">

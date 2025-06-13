@@ -1,3 +1,4 @@
+// src/components/publishing/FrontmatterSidebar.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -8,24 +9,9 @@ import { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Trash2, Save } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
+import { Trash2 } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 
 interface FrontmatterSidebarProps {
   site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
@@ -36,19 +22,12 @@ interface FrontmatterSidebarProps {
   slug: string;
   onSlugChange: (newSlug: string) => void;
   onDelete: () => Promise<void>;
-  onSave: () => Promise<void>;
+  // --- FIX: The onSave prop is removed as the header now controls saving ---
 }
 
 export default function FrontmatterSidebar({
-  site,
-  layoutPath,
-  frontmatter,
-  onFrontmatterChange,
-  isNewFileMode,
-  slug,
-  onSlugChange,
-  onDelete,
-  onSave
+  site, layoutPath, frontmatter, onFrontmatterChange,
+  isNewFileMode, slug, onSlugChange, onDelete
 }: FrontmatterSidebarProps) {
   
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
@@ -74,85 +53,73 @@ export default function FrontmatterSidebar({
   }, [site, layoutPath]);
   
   if (isLoading) {
-    return (
-      <div className="p-4 flex items-center justify-center">
-        <p className="text-sm text-muted-foreground">Loading settings...</p>
-      </div>
-    );
+    return <div className="p-4 flex items-center justify-center"><p className="text-sm text-muted-foreground">Loading settings...</p></div>;
   }
 
    return (
-    <div>
-      <div className='py-4 px-3'>
-      <Button onClick={onSave} className="w-full">
-        <Save className="h-4 w-4 mr-2" /> Save Changes
-      </Button>
-
-      </div>
+    <div className="p-4 space-y-6">
+      {/* --- FIX: The save button is completely removed from this component --- */}
 
       {schema && Object.keys(schema.properties || {}).length > 0 ? (
-            <GroupedFrontmatterFields
-                schema={schema}
-                uiSchema={uiSchema}
-                formData={frontmatter}
-                onFormChange={onFrontmatterChange}
-            />
+        <GroupedFrontmatterFields
+            schema={schema}
+            uiSchema={uiSchema}
+            formData={frontmatter}
+            onFormChange={onFrontmatterChange}
+        />
       ) : (
         <div className="text-sm text-muted-foreground p-3 rounded-md text-center border-dashed border">
             <p>No additional settings for this layout.</p>
         </div>
       )}
-            <Accordion type='single' collapsible>
 
-<AccordionItem value="item-1">                <AccordionTrigger>
-                  Config
-                </AccordionTrigger>
-                <AccordionContent>
-<div className="space-y-2">
-        <Label htmlFor="slug-input">URL Slug</Label>
-        <Input 
-            id="slug-input"
-            value={slug}
-            onChange={(e) => onSlugChange(e.target.value)}
-            disabled={!isNewFileMode}
-            className={!isNewFileMode ? 'bg-muted/50' : ''}
-        />
-        <p className="text-xs text-muted-foreground">
-          {isNewFileMode 
-            ? "Auto-generates from title." 
-            : "URL cannot be changed."}
-        </p>
-      </div>
-{!isNewFileMode && (
-    
-              <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                      <Button variant="outline" className="w-full mt-6 text-red-500">
-                          <Trash2 className="h-4 w-4 mr-2" /> Delete page
-                      </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent> 
-                      <AlertDialogHeader>
-                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
-                          </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90">
-                              Yes, Delete
-                          </AlertDialogAction>
-                      </AlertDialogFooter>
-                  </AlertDialogContent>
-              </AlertDialog>
-      )}
-                </AccordionContent>
-                </AccordionItem>
-                </Accordion>
-      
-          </div>
-
-    // --- END OF FIX ---
+      <Accordion type='single' collapsible className="w-full">
+        <AccordionItem value="item-1">
+          <AccordionTrigger>Advanced</AccordionTrigger>
+          <AccordionContent>
+            <div className="space-y-4 pt-4">
+              <div className="space-y-2">
+                <Label htmlFor="slug-input">URL Slug</Label>
+                <Input 
+                    id="slug-input"
+                    value={slug}
+                    onChange={(e) => onSlugChange(e.target.value)}
+                    disabled={!isNewFileMode}
+                    className={!isNewFileMode ? 'bg-muted/50' : ''}
+                />
+                <p className="text-xs text-muted-foreground">
+                  {isNewFileMode 
+                    ? "Auto-generates from title." 
+                    : "URL cannot be changed after creation."}
+                </p>
+              </div>
+              {!isNewFileMode && (
+                <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                        <Button variant="outline" className="w-full mt-6 text-destructive hover:text-destructive">
+                            <Trash2 className="h-4 w-4 mr-2" /> Delete This Page
+                        </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent> 
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                            <AlertDialogDescription>
+                              This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
+                            </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90">
+                                Yes, Delete Forever
+                            </AlertDialogAction>
+                        </AlertDialogFooter>
+                    </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+    </div>
   );
 }

@@ -9,25 +9,43 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/lib/siteExporter';
 import { slugify } from '@/lib/utils';
-import { Eye, PanelLeft, UploadCloud, PanelRight } from 'lucide-react';
+// --- CHANGE: Import new context and icons ---
+import { useEditor } from '@/contexts/EditorContext';
+import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
 import Image from 'next/image';
+
+const SaveButton = () => {
+  const { saveState, triggerSave } = useEditor();
+
+  const buttonContent = {
+    idle: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
+    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving...' },
+    saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
+    no_changes: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
+  };
+
+  const current = buttonContent[saveState];
+  const isDisabled = saveState === 'saving' || saveState === 'saved' || saveState === 'no_changes';
+
+  return (
+    <Button onClick={triggerSave} disabled={isDisabled}>
+      {current.icon}
+      <span className='hidden md:block'>{current.text}</span>
+    </Button>
+  );
+};
+
 
 export default function EditorHeader() {
   const params = useParams();
   const siteId = params.siteId as string;
-
   const [isPublishing, setIsPublishing] = useState(false);
-
-  // --- Get data and actions from our stores ---
   const site = useAppStore((state) => state.getSiteById(siteId));
   
-  // --- START OF FIX ---
-  // Select each piece of state individually to prevent re-render loops.
   const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
   const toggleRightSidebar = useUIStore((state) => state.sidebar.toggleRightSidebar);
   const isLeftAvailable = useUIStore((state) => state.sidebar.isLeftAvailable);
   const isRightAvailable = useUIStore((state) => state.sidebar.isRightAvailable);
-  // --- END OF FIX ---
 
 
   const handlePublishSite = async () => {
@@ -90,6 +108,7 @@ export default function EditorHeader() {
       </div>
       
       <div className="flex items-center justify-end gap-2">
+        <SaveButton />
         <Button variant="outline" asChild>
             <Link href={`/sites/${siteId}/view`} target="_blank">
                 <Eye className="h-4 w-4" /> <span className='hidden md:block '>View</span>
