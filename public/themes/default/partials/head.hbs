@@ -1,14 +1,16 @@
 {{! src/partials/head.hbs }}
 <head>
-    <meta charset="UTF--8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-    {{!-- =================================================================
-        SEO & META TAGS
-        - Uses page-specific data first, then falls back to site-wide data.
-        - Assumes a `baseUrl` is configured in the site manifest for full URLs.
-    ================================================================== --}}
     <title>{{pageTitle}} | {{manifest.title}}</title>
+    
+    {{!-- SEO Tags --}}
+    {{!-- The canonical URL is now fully constructed by the theme engine for safety --}}
+    <link rel="canonical" href="{{canonicalUrl}}">
+    
+    {{!-- Other meta/OpenGraph/Twitter tags would also use the full canonicalUrl --}}
+    <meta property="og:url" content="{{canonicalUrl}}">
+
     
     {{#if contentFile.frontmatter.description}}
         <meta name="description" content="{{contentFile.frontmatter.description}}">
@@ -17,9 +19,6 @@
     {{else}}
         <meta name="description" content="{{manifest.description}}">
     {{/if}}
-
-    {{!-- The canonical URL should be the full, absolute URL to the page --}}
-    <link rel="canonical" href="{{manifest.baseUrl}}{{../pageUrl}}">
 
     {{!-- Open Graph Tags (for Facebook, LinkedIn, etc.) --}}
     <meta property="og:title" content="{{pageTitle}}">
@@ -52,10 +51,13 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-    {{!-- =================================================================
-        STYLESHEETS & SCRIPTS
-        - These are automatically injected by the Signum theme engine.
-    ================================================================== --}}
-    {{{assetTags}}}
+     {{!-- 1. Core CSS Toolkit (Tachyons) from CDN --}}
+    <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
+
+    {{!-- 2. Theme-specific styles.--}}
+    <link rel="stylesheet" href="{{baseUrl}}/themes/{{manifest.theme.name}}/css/theme.css">
+
+    {{!-- 3. Dynamically generated style overrides from manifest config --}}
     {{{styleOverrides}}}
+
 </head>

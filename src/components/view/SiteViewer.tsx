@@ -1,7 +1,7 @@
 // src/components/view/SiteViewer.tsx
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { resolvePageContent, PageType } from '@/lib/pageResolver';
@@ -10,17 +10,30 @@ import { AlertTriangle, Edit } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 
+/**
+ * Renders a live, interactive preview of a Signum site within an iframe.
+ * This component acts as a mini-SPA, controlling the browser's URL history
+ * to allow for deep linking and back/forward button navigation within the preview.
+ */
 export default function SiteViewer() {
   const params = useParams();
-  //const router = useRouter();
-
+  const pathname = usePathname();
   const siteId = params.siteId as string;
-  // This state now tracks the relative path within the site (e.g., '/', '/about')
-  const [currentRelativePath, setCurrentRelativePath] = useState('/');
+  const viewRootPath = `/sites/${siteId}/view`;
+
+  const [currentRelativePath, setCurrentRelativePath] = useState(
+    pathname.replace(viewRootPath, '') || '/'
+  );
   const [htmlContent, setHtmlContent] = useState<string>('<p>Loading Preview...</p>');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const site = useAppStore((state) => state.getSiteById(siteId));
+
+  const sandboxAttributes = 
+    process.env.NODE_ENV === 'development'
+      ? 'allow-scripts allow-forms allow-same-origin' // More permissive for DevTools
+      : 'allow-scripts allow-forms';                  // Hardened for production
+
 
   const updateIframeContent = useCallback(async () => {
     if (!site) return;
@@ -34,37 +47,33 @@ export default function SiteViewer() {
     }
 
     try {
-      // 1. Render the PURE HTML from the theme engine.
       const pureHtml = await renderWithTheme(site, resolution, {
-        siteRootPath: `/sites/${siteId}`,
+        siteRootPath: viewRootPath,
         isExport: false,
       });
 
-      // 2. Define the communication script that will be injected.
       const communicationScript = `
         <script>
-          // Intercept clicks on internal links within the iframe
           document.addEventListener('click', function(e) {
             const link = e.target.closest('a');
             if (link && link.href && link.origin === window.location.origin) {
               e.preventDefault();
               const newPath = new URL(link.href).pathname;
-              // Send a message to the parent window (our React app)
-              window.parent.postMessage({ type: 'SIGNUM_NAVIGATE', path: newPath }, '*');
+              window.parent.postMessage({ type: 'SIGNUM_NAVIGATE', path: newPath }, window.location.origin);
             }
           });
         <\/script>
       `;
 
-      // 3. Inject the script into the HTML string just before the closing </body> tag.
       const finalHtml = pureHtml.replace('</body>', `${communicationScript}</body>`);
-
       setHtmlContent(finalHtml);
       setErrorMessage(null);
     } catch (e) {
-      setErrorMessage(`Theme Error: ${(e as Error).message}`);
+      const error = e as Error;
+      console.error("Error during site rendering:", error);
+      setErrorMessage(`Theme Error: ${error.message}`);
     }
-  }, [site, siteId, currentRelativePath]);
+  }, [site, viewRootPath, currentRelativePath]);
 
   useEffect(() => {
     updateIframeContent();
@@ -72,21 +81,27 @@ export default function SiteViewer() {
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
-      // In production, you should validate event.origin for security
+      if (event.origin !== window.location.origin) return;
       const { type, path } = event.data;
-
-      if (type === 'SIGNUM_NAVIGATE') {
-        // When the iframe tells us a link was clicked, update the parent URL
-        history.pushState(null, '', path);
-        // And update our internal state to trigger a re-render of the iframe's content
-        const relativePath = path.replace(`/sites/${siteId}`, '') || '/';
-        setCurrentRelativePath(relativePath);
+      if (type === 'SIGNUM_NAVIGATE' && path !== window.location.pathname) {
+        history.pushState({ path }, '', path);
+        setCurrentRelativePath(path.replace(viewRootPath, '') || '/');
       }
     };
 
+    const handlePopState = (event: PopStateEvent) => {
+        const newPath = event.state?.path || pathname;
+        setCurrentRelativePath(newPath.replace(viewRootPath, '') || '/');
+    };
+
     window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [siteId]);
+    window.addEventListener('popstate', handlePopState);
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+      window.removeEventListener('popstate', handlePopState);
+    };
+  }, [viewRootPath, pathname]);
 
   if (errorMessage) {
     return (
@@ -108,7 +123,8 @@ export default function SiteViewer() {
       srcDoc={htmlContent}
       title={site?.manifest.title || 'Site Preview'}
       className="w-full h-full border-0"
-      sandbox="allow-scripts allow-same-origin"
+      // Use the environment-specific sandbox attributes
+      sandbox={sandboxAttributes}
     />
   );
 }

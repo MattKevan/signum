@@ -1,12 +1,17 @@
-{{! public/layouts/listing/partials/item-full.hbs (CORRECTED) }}
-{{!-- The context 'this' is a single item from the 'items' array. --}}
-<article class="prose dark:prose-invert max-w-none border-b dark:border-gray-700 pb-8 mb-8">
+{{! 
+  This partial renders the full content of an item within the listing page.
+  - `bb b--black-10`: Adds a bottom border to separate posts.
+  - `pb4 mb4`: Padding and margin for vertical spacing.
+  - The title is a link to its dedicated page.
+  - `lh-copy`: Improves readability of the rendered markdown content.
+}}
+<article class="pb4 mb4 bb b--black-10">
     <header>
-        {{!-- CORRECT: Use this.frontmatter.title --}}
-        <h2><a href="{{this.url}}">{{this.frontmatter.title}}</a></h2>
-        <p class="text-gray-500 dark:text-gray-400">{{formatDate this.frontmatter.date}}</p>
+        <h2 class="f2 fw7 mt0 mb2"><a href="{{this.url}}" class="link dim black">{{this.frontmatter.title}}</a></h2>
+        <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
     </header>
     
-    {{!-- CORRECT: Use this.content for the markdown body --}}
-    {{{markdown this.content}}}
+    <div class="lh-copy">
+        {{{markdown this.content}}}
+    </div>
 </article>

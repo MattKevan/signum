@@ -6,9 +6,7 @@
     "header": "partials/header.hbs",
     "footer": "partials/footer.hbs"
   },
-   "stylesheets": [
-    "css/theme.css"
-  ],
+
   "appearanceSchema": {
     "title": "Theme appearance",
     "description": "Customise the look and feel of the default theme.",

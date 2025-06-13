@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: public, node_modules, ios
+Excluded Directories: ios, node_modules, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -109,6 +109,7 @@ export interface AppState {
 File: contexts/EditorContext.tsx
 // src/contexts/EditorContext.tsx
 'use client';
+import { toast } from 'sonner';
 
 import { createContext, useContext, useState, ReactNode, useMemo, useRef, useCallback } from 'react';
 
@@ -118,6 +119,8 @@ interface EditorContextType {
   setLeftSidebar: (content: ReactNode) => void;
   setRightSidebar: (content: ReactNode) => void;
   saveState: SaveState;
+  // --- ADD THIS FUNCTION TO THE TYPE ---
+  setSaveState: (state: SaveState) => void;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (hasChanges: boolean) => void;
   triggerSave: () => Promise<void>;
@@ -141,30 +144,29 @@ export function EditorProvider({ children }: EditorProviderProps) {
     saveActionRef.current = saveFn;
   }, []);
   
-  // --- FIX: Wrap triggerSave in useCallback to stabilize its reference ---
-  // This function will now only be re-created if `hasUnsavedChanges` changes.
   const triggerSave = useCallback(async () => {
-    // The ref ensures we always call the LATEST registered save function.
-    if (saveActionRef.current && hasUnsavedChanges) {
+    if (saveActionRef.current) { // Allow manual save even if no changes (for "new file" mode)
       setSaveState('saving');
       try {
         await saveActionRef.current();
         setSaveState('saved');
         setHasUnsavedChanges(false);
-        // Revert to 'no_changes' state after a delay to show feedback.
         setTimeout(() => setSaveState('no_changes'), 2000);
       } catch (error) {
         console.error("Save failed:", error);
-        setSaveState('idle'); // Revert to idle on error to allow another save attempt.
+        toast.error((error as Error).message || "Failed to save.");
+        setSaveState('idle'); 
       }
     }
-  }, [hasUnsavedChanges]); // Dependency: hasUnsavedChanges. `set...` functions are stable.
+  }, []);
 
-  // --- FIX: Add the now-stable `triggerSave` to the dependency array ---
   const contextValue = useMemo(() => ({
     setLeftSidebar: setLeftSidebarContent,
     setRightSidebar: setRightSidebarContent,
+    // Determine saveState based on hasUnsavedChanges
     saveState: hasUnsavedChanges ? 'idle' : saveState,
+    // --- EXPOSE THE SETTER FUNCTION ---
+    setSaveState,
     hasUnsavedChanges,
     setHasUnsavedChanges,
     triggerSave,
@@ -478,32 +480,20 @@ import { useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 
-/**
- * Site Loader Root Layout
- * 
- * This layout component has no UI. Its sole responsibility is to act as a wrapper
- * for all routes under /sites/[siteId]/. It ensures that the necessary content
- * files for a given site are loaded into the application's state as soon as a user
- * navigates to any page within that site's context (e.g., edit, settings, or view).
- */
 export default function SiteLoaderLayout({ children }: { children: React.ReactNode }) {
-  // Get the current siteId from the URL parameters.
   const params = useParams();
   const siteId = params.siteId as string;
 
-  // Get the lazy-loading action from our Zustand store.
-  const loadContentForSite = useAppStore(state => state.loadContentForSite);
+  // --- USE THE NEW ACTION ---
+  const loadSiteAction = useAppStore(state => state.loadSite);
   
-  // This effect runs when the component mounts or when the siteId changes.
   useEffect(() => {
-    // If we have a valid siteId, we trigger the action to load its content.
-    // The action itself is idempotent; it won't re-fetch data if it's already loaded.
     if (siteId) {
-      loadContentForSite(siteId);
+      // This will now reliably load the manifest and content files.
+      loadSiteAction(siteId);
     }
-  }, [siteId, loadContentForSite]); // Dependency array ensures this runs only when needed.
+  }, [siteId, loadSiteAction]);
 
-  // Render the actual page content that this layout is wrapping.
   return <>{children}</>;
 }
 
@@ -1054,7 +1044,7 @@ File: app/sites/[siteId]/edit/collection/[collectionName]/page.tsx
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import { useEditor } from '@/contexts/EditorContext';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useUIStore } from '@/stores/uiStore';
@@ -1074,8 +1064,11 @@ import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
-// This sub-component renders the right sidebar UI for editing collection settings.
-const CollectionSettingsSidebar = ({
+/**
+ * A sub-component that renders the right sidebar UI for editing collection settings.
+ * It is memoized to prevent re-renders unless its specific props change.
+ */
+const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar({
     collectionNodeData,
     availableLayouts,
     layoutManifest,
@@ -1089,8 +1082,7 @@ const CollectionSettingsSidebar = ({
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
     onFormChange: (data: Partial<StructureNode>) => void,
-}) => {
-    // Extract fields that are handled by dedicated components vs. the generic form.
+}) {
     const { title, description, ...otherFields } = collectionNodeData;
     const primaryFields = {
         title: typeof title === 'string' ? title : '',
@@ -1136,59 +1128,74 @@ const CollectionSettingsSidebar = ({
             </div>
         </div>
     );
-};
+});
 
+
+/**
+ * The main page component for editing a collection's settings and viewing its items.
+ * It relies on the parent `SiteLoaderLayout` to command the loading of site data
+ * and reacts to that data becoming available in the `useAppStore`.
+ */
 export default function EditCollectionPage() {
     const params = useParams();
     const router = useRouter();
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
     
+    // --- Context and Store Hooks ---
     const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction, setLeftSidebar, setRightSidebar } = useEditor();
     const { setLeftAvailable, setRightAvailable } = useUIStore((state) => state.sidebar);
     
+    // Subscribe to the site data. This component will re-render when the data is loaded by the parent layout.
     const site = useAppStore(state => state.getSiteById(siteId));
-    const loadContentForSite = useAppStore((state) => state.loadContentForSite);
-    const { updateManifest } = useAppStore.getState();
+    const updateManifest = useAppStore(state => state.updateManifest);
 
-    // State to manage the loading process and prevent rendering until data is ready.
+    // --- Component State ---
     const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
     const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutInfo[]>([]);
 
     const collectionPath = `content/${collectionName}`;
+
     const originalCollectionNode = useMemo(() => {
         if (!site?.manifest) return undefined;
         return site.manifest.structure.find((node: StructureNode) => node.path === collectionPath);
     }, [site?.manifest, collectionPath]);
     
-    // Effect 1: The main data orchestrator. It triggers lazy-loading and sets the initial state.
+    /**
+     * This is the main data orchestrator effect. It *reacts* to the `site` data from the store.
+     * It does NOT command data loading.
+     */
     useEffect(() => {
-        async function loadData() {
-            if (!site) return; // Wait for the manifest to be loaded first.
-
-            // *** THE KEY FIX ***
-            // If content isn't loaded, trigger the load and wait for the hook to re-run.
-            if (!site.contentFiles) {
-                await loadContentForSite(siteId);
-                return; // Let the hook re-run after the store updates with content.
-            }
-
-            // At this point, contentFiles are guaranteed to be loaded.
-            if (originalCollectionNode) {
-                setCollectionNodeData(originalCollectionNode);
-                setHasUnsavedChanges(false);
-                setIsDataReady(true); // Data is ready, we can now render.
-            } else if (site.contentFiles) {
-                // If content is loaded but we still can't find the node, it's a 404.
-                toast.error(`Collection "${collectionName}" not found.`);
-                router.push(`/sites/${siteId}/edit`);
-            }
+        // Guard 1: Wait for the site manifest to be loaded by the parent layout.
+        if (!site?.manifest) {
+            console.log(`[EditCollectionPage] Waiting for site manifest for ${siteId}...`);
+            return;
         }
-        loadData();
-    }, [site, originalCollectionNode, collectionName, siteId, router, loadContentForSite, setHasUnsavedChanges]);
 
+        // Guard 2: Wait for the site content to be loaded by the parent layout.
+        if (!site.contentFiles) {
+            console.log(`[EditCollectionPage] Waiting for site content files for ${siteId}...`);
+            // The UI will show a loading indicator because isDataReady is false.
+            return;
+        }
+
+        // --- Data is now guaranteed to be loaded ---
+        console.log(`[EditCollectionPage] All required site data is loaded for ${siteId}.`);
+        if (originalCollectionNode) {
+            setCollectionNodeData(originalCollectionNode);
+            setHasUnsavedChanges(false);
+            setIsDataReady(true); // Data is ready, we can now render the full UI.
+        } else {
+            // If content is loaded but we still can't find the node, it's a 404.
+            toast.error(`Collection "${collectionName}" not found.`);
+            router.push(`/sites/${siteId}/edit`);
+        }
+    }, [site, originalCollectionNode, collectionName, siteId, router, setHasUnsavedChanges]);
+
+
+    // --- Handlers (Memoized for performance) ---
     const handleFormChange = useCallback((data: Partial<StructureNode>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasUnsavedChanges(true);
@@ -1206,7 +1213,7 @@ export default function EditCollectionPage() {
 
     const handleSaveChanges = useCallback(async () => {
         if (!site?.manifest || !collectionNodeData) {
-            throw new Error("Cannot save, data not found.");
+            throw new Error("Cannot save, essential data not found.");
         }
         const newStructure = site.manifest.structure.map((node: StructureNode) =>
             node.path === collectionPath ? collectionNodeData : node
@@ -1214,9 +1221,10 @@ export default function EditCollectionPage() {
         const newManifest = { ...site.manifest, structure: newStructure };
         
         await updateManifest(siteId, newManifest);
-        toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
+        //toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
     }, [site?.manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
 
+    // --- Effect for registering save action and autosave ---
     useEffect(() => {
         registerSaveAction(handleSaveChanges);
     }, [handleSaveChanges, registerSaveAction]);
@@ -1228,6 +1236,7 @@ export default function EditCollectionPage() {
         onSave: handleSaveChanges,
     });
     
+    // --- Effects for loading schemas and setting up sidebars ---
     useEffect(() => {
         if(site?.manifest) {
             const allLayouts = getAvailableLayouts(site.manifest);
@@ -1246,7 +1255,6 @@ export default function EditCollectionPage() {
         loadSchema();
     }, [collectionNodeData?.layout, site?.manifest, site?.layoutFiles, site?.themeFiles]);
 
-    // This effect manages setting the sidebars. It depends on `collectionNodeData` which is only set when ready.
     useEffect(() => {
         setLeftAvailable(true);
         setLeftSidebar(<LeftSidebar />);
@@ -1274,17 +1282,18 @@ export default function EditCollectionPage() {
         };
     }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
     
+    
     // --- RENDER GUARD ---
-    // This is the crucial fix. We show a loading state until `isDataReady` is true.
+    // This is the crucial fix. We show a loading state until isDataReady is true.
     if (!isDataReady || !collectionNodeData) {
-        return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection Content...</p></div>;
+        return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection...</p></div>;
     }
 
-    // Main component render, safe to access all data now.
+    // --- Main Component Render ---
     return (
         <div className="h-full flex flex-col p-6">
             <div className="flex shrink-0 items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold">Editing Collection: {originalCollectionNode?.title}</h1>
+                <h1 className="text-3xl font-bold truncate pr-4">Editing: {originalCollectionNode?.title}</h1>
                 <Button asChild>
                     <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
                         <PlusCircle className="mr-2 h-4 w-4" /> New Item
@@ -1321,150 +1330,249 @@ File: app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 // src/app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 'use client';
 
-import React, { useEffect, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { useUIStore } from '@/stores/uiStore';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
+import { useUIStore } from '@/stores/uiStore';
 import { useEditor } from '@/contexts/EditorContext';
-import { useContentEditorState } from '@/hooks/useContentEditorState';
-import { useAutosave } from '@/hooks/useAutosave';
-import { getParentPath } from '@/lib/fileTreeUtils'; 
+
+// --- Component Imports ---
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
+import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
 import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
-import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
-import * as localSiteFs from '@/lib/localSiteFs';
+
+// --- Type Imports ---
 import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
+
+// --- Util & Library Imports ---
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
+import { findNodeByPath } from '@/lib/fileTreeUtils';
 import { toast } from "sonner";
+import * as localSiteFs from '@/lib/localSiteFs';
+import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
+/**
+ * The main page for editing markdown content. This component uses a robust,
+ * local state management pattern with a debounced autosave managed directly
+ * inside the component to ensure performance and reliability.
+ */
 export default function EditContentPage() {
   const params = useParams();
   const router = useRouter();
   const siteId = params.siteId as string;
   const slugSegments = useMemo(() => (params.slug as string[]) || [], [params.slug]);
 
-  const { setLeftAvailable, setRightAvailable } = useUIStore(state => state.sidebar);
+  // --- Store and Context Hooks ---
   const site = useAppStore(state => state.getSiteById(siteId));
   const { addOrUpdateContentFile, updateContentFileOnly, deleteContentFileAndState } = useAppStore.getState();
-  const { setLeftSidebar, setRightSidebar, setHasUnsavedChanges, registerSaveAction } = useEditor();
+  const { setLeftAvailable, setRightAvailable } = useUIStore(state => state.sidebar);
+  const { setHasUnsavedChanges, registerSaveAction, hasUnsavedChanges, setLeftSidebar, setRightSidebar, setSaveState } = useEditor();
+  // --- Local State Management ---
+  const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
+  const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
+  const [slug, setSlug] = useState('');
+  const [layoutPath, setLayoutPath] = useState('');
+  const [isDataReady, setIsDataReady] = useState(false);
+  const isNewFileMode = useMemo(() => slugSegments.includes(NEW_FILE_SLUG_MARKER), [slugSegments]);
 
-  // The hook now cleanly provides the status and data, abstracting away all loading complexity.
-  const { status, editorState, setEditorState, isNewFileMode, currentFilePath } = useContentEditorState(siteId, slugSegments);
+  // --- Refs ---
   const editorRef = useRef<MarkdownEditorRef>(null);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleFrontmatterUpdate = useCallback((update: Partial<MarkdownFrontmatter>) => {
-    setEditorState(current => {
-      if (!current || !current.frontmatter) return current;
-      const newFrontmatter: MarkdownFrontmatter = { ...current.frontmatter, ...update };
-      return { ...current, frontmatter: newFrontmatter };
-    });
-    setHasUnsavedChanges(true);
-  }, [setEditorState, setHasUnsavedChanges]);
-
-  const handleSlugUpdate = useCallback((newSlug: string) => {
-    setEditorState(current => (current ? { ...current, slug: newSlug } : null));
-    setHasUnsavedChanges(true);
-  }, [setEditorState, setHasUnsavedChanges]);
-
-  const handleTitleChange = useCallback((newTitle: string) => {
+  const currentFilePath = useMemo(() => {
     if (isNewFileMode) {
-      handleFrontmatterUpdate({ title: newTitle });
-      handleSlugUpdate(slugify(newTitle));
-    } else {
-      handleFrontmatterUpdate({ title: newTitle });
+      const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
+      const parentSlug = newMarkerIndex > 0 ? slugSegments.slice(0, newMarkerIndex).join('/') : '';
+      return parentSlug ? `content/${parentSlug}` : 'content';
     }
-  }, [isNewFileMode, handleFrontmatterUpdate, handleSlugUpdate]);
+    const pathParts = slugSegments.length > 0 ? slugSegments.join('/') : 'index';
+    return `content/${pathParts}.md`;
+  }, [slugSegments, isNewFileMode]);
 
-  const handleAutoSaveAction = useCallback(async (dataToSave: { frontmatter: MarkdownFrontmatter | null, bodyContent: string }) => {
-    if (!dataToSave.frontmatter || !currentFilePath.endsWith('.md')) return;
-    const rawMarkdownToSave = stringifyToMarkdown(dataToSave.frontmatter, dataToSave.bodyContent);
-    const savedFile = await localSiteFs.saveContentFile(siteId, currentFilePath, rawMarkdownToSave);
-    updateContentFileOnly(siteId, savedFile);
-    setHasUnsavedChanges(false);
-    toast.success("Autosaved", { duration: 1500 });
-  }, [siteId, currentFilePath, updateContentFileOnly, setHasUnsavedChanges]);
+  const handleSave = useCallback(async () => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+    
+    const bodyContent = editorRef.current?.getMarkdown();
+    if (typeof bodyContent !== 'string' || !currentFrontmatter || !siteId || !layoutPath) {
+      throw new Error("Cannot save: component is not ready or data is missing.");
+    }
+    const title = currentFrontmatter.title.trim();
+    if (!title) {
+      throw new Error("A title is required to save.");
+    }
 
-  const handleManualSave = useCallback(async () => {
-    if (!editorState || !editorState.frontmatter) throw new Error("State not ready for save");
-    const bodyContent = editorRef.current?.getMarkdown() ?? editorState.bodyContent;
-    const { frontmatter, slug, layoutPath } = editorState;
-    const title = frontmatter.title.trim();
-    if (!title) { toast.error("A title is required."); throw new Error("Title required"); }
-    const parentPath = getParentPath(currentFilePath);
-    const filePathToSave = isNewFileMode ? `${parentPath}/${slug.trim()}.md`.replace(/\/\//g, '/') : currentFilePath;
-    if (!filePathToSave.endsWith('.md')) throw new Error("Invalid file path");
-    const rawMarkdownToSave = stringifyToMarkdown(frontmatter, bodyContent);
+    const filePathToSave = isNewFileMode
+      ? `${currentFilePath}/${slug.trim()}.md`.replace(/\/\//g, '/') 
+      : currentFilePath;
+
+    if (!filePathToSave.endsWith('.md')) throw new Error("Invalid file path for saving.");
+    
+    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, bodyContent);
     await addOrUpdateContentFile(siteId, filePathToSave, rawMarkdownToSave, layoutPath);
-    toast.success(`File "${title}" saved!`);
-    if (isNewFileMode) router.replace(`/sites/${siteId}/edit/content/${filePathToSave.replace(/^content\//, '').replace(/\.md$/, '')}`);
-  }, [editorState, currentFilePath, isNewFileMode, siteId, addOrUpdateContentFile, router]);
 
+    if (isNewFileMode) {
+      const newEditPath = filePathToSave.replace(/^content\//, '').replace(/\.md$/, '');
+      router.replace(`/sites/${siteId}/edit/content/${newEditPath}`);
+    }
+  }, [currentFrontmatter, siteId, layoutPath, isNewFileMode, currentFilePath, slug, addOrUpdateContentFile, router]);
+  
+  const handleAutoSave = useCallback(async () => {
+    setSaveState('saving'); // Tell the header we are saving
+    
+    const bodyContent = editorRef.current?.getMarkdown();
+    if (typeof bodyContent !== 'string' || !currentFrontmatter || !currentFilePath.endsWith('.md')) {
+        setSaveState('idle'); // Abort, revert state
+        return;
+    }
+    
+    try {
+        const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, bodyContent);
+        const savedFile = await localSiteFs.saveContentFile(siteId, currentFilePath, rawMarkdownToSave);
+        updateContentFileOnly(siteId, savedFile);
+        setHasUnsavedChanges(false);
+        
+        setSaveState('saved'); // Tell the header we are done
+        setTimeout(() => setSaveState('no_changes'), 2000); // Reset after a delay
+
+    } catch(error) {
+        console.error("Autosave failed:", error);
+        toast.error("Autosave failed.");
+        setSaveState('idle'); // Revert to idle on error to allow another attempt
+    }
+  }, [siteId, currentFilePath, currentFrontmatter, updateContentFileOnly, setHasUnsavedChanges, setSaveState]);
+  
+  const debouncedAutoSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      console.log("[Autosave] Debounced timer finished. Executing save.");
+      handleAutoSave();
+    }, AUTOSAVE_DELAY);
+  }, [handleAutoSave]);
+
+  const onContentModified = useCallback(() => {
+    setHasUnsavedChanges(true);
+  }, [setHasUnsavedChanges]);
+  
+  const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
+    setCurrentFrontmatter(prev => ({ ...(prev || { title: '' }), ...update }));
+    if (update.title !== undefined && isNewFileMode) {
+      setSlug(slugify(update.title));
+    }
+    onContentModified();
+  }, [isNewFileMode, onContentModified]);
+
+  const handleSlugChange = useCallback((newSlug: string) => {
+    if (isNewFileMode) {
+      setSlug(slugify(newSlug));
+      onContentModified();
+    }
+  }, [isNewFileMode, onContentModified]);
+  
   const handleDelete = useCallback(async () => {
     if (isNewFileMode || !currentFilePath.endsWith('.md')) return;
     try {
       await deleteContentFileAndState(siteId, currentFilePath);
-      toast.success(`File "${editorState?.frontmatter?.title}" deleted.`);
+      toast.success(`File "${currentFrontmatter?.title}" deleted.`);
       router.push(`/sites/${siteId}/edit`);
     } catch (error) { toast.error(`Failed to delete file: ${(error as Error).message}`); }
-  }, [isNewFileMode, currentFilePath, siteId, editorState, deleteContentFileAndState, router]);
-  
-  useEffect(() => { registerSaveAction(handleManualSave) }, [handleManualSave, registerSaveAction]);
+  }, [isNewFileMode, currentFilePath, siteId, currentFrontmatter, deleteContentFileAndState, router]);
 
-  useAutosave({
-    dataToSave: { frontmatter: editorState?.frontmatter || null, bodyContent: editorRef.current?.getMarkdown() || editorState?.bodyContent || '' },
-    hasUnsavedChanges: true,
-    isSaveable: status === 'ready' && !isNewFileMode && currentFilePath.endsWith('.md'),
-    onSave: handleAutoSaveAction,
-  });
+  // --- Effects ---
+  useEffect(() => {
+    if (site?.contentFiles && !isDataReady) {
+      if (isNewFileMode) {
+        const parentNode = findNodeByPath(site.manifest.structure, currentFilePath);
+        setLayoutPath(parentNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH);
+        setCurrentFrontmatter({ title: '', date: new Date().toISOString().split('T')[0], status: 'draft' });
+        setCurrentBodyContent('# Start writing...');
+        setSlug('');
+      } else {
+        const fileNode = findNodeByPath(site.manifest.structure, currentFilePath);
+        const existingFile = site.contentFiles.find(f => f.path === currentFilePath);
+        if (existingFile && fileNode) {
+          setLayoutPath(fileNode.layout);
+          setCurrentFrontmatter(existingFile.frontmatter);
+          setCurrentBodyContent(existingFile.content || '');
+          setSlug(existingFile.slug);
+        } else {
+          toast.error(`Content not found for this URL.`);
+          router.push(`/sites/${siteId}/edit`);
+          return;
+        }
+      }
+      setIsDataReady(true);
+      setHasUnsavedChanges(false);
+    }
+  }, [site, isDataReady, currentFilePath, isNewFileMode, router, siteId, setHasUnsavedChanges]);
+  
+  useEffect(() => {
+    registerSaveAction(handleSave);
+  }, [handleSave, registerSaveAction]);
+
+  /**
+   * This effect reacts to the `hasUnsavedChanges` flag. When it becomes true,
+   * it triggers the debounced autosave. This correctly separates the action of
+   * changing content from the reaction of saving it, and fixes the ESLint error.
+   */
+  useEffect(() => {
+    if (hasUnsavedChanges && !isNewFileMode) {
+      debouncedAutoSave();
+    }
+  }, [hasUnsavedChanges, isNewFileMode, debouncedAutoSave]);
+
 
   useEffect(() => {
     setLeftAvailable(true);
     setLeftSidebar(<LeftSidebar />);
-    const rightIsAvailable = status === 'ready' && !!editorState;
-    setRightAvailable(rightIsAvailable);
-
-    if (rightIsAvailable && site && editorState?.frontmatter) {
+    
+    if (isDataReady && currentFrontmatter && site) {
+      setRightAvailable(true);
       const siteForSidebar: StableSiteDataForSidebar = { manifest: site.manifest, layoutFiles: site.layoutFiles ?? [], themeFiles: site.themeFiles ?? [] };
       setRightSidebar(
         <FrontmatterSidebar
           site={siteForSidebar}
-          layoutPath={editorState.layoutPath}
-          frontmatter={editorState.frontmatter}
-          onFrontmatterChange={handleFrontmatterUpdate}
+          layoutPath={layoutPath}
+          frontmatter={currentFrontmatter}
+          onFrontmatterChange={handleFrontmatterChange}
           isNewFileMode={isNewFileMode}
-          slug={editorState.slug}
-          onSlugChange={handleSlugUpdate}
+          slug={slug}
+          onSlugChange={handleSlugChange}
           onDelete={handleDelete}
         />
       );
     } else {
+      setRightAvailable(false);
       setRightSidebar(null);
     }
-  }, [status, editorState, site, isNewFileMode, handleFrontmatterUpdate, handleSlugUpdate, handleDelete, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
-
-  // --- Render Guards ---
-  // This UI logic is now simple and reliable, driven entirely by the hook's status.
-  if (status === 'initializing' || status === 'loading_content') {
-    return <div className="p-6 flex justify-center items-center h-full"><p>Loading Site Content...</p></div>;
+  }, [isDataReady, currentFrontmatter, site, layoutPath, isNewFileMode, slug, handleDelete, handleFrontmatterChange, handleSlugChange, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
+  
+  if (!isDataReady) {
+    return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
   }
   
-  if (status === 'not_found' || !editorState) {
-    return <div className="p-6 text-center"><h2 className="text-xl font-semibold mb-4">Content Not Found</h2></div>;
-  }
-  
-  // If we reach here, status is 'ready' and editorState is guaranteed to be non-null.
   return (
     <div className='flex h-full w-full flex-col p-6'>
       <div className='container mx-auto flex h-full max-w-[900px] flex-col'>
           <div className="shrink-0">
-              <PrimaryContentFields frontmatter={{ title: editorState.frontmatter.title }} onFrontmatterChange={(fm) => handleTitleChange(fm.title ?? '')} showDescription={false} />
+              <PrimaryContentFields
+                  frontmatter={currentFrontmatter!}
+                  onFrontmatterChange={handleFrontmatterChange}
+                  showDescription={true}
+              />
           </div>
           <div className="mt-6 flex-grow">
-            <MarkdownEditor ref={editorRef} key={currentFilePath} initialValue={editorState.bodyContent} onContentChange={() => setHasUnsavedChanges(true)} />
+            <MarkdownEditor
+              ref={editorRef}
+              key={currentFilePath}
+              initialValue={currentBodyContent}
+              onContentChange={onContentModified}
+            />
           </div>
       </div>
     </div>
@@ -1598,7 +1706,7 @@ export default function CreateSitePage() {
     try {
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
-      router.push(`/edit/${newSiteId}/content/index`);
+      router.push(`/sites/${newSiteId}/edit/content/index`);
     } catch (error) {
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
@@ -1950,120 +2058,139 @@ export const useUIStore = create<UIState>()((...a) => ({
 File: stores/useAppStore.ts
 // src/stores/useAppStore.ts
 import { create } from 'zustand';
-import { produce } from 'immer';
+import { produce, enableMapSet } from 'immer';
 import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { getParentPath } from '@/lib/fileTreeUtils';
 import { DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
+import { toast } from 'sonner';
 
-/**
- * The interface for the main application store, extending the base state
- * with initialization and lazy-loading capabilities.
- */
+// Enable the Immer plugin for Map and Set support
+enableMapSet();
+
 interface AppStoreWithInit extends AppState {
-  /** A flag to track if the initial data has been loaded from storage. */
   isInitialized: boolean;
-  /** The action to initialize the store on application startup. */
+  loadingSites: Set<string>;
   initialize: () => Promise<void>;
-  /** The action to lazy-load content files for a specific site. */
-  loadContentForSite: (siteId: string) => Promise<void>;
-  /** A lightweight action for updating only the in-memory state of a content file, used for autosaving. */
+  loadSite: (siteId: string) => Promise<void>;
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => void;
 }
 
-/**
- * The main application store, created with Zustand.
- * This store manages the state of all user-created sites, handling all
- * CRUD (Create, Read, Update, Delete) operations and orchestrating the
- * interaction between the UI, the in-memory state, and the persistent
- * browser storage (`localforage`).
- */
 export const useAppStore = create<AppStoreWithInit>()(
   (set, get) => ({
     sites: [],
     isInitialized: false,
+    loadingSites: new Set(),
 
-    /**
-     * Initializes the store on application startup.
-     * This function performs a lightweight load, fetching only the manifests for all sites
-     * to ensure the application starts quickly. The actual content of each site is lazy-loaded later.
-     */
     initialize: async () => {
       if (get().isInitialized) return;
-      try {
-        const manifests = await localSiteFs.loadAllSiteManifests();
-        
-        const sites: LocalSiteData[] = manifests.map(manifest => ({
-          siteId: manifest.siteId,
-          manifest,
-        }));
-
-        set({ sites, isInitialized: true });
-      } catch (error) {
-        console.error("Failed to initialize app store:", error);
-        set({ isInitialized: true }); // Mark as initialized even on error to prevent loops
-      }
+      console.log('[AppStore] Initializing application state...');
+      set({ isInitialized: true });
     },
 
     /**
-     * Performs the on-demand lazy-loading of a site's content files.
-     * This is called when a user navigates to a specific site's context (e.g., editor or view).
-     * It fetches the content from storage and injects it into the site's state object.
-     * The function is idempotent and will not re-fetch content that is already loaded.
-     * @param {string} siteId - The unique identifier of the site whose content should be loaded.
+     * Ensures a site is fully loaded into the store using an atomic update.
+     * It fetches all necessary data first, then commits it to the store in a single update.
+     * @param {string} siteId - The unique identifier of the site to load.
      */
-    loadContentForSite: async (siteId: string) => {
-      const site = get().getSiteById(siteId);
-      if (!site || site.contentFiles) return; 
+    loadSite: async (siteId: string) => {
+      const state = get();
+      if (state.loadingSites.has(siteId)) {
+        console.log(`[AppStore.loadSite] Load already in progress for siteId: ${siteId}.`);
+        return;
+      }
+
+      const existingSite = state.getSiteById(siteId);
+      if (existingSite && existingSite.contentFiles) {
+        console.log(`[AppStore.loadSite] Site ${siteId} is already fully loaded.`);
+        return;
+      }
+      
+      console.log(`[AppStore.loadSite] Starting atomic load for siteId: ${siteId}...`);
+      set(produce((draft) => { draft.loadingSites.add(siteId); }));
 
       try {
+        // --- Step 1: Gather all required data asynchronously ---
+        const manifest = await localSiteFs.getManifestById(siteId);
+        if (!manifest) {
+          toast.error(`Site data could not be found for ID: ${siteId}`);
+          throw new Error(`Failed to load manifest for siteId: ${siteId}`);
+        }
+
         const contentFiles = await localSiteFs.getSiteContentFiles(siteId);
-        
+        const layoutFiles = await localSiteFs.getSiteLayoutFiles(siteId); // Also fetch layout/theme files
+        const themeFiles = await localSiteFs.getSiteThemeFiles(siteId);
+
+        // --- Step 2: Assemble the final, complete site object ---
+        const loadedSiteData: LocalSiteData = {
+          siteId,
+          manifest,
+          contentFiles,
+          layoutFiles,
+          themeFiles,
+        };
+
+        // --- Step 3: Commit the final state in a single, atomic update ---
         set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-          if (siteToUpdate) {
-            siteToUpdate.contentFiles = contentFiles;
+          const siteIndex = draft.sites.findIndex((s: LocalSiteData) => s.siteId === siteId);
+          if (siteIndex > -1) {
+            draft.sites[siteIndex] = loadedSiteData;
+          } else {
+            draft.sites.push(loadedSiteData);
           }
         }));
+
+        console.log(`[AppStore.loadSite] Atomic load successful for siteId: ${siteId}.`);
+
       } catch (error) {
-        console.error(`Failed to load content for site ${siteId}:`, error);
+        console.error(`[AppStore.loadSite] Error during atomic load for ${siteId}:`, error);
+      } finally {
+        console.log(`[AppStore.loadSite] Finished load process for siteId: ${siteId}.`);
+        set(produce((draft) => { draft.loadingSites.delete(siteId); }));
       }
     },
 
     /**
-     * Adds a new site to both the persistent storage and the application state.
-     * @param {LocalSiteData} newSiteData - The complete data object for the new site to be created.
+     * Adds a new site to persistent storage and then atomically updates the application state.
+     * @param {LocalSiteData} newSiteData - The complete data object for the new site.
      */
     addSite: async (newSiteData: LocalSiteData) => {
+      console.log(`[AppStore.addSite] Creating new site: "${newSiteData.manifest.title}" (ID: ${newSiteData.siteId})`);
+      
+      // --- Step 1: Perform the async operation ---
       await localSiteFs.saveSite(newSiteData);
-      set((state) => ({ sites: [...state.sites, newSiteData] }));
+      
+      // --- Step 2: Perform the atomic state update ---
+      set(produce((draft: AppStoreWithInit) => {
+        // Prevent duplicates in case of race conditions
+        if (!draft.sites.some((s: LocalSiteData) => s.siteId === newSiteData.siteId)) {
+          draft.sites.push(newSiteData);
+        }
+      }));
+      
+      console.log(`[AppStore.addSite] Site "${newSiteData.siteId}" successfully saved and added to state.`);
     },
 
     /**
      * Updates a site's manifest in both persistent storage and the current application state.
-     * This is used for changes to site-wide metadata, such as the title, description, or file structure.
      * @param {string} siteId - The ID of the site whose manifest is being updated.
      * @param {Manifest} newManifest - The new manifest object to save.
      */
     updateManifest: async (siteId: string, newManifest: Manifest) => {
+      console.log(`[AppStore.updateManifest] Updating manifest for siteId: ${siteId}`);
       await localSiteFs.saveManifest(siteId, newManifest);
       set(produce((draft: AppStoreWithInit) => {
-        const site = draft.sites.find((s) => s.siteId === siteId);
+        const site = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
         if (site) {
           site.manifest = newManifest;
         }
       }));
     },
     
-    /**
-     * A user-facing action to create a new collection within a site.
-     * It constructs the new collection node, updates the manifest structure, and persists the change.
-     * @param {string} siteId - The ID of the parent site.
-     * @param {string} name - The display name for the new collection.
-     * @param {string} slug - The URL-friendly slug for the collection folder.
-     * @param {string} layout - The path to the layout to be used for this collection's listing page.
-     */
+    // ... (The rest of the store actions (addNewCollection, updateContentFileOnly, etc.) remain the same as they were already correct) ...
+
     addNewCollection: async (siteId: string, name: string, slug: string, layout: string) => {
+      console.log(`[AppStore.addNewCollection] Adding collection "${name}" to site ${siteId}`);
       const site = get().getSiteById(siteId);
       if (!site) return;
 
@@ -2085,18 +2212,13 @@ export const useAppStore = create<AppStoreWithInit>()(
       await get().updateManifest(siteId, newManifest);
     },
     
-    /**
-     * Performs a lightweight, in-memory update of a single content file's state.
-     * This is used by the autosave feature to keep the UI in sync without the overhead
-     * of updating the manifest on every change. It does NOT persist the manifest.
-     * @param {string} siteId - The ID of the site being edited.
-     * @param {ParsedMarkdownFile} savedFile - The parsed content file object to update in the state.
-     */
     updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => {
         set(produce((draft: AppStoreWithInit) => {
-            const site = draft.sites.find(s => s.siteId === siteId);
-            // Guard against the content not being loaded yet.
-            if (!site?.contentFiles) return;
+            const site = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
+            if (!site?.contentFiles) {
+              console.warn(`[AppStore.updateContentFileOnly] Attempted to update file, but content for site ${siteId} is not loaded. Aborting.`);
+              return;
+            }
 
             const fileIndex = site.contentFiles.findIndex(f => f.path === savedFile.path);
             if (fileIndex !== -1) {
@@ -2107,23 +2229,14 @@ export const useAppStore = create<AppStoreWithInit>()(
         }));
     },
 
-    /**
-     * Handles the complete save/update process for a content file. This is a "heavy" operation
-     * that persists the file to storage, updates the manifest structure, updates the in-memory
-     * state for both the file and the manifest, and finally persists the updated manifest.
-     * @param {string} siteId - The ID of the site.
-     * @param {string} filePath - The path of the file to save (e.g., 'content/posts/my-post.md').
-     * @param {string} rawMarkdownContent - The full string content of the file.
-     * @param {string} layoutId - The ID of the layout associated with this content file.
-     * @returns {Promise<boolean>} A promise that resolves to true on success.
-     */
     addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string): Promise<boolean> => {
+      console.log(`[AppStore.addOrUpdateContentFile] Saving file "${filePath}" for site ${siteId}.`);
       const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
       
       const site = get().getSiteById(siteId);
-      if (!site) return false;
+      if (!site || !site.contentFiles) return false;
 
-      const isNewFile = !site.contentFiles?.some(f => f.path === filePath);
+      const isNewFile = !site.contentFiles.some(f => f.path === filePath);
 
       const newManifest = produce(site.manifest, draft => {
           let parentFound = false;
@@ -2150,7 +2263,7 @@ export const useAppStore = create<AppStoreWithInit>()(
       });
       
       set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          const siteToUpdate = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
           if (siteToUpdate) {
               if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
 
@@ -2168,24 +2281,16 @@ export const useAppStore = create<AppStoreWithInit>()(
       return true;
     },
         
-    /**
-     * Permanently deletes an entire site from both persistent storage and the application state.
-     * @param {string} siteId - The ID of the site to delete.
-     */
     deleteSiteAndState: async (siteId: string) => {
+        console.warn(`[AppStore.deleteSiteAndState] DELETING siteId: ${siteId}`);
         await localSiteFs.deleteSite(siteId);
         set(state => ({
-            sites: state.sites.filter(s => s.siteId !== siteId),
+            sites: state.sites.filter((s: LocalSiteData) => s.siteId !== siteId),
         }));
     },
 
-    /**
-     * Deletes a single content file from storage, updates the site manifest to remove
-     * its entry, and syncs the state to reflect these changes.
-     * @param {string} siteId - The ID of the site containing the file.
-     * @param {string} filePath - The path of the content file to delete.
-     */
     deleteContentFileAndState: async (siteId: string, filePath: string) => {
+      console.warn(`[AppStore.deleteContentFileAndState] DELETING file "${filePath}" from site ${siteId}`);
       const site = get().getSiteById(siteId);
       if (!site) return;
 
@@ -2206,7 +2311,7 @@ export const useAppStore = create<AppStoreWithInit>()(
       await localSiteFs.saveManifest(siteId, newManifest);
       
       set(produce((draft: AppStoreWithInit) => {
-          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          const siteToUpdate = draft.sites.find((s: LocalSiteData) => s.siteId === siteId);
           if(siteToUpdate) {
             if (siteToUpdate.contentFiles) {
                 siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
@@ -2216,13 +2321,8 @@ export const useAppStore = create<AppStoreWithInit>()(
       }));
     },
 
-    /**
-     * A synchronous getter to retrieve a site's data object from the current state by its ID.
-     * @param {string} siteId - The ID of the site to retrieve.
-     * @returns {LocalSiteData | undefined} The site data object, or undefined if not found in the state.
-     */
     getSiteById: (siteId: string): LocalSiteData | undefined => {
-      return get().sites.find((s) => s.siteId === siteId);
+      return get().sites.find((s: LocalSiteData) => s.siteId === siteId);
     },
   })
 );
@@ -2317,17 +2417,17 @@ const SaveButton = () => {
   const { saveState, triggerSave } = useEditor();
 
   const buttonContent = {
-    idle: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
-    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving...' },
+    idle: { icon: <Save className="h-4 w-4" />, text: 'Save ' },
+    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving' },
     saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
-    no_changes: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
+    no_changes: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
   };
 
   const current = buttonContent[saveState];
   const isDisabled = saveState === 'saving' || saveState === 'saved' || saveState === 'no_changes';
 
   return (
-    <Button onClick={triggerSave} disabled={isDisabled}>
+    <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>
       {current.icon}
       <span className='hidden md:block'>{current.text}</span>
     </Button>
@@ -4819,9 +4919,9 @@ File: hooks/useContentEditorState.ts
 // src/hooks/useContentEditorState.ts
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-import { MarkdownFrontmatter } from '@/types';
+import type { MarkdownFrontmatter } from '@/types';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { parseMarkdownString } from '@/lib/markdownParser';
@@ -4831,12 +4931,11 @@ import { toast } from 'sonner';
 /**
  * Defines the possible loading states of the content editor.
  * - `initializing`: The initial state or when navigating to a new page.
- * - `loading_content`: The state when lazy-loading site-wide content files for the first time.
+ * - `loading_content`: The state when the component is waiting for site-wide content files to be loaded into the store.
  * - `ready`: The editor has all necessary data and can be rendered.
- * - `not_found`: The requested content file could not be found.
- * - `error`: An unexpected error occurred.
+ * - `not_found`: The requested content file or its manifest entry could not be found.
  */
-export type EditorStatus = 'initializing' | 'loading_content' | 'ready' | 'not_found' | 'error';
+export type EditorStatus = 'initializing' | 'loading_content' | 'ready' | 'not_found';
 
 /**
  * Represents the complete state required by the content editor UI to render a page.
@@ -4850,96 +4949,82 @@ export interface EditorState {
 }
 
 /**
-
- * A custom hook that orchestrates the entire data loading and state management
+ * A custom hook that orchestrates the data loading and state management
  * for the main content editor (`EditContentPage`). It handles lazy-loading,
  * file fetching, parsing, and provides a clean status and data payload to the UI,
  * preventing race conditions and loading freezes.
  *
- * @param siteId The unique identifier of the site being edited.
- * @param slugSegments An array of URL segments that identify the content file.
- * @returns An object containing the current status, the editor's state data,
+ * This hook *reacts* to the state of the `useAppStore`. It expects that another
+ * component (like `SiteLoaderLayout`) is responsible for *commanding* the store
+ * to load the site data via the `loadSite` action.
+ *
+ * @param {string} siteId The unique identifier of the site being edited.
+ * @param {string[]} slugSegments An array of URL segments that identify the content file.
+ * @returns {object} An object containing the current status, the editor's state data,
  *          and other relevant information for the UI.
  */
 export function useContentEditorState(siteId: string, slugSegments: string[]) {
-  const loadContentForSite = useAppStore(state => state.loadContentForSite);
-  const siteManifest = useAppStore(useCallback(state => state.getSiteById(siteId)?.manifest, [siteId]));
-  const siteContentFiles = useAppStore(useCallback(state => state.getSiteById(siteId)?.contentFiles, [siteId]));
+  // Subscribe to the entire site object from the store.
+  // Zustand's shallow comparison will trigger a re-render when the object is updated (e.g., when `contentFiles` is added).
+  const site = useAppStore(useCallback((state) => state.getSiteById(siteId), [siteId]));
 
   const [status, setStatus] = useState<EditorStatus>('initializing');
   const [editorState, setEditorState] = useState<EditorState | null>(null);
-  const [isNewFileMode, setIsNewFileMode] = useState(false);
-  const [currentFilePath, setCurrentFilePath] = useState('');
-  
-  // A ref to act as a lock, preventing re-entrant calls to the async lazy-load function.
-  const isLoadingContent = useRef(false);
+
+  // Memoize the calculation of the mode and file path from URL segments.
+  const { isNewFileMode, currentFilePath } = useMemo(() => {
+    const isNewIntent = slugSegments.includes(NEW_FILE_SLUG_MARKER);
+    let path = '';
+    if (isNewIntent) {
+      // For a new file, the path is the parent directory.
+      const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
+      const parentSlug = newMarkerIndex > 0 ? slugSegments.slice(0, newMarkerIndex).join('/') : '';
+      path = parentSlug ? `content/${parentSlug}` : 'content';
+    } else {
+      // For an existing file, construct the full file path.
+      const pathParts = slugSegments.length > 0 ? slugSegments.join('/') : 'index';
+      path = `content/${pathParts}.md`;
+    }
+    return { isNewFileMode: isNewIntent, currentFilePath: path };
+  }, [slugSegments]);
 
 
   /**
-   * Effect 1: This is now the ONLY effect. It is a single, cohesive state machine.
-   * It handles path calculation, state resets, and data loading in a clear, sequential manner.
+   * The main state machine effect. It runs whenever the site data or URL changes.
+   * It follows a clear sequence of checks to determine the editor's state.
    */
   useEffect(() => {
-    console.group(`[Effect] State Machine Triggered`);
+    console.group(`[useContentEditorState] State Machine Triggered`);
+    console.log(`> Path: "${currentFilePath}", Mode: ${isNewFileMode ? 'New File' : 'Edit File'}`);
 
-    // --- Step 1: Calculate Path and Mode ---
-    // This happens synchronously at the start of the effect.
-    console.log('Input slugSegments:', slugSegments);
-    const isNewIntent = slugSegments.includes(NEW_FILE_SLUG_MARKER);
-    setIsNewFileMode(isNewIntent);
-
-    let newPath = '';
-    if (isNewIntent) {
-      const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
-      const parentSlug = newMarkerIndex > 0 ? slugSegments.slice(0, newMarkerIndex).join('/') : '';
-      newPath = parentSlug ? `content/${parentSlug}` : 'content';
-    } else {
-      const pathParts = slugSegments.length > 0 ? slugSegments.join('/') : 'index';
-      newPath = `content/${pathParts}.md`;
-    }
-    setCurrentFilePath(newPath);
-    console.log(`Calculated Path: "${newPath}", Mode: ${isNewIntent ? 'New File' : 'Edit File'}`);
-
-    // --- Step 2: Reset State for New Navigation ---
-    // This ensures we show a loading screen on every path change.
+    // Always reset state on re-run to ensure a clean loading sequence.
     setStatus('initializing');
     setEditorState(null);
-    isLoadingContent.current = false; // Reset lock
 
-    const loadAndProcessContent = async () => {
-      // --- Step 3: Guard against missing prerequisites ---
-      // If the manifest isn't loaded yet, we can't do anything. Exit and wait for a re-run.
-      if (!siteManifest) {
-        console.warn('WAITING: Manifest is not yet available.');
+    const processContent = async () => {
+      // --- Guard 1: Is the site object (with manifest) loaded in the store? ---
+      if (!site?.manifest) {
+        console.warn(`> WAITING: Site object or manifest for "${siteId}" not yet available in store.`);
         console.groupEnd();
         return;
       }
-      console.log('CHECK: Manifest is loaded.');
+      console.log('> CHECK PASSED: Manifest is loaded.');
 
-      // --- Step 4: Handle Lazy-Loading ---
-      if (!siteContentFiles) {
-        if (isLoadingContent.current) {
-          console.warn('WAITING: Lazy-load is already in progress.');
-          console.groupEnd();
-          return;
-        }
-        
-        console.log('%cACTION: Content files not loaded. Triggering lazy-load...', 'color: orange;');
-        isLoadingContent.current = true;
-        setStatus('loading_content');
-        await loadContentForSite(siteId);
-        // Exit. The effect will re-run when `siteContentFiles` is populated.
+      // --- Guard 2: Are the site's content files loaded in the store? ---
+      if (!site.contentFiles) {
+        console.warn('> WAITING: Content files for this site are not yet loaded. Setting status to "loading_content".');
+        setStatus('loading_content'); // This is the state the UI shows "Loading Site Content..."
         console.groupEnd();
         return;
       }
-      
-      console.log('CHECK: Content files are loaded.');
-      isLoadingContent.current = false;
+      console.log('> CHECK PASSED: Content files are loaded.');
 
-      // --- Step 5: Process the data ---
-      console.log(`PROCESSING: path "${newPath}"`);
-      if (isNewIntent) {
-        const parentNode = findNodeByPath(siteManifest.structure, newPath);
+      // --- Data is ready, proceed with processing ---
+      console.log('> PROCESSING: Preparing editor state...');
+
+      if (isNewFileMode) {
+        // Handle the creation of a new, unsaved file.
+        const parentNode = findNodeByPath(site.manifest.structure, currentFilePath);
         setEditorState({
           layoutPath: parentNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH,
           frontmatter: { title: '', date: new Date().toISOString().split('T')[0], status: 'draft' },
@@ -4947,13 +5032,11 @@ export function useContentEditorState(siteId: string, slugSegments: string[]) {
           slug: '',
         });
         setStatus('ready');
-        console.log('%cSUCCESS: Editor state set for new file.', 'color: green;');
+        console.log('%c> SUCCESS: Editor state set for a new file.', 'color: green');
       } else {
-        const fileNode = findNodeByPath(siteManifest.structure, newPath);
-        const rawContent = await localSiteFs.getContentFileRaw(siteId, newPath);
-        
-        console.log('Lookup (Manifest Node):', fileNode);
-        console.log('Lookup (Raw Content):', rawContent ? 'Found' : 'Not Found');
+        // Handle loading an existing file.
+        const fileNode = findNodeByPath(site.manifest.structure, currentFilePath);
+        const rawContent = await localSiteFs.getContentFileRaw(siteId, currentFilePath);
 
         if (fileNode && rawContent !== null) {
           const { frontmatter, content } = parseMarkdownString(rawContent);
@@ -4964,22 +5047,33 @@ export function useContentEditorState(siteId: string, slugSegments: string[]) {
             slug: fileNode.slug,
           });
           setStatus('ready');
-          console.log('%cSUCCESS: Editor state set from loaded file.', 'color: green;');
+          console.log('%c> SUCCESS: Editor state set from loaded file.', 'color: green');
         } else {
-          toast.error(`Content not found at path: ${newPath}`);
+          toast.error(`Content not found at path: ${currentFilePath}`);
           setStatus('not_found');
-          console.error(`%cFAILURE: Could not find node or content for path "${newPath}".`, 'color: red;');
+          console.error(`%c> FAILURE: Could not find node or content for path "${currentFilePath}".`, 'color: red');
         }
       }
     };
 
-    loadAndProcessContent();
+    processContent();
     console.groupEnd();
 
-  // The dependency array now correctly models what should trigger a full re-evaluation.
-  }, [slugSegments, siteManifest, siteContentFiles, siteId, loadContentForSite]);
+  // This dependency array ensures the effect re-runs whenever the URL changes or the site data is updated in the store.
+  }, [site, siteId, currentFilePath, isNewFileMode]);
 
-  return { status, editorState, setEditorState, isNewFileMode, currentFilePath };
+  return {
+    /** The current loading status of the editor. */
+    status,
+    /** The data required by the editor UI, available when status is 'ready'. */
+    editorState,
+    /** A function to allow the UI to update the editor's state (e.g., on title change). */
+    setEditorState,
+    /** A boolean indicating if the editor is for a new, unsaved file. */
+    isNewFileMode,
+    /** The full path of the content being edited or the parent path for a new file. */
+    currentFilePath,
+  };
 }
 
 ================================================================================
@@ -6019,7 +6113,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
 
 File: lib/localSiteFs.ts
 // src/lib/localSiteFs.ts
-import { LocalSiteData, Manifest, ParsedMarkdownFile } from '@/types';
+import { LocalSiteData, Manifest, ParsedMarkdownFile, RawFile } from '@/types'; // Ensure RawFile is imported
 import localforage from 'localforage';
 import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
 
@@ -6054,11 +6148,49 @@ export async function loadAllSiteManifests(): Promise<Manifest[]> {
   return manifests;
 }
 
-// --- Function to get content files for a single site on demand ---
+/**
+ * Fetches the manifest for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<Manifest | null>} A Promise that resolves to the Manifest object, or null if not found.
+ */
+export async function getManifestById(siteId: string): Promise<Manifest | null> {
+  const manifest = await siteManifestsStore.getItem<Manifest>(siteId);
+  return manifest ?? null;
+}
+
+/**
+ * Fetches the content files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<ParsedMarkdownFile[]>} A Promise that resolves to an array of parsed markdown files.
+ */
 export async function getSiteContentFiles(siteId: string): Promise<ParsedMarkdownFile[]> {
     const contentFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId);
     return contentFiles ?? [];
 }
+
+// --- START OF NEW FUNCTIONS TO FIX THE ERRORS ---
+
+/**
+ * Fetches the custom layout files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<RawFile[]>} A Promise that resolves to an array of raw layout files.
+ */
+export async function getSiteLayoutFiles(siteId: string): Promise<RawFile[]> {
+    const layoutFiles = await siteLayoutFilesStore.getItem<RawFile[]>(siteId);
+    return layoutFiles ?? [];
+}
+
+/**
+ * Fetches the custom theme files for a single site by its ID.
+ * @param {string} siteId The unique identifier for the site.
+ * @returns {Promise<RawFile[]>} A Promise that resolves to an array of raw theme files.
+ */
+export async function getSiteThemeFiles(siteId: string): Promise<RawFile[]> {
+    const themeFiles = await siteThemeFilesStore.getItem<RawFile[]>(siteId);
+    return themeFiles ?? [];
+}
+
+// --- END OF NEW FUNCTIONS ---
 
 
 export async function saveSite(siteData: LocalSiteData): Promise<void> {

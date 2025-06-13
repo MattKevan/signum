@@ -1,12 +1,30 @@
-{{!-- This is the default template for all standard pages. --}}
-<article class="prose dark:prose-invert max-w-none mx-auto">
-    <h1>{{contentFile.frontmatter.title}}</h1>
+{{! public/layouts/page/page.hbs }}
+{{!--
+  This is the default template for all standard pages, styled with Tachyons.
+  - `lh-copy`: Sets a comfortable line-height for body text for readability.
+  - `measure`: Constrains the width of the text block to an optimal reading length.
+--}}
+<article class="lh-copy measure">
+    {{!--
+      - `f1`: Large font size for the main heading.
+      - `fw8`: Extra-bold font weight.
+      - `mt0 mb3`: Margin top 0, margin bottom level 3.
+    --}}
+    <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
     
     {{#if contentFile.frontmatter.description}}
-        <p class="lead text-xl text-gray-500 dark:text-gray-400">{{contentFile.frontmatter.description}}</p>
+        {{!-- `f4` for a larger lead paragraph, `mid-gray` for a lighter color --}}
+        <p class="f4 mid-gray mt0 mb4">{{contentFile.frontmatter.description}}</p>
     {{/if}}
 
-    <hr />
+    {{!-- `bt` (border-top), `b--black-10` (light gray border), `mv4` (vertical margin) --}}
+    <hr class="bt b--black-10 mv4" />
 
+    {{!-- 
+      The `markdown` helper renders the main content.
+      The typography inside this block (for p, h2, ul, etc.) should be handled
+      by a base set of styles. Tachyons does NOT style raw HTML tags by default,
+      unlike Tailwind's `@tailwindcss/typography` plugin (`prose` class).
+    --}}
     {{{markdown contentFile.content}}}
 </article>

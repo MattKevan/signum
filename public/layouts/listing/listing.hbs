@@ -1,23 +1,29 @@
-<section class="listing-container">
-  <header class="listing-header">
-    {{! The title comes from the node's main title property }}
-    <h1 class="listing-title">{{collectionNode.title}}</h1>
-    {{! The description comes from the data saved via the layoutSchema }}
+{{! 
+  This template renders the main page for a collection.
+  - `pb4 mb4`: Provides bottom padding and margin to the header for spacing.
+  - `f1 fw7`: Styles the main title (large, bold).
+  - `f4 mid-gray`: Styles the description (slightly smaller, gray).
+  - The `each` loop iterates over the sorted items passed from the theme engine.
+  - An `if/else` block checks the `display_style` property (set by the user in the editor)
+    to decide whether to render the `item-full` or `item-teaser` partial for each item.
+}}
+<section>
+  <header class="pb4 mb4 bb b--black-10">
+    <h1 class="f1 fw7 mt0 mb2">{{collectionNode.title}}</h1>
     {{#if collectionNode.description}}
-      <p class="listing-description">{{collectionNode.description}}</p>
+      <p class="f4 mid-gray mt0">{{collectionNode.description}}</p>
     {{/if}}
   </header>
   
   <div class="listing-items">
     {{#each items}}
-      {{! It checks the display_style property on the same collectionNode }}
       {{#if (eq ../collectionNode.display_style "full_post")}}
         {{> item-full this}}
       {{else}}
         {{> item-teaser this}}
       {{/if}}
     {{else}}
-      <p class="text-muted">No items have been added to this listing yet.</p>
+      <p class="i gray">No items have been added to this listing yet.</p>
     {{/each}}
   </div>
 </section>

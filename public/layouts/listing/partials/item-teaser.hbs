@@ -1,10 +1,16 @@
-{{! public/layouts/listing/partials/item-teaser.hbs (CORRECTED) }}
-{{!-- The context 'this' is a single item from the 'items' array. --}}
-{{!-- We now assume the themeEngine provides a pre-computed 'url' property for robust linking. --}}
-<a href="{{this.url}}" class="block p-6 border rounded-lg hover:shadow-lg transition-shadow dark:border-gray-700">
-    <h3 class="text-xl font-semibold mb-2 text-gray-900 dark:text-white group-hover:text-blue-600 dark:hover:text-blue-400">{{this.frontmatter.title}}</h3>
-    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{formatDate this.frontmatter.date}}</p>
+{{! 
+  This partial renders a "teaser" card for a collection item.
+  - The `<a>` tag wraps the entire block, making it a single clickable target.
+  - `link dim`: Removes default link styling and adds a hover effect.
+  - `db pa4 mb4`: Display block, large padding, and bottom margin for spacing.
+  - `ba b--black-10 br2`: Border all sides, light gray border color, and rounded corners.
+  - `shadow-hover`: A Tachyons convention for a hover effect (you'd define this simple class in a custom theme CSS file if desired).
+}}
+<a href="{{this.url}}" class="link dim db pa4 mb4 ba b--black-10 br2 shadow-hover bg-white black">
+    <h3 class="f3 fw6 mv0">{{this.frontmatter.title}}</h3>
+    <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
+    
     {{#if this.frontmatter.summary}}
-        <p class="text-gray-600 dark:text-gray-400 line-clamp-3">{{this.frontmatter.summary}}</p>
+        <p class="lh-copy mid-gray mv0">{{this.frontmatter.summary}}</p>
     {{/if}}
 </a>

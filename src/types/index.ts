@@ -42,6 +42,7 @@ export interface Manifest {
   title: string;
   description: string;
   author?: string;
+  baseUrl?: string;
   theme: ThemeConfig;
   structure: StructureNode[];
   layouts?: LayoutInfo[];
@@ -80,7 +81,7 @@ export interface RawFile {
 export interface LocalSiteData {
   siteId: string;
   manifest: Manifest;
-  contentFiles?: ParsedMarkdownFile[]; 
+  contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
 }

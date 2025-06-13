@@ -1,7 +1,6 @@
 // src/components/publishing/SiteSettingsForm.tsx
 'use client';
 
-//import { Manifest } from '@/types';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,6 +10,7 @@ interface SiteSettingsFormProps {
     title: string;
     description: string;
     author: string;
+    baseUrl: string; // <-- ADD THIS LINE
   };
   onFormChange: (newData: SiteSettingsFormProps['formData']) => void;
 }
@@ -52,6 +52,20 @@ export default function SiteSettingsForm({ formData, onFormChange }: SiteSetting
           placeholder="Your Name or Organization"
         />
          <p className="text-sm text-muted-foreground">The default author for content on this site.</p>
+      </div>
+       {/* --- NEW BASE URL FIELD --- */}
+       <div className="space-y-2 border-t pt-6">
+        <Label htmlFor="baseUrl">Base URL</Label>
+        <Input
+          id="baseUrl"
+          type="url"
+          value={formData.baseUrl}
+          onChange={(e) => handleChange('baseUrl', e.target.value)}
+          placeholder="https://www.my-awesome-site.com"
+        />
+         <p className="text-sm text-muted-foreground">
+            The full public URL of your site. Required for generating correct RSS feeds and sitemaps.
+         </p>
       </div>
     </div>
   );
