@@ -18,17 +18,17 @@ const SaveButton = () => {
   const { saveState, triggerSave } = useEditor();
 
   const buttonContent = {
-    idle: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
-    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving...' },
+    idle: { icon: <Save className="h-4 w-4" />, text: 'Save ' },
+    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving' },
     saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
-    no_changes: { icon: <Save className="h-4 w-4" />, text: 'Save Changes' },
+    no_changes: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
   };
 
   const current = buttonContent[saveState];
   const isDisabled = saveState === 'saving' || saveState === 'saved' || saveState === 'no_changes';
 
   return (
-    <Button onClick={triggerSave} disabled={isDisabled}>
+    <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>
       {current.icon}
       <span className='hidden md:block'>{current.text}</span>
     </Button>

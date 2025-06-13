@@ -6,7 +6,6 @@ import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useEditor } from '@/contexts/EditorContext';
-import { useAutosave } from '@/hooks/useAutosave'; // This import will now be used
 
 // --- Component Imports ---
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
@@ -23,13 +22,14 @@ import { slugify } from '@/lib/utils';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
 import { toast } from "sonner";
 import * as localSiteFs from '@/lib/localSiteFs';
-import { NEW_FILE_SLUG_MARKER, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
 /**
  * The main page for editing markdown content. This component uses a robust,
- * local state management pattern to prevent common state synchronization issues.
+ * local state management pattern with a debounced autosave managed directly
+ * inside the component to ensure performance and reliability.
  */
 export default function EditContentPage() {
   const params = useParams();
@@ -41,18 +41,18 @@ export default function EditContentPage() {
   const site = useAppStore(state => state.getSiteById(siteId));
   const { addOrUpdateContentFile, updateContentFileOnly, deleteContentFileAndState } = useAppStore.getState();
   const { setLeftAvailable, setRightAvailable } = useUIStore(state => state.sidebar);
-  const { setHasUnsavedChanges, registerSaveAction, hasUnsavedChanges, setLeftSidebar, setRightSidebar } = useEditor();
-
+  const { setHasUnsavedChanges, registerSaveAction, hasUnsavedChanges, setLeftSidebar, setRightSidebar, setSaveState } = useEditor();
   // --- Local State Management ---
   const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
-  const [currentBodyContent, setCurrentBodyContent] = useState<string>(''); // Used for INITIAL value only
+  const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
   const [slug, setSlug] = useState('');
   const [layoutPath, setLayoutPath] = useState('');
   const [isDataReady, setIsDataReady] = useState(false);
   const isNewFileMode = useMemo(() => slugSegments.includes(NEW_FILE_SLUG_MARKER), [slugSegments]);
 
-  // --- Ref for Uncontrolled Data ---
+  // --- Refs ---
   const editorRef = useRef<MarkdownEditorRef>(null);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const currentFilePath = useMemo(() => {
     if (isNewFileMode) {
@@ -65,6 +65,8 @@ export default function EditContentPage() {
   }, [slugSegments, isNewFileMode]);
 
   const handleSave = useCallback(async () => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+    
     const bodyContent = editorRef.current?.getMarkdown();
     if (typeof bodyContent !== 'string' || !currentFrontmatter || !siteId || !layoutPath) {
       throw new Error("Cannot save: component is not ready or data is missing.");
@@ -90,35 +92,59 @@ export default function EditContentPage() {
   }, [currentFrontmatter, siteId, layoutPath, isNewFileMode, currentFilePath, slug, addOrUpdateContentFile, router]);
   
   const handleAutoSave = useCallback(async () => {
+    setSaveState('saving'); // Tell the header we are saving
+    
     const bodyContent = editorRef.current?.getMarkdown();
-    if (typeof bodyContent !== 'string' || !currentFrontmatter || !currentFilePath.endsWith('.md')) return;
+    if (typeof bodyContent !== 'string' || !currentFrontmatter || !currentFilePath.endsWith('.md')) {
+        setSaveState('idle'); // Abort, revert state
+        return;
+    }
+    
+    try {
+        const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, bodyContent);
+        const savedFile = await localSiteFs.saveContentFile(siteId, currentFilePath, rawMarkdownToSave);
+        updateContentFileOnly(siteId, savedFile);
+        setHasUnsavedChanges(false);
+        
+        setSaveState('saved'); // Tell the header we are done
+        setTimeout(() => setSaveState('no_changes'), 2000); // Reset after a delay
 
-    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, bodyContent);
-    const savedFile = await localSiteFs.saveContentFile(siteId, currentFilePath, rawMarkdownToSave);
-    updateContentFileOnly(siteId, savedFile);
-    setHasUnsavedChanges(false);
-    toast.success("Autosaved", { duration: 1500 });
-  }, [siteId, currentFilePath, currentFrontmatter, updateContentFileOnly, setHasUnsavedChanges]);
+    } catch(error) {
+        console.error("Autosave failed:", error);
+        toast.error("Autosave failed.");
+        setSaveState('idle'); // Revert to idle on error to allow another attempt
+    }
+  }, [siteId, currentFilePath, currentFrontmatter, updateContentFileOnly, setHasUnsavedChanges, setSaveState]);
+  
+  const debouncedAutoSave = useCallback(() => {
+    if (autoSaveTimeoutRef.current) {
+      clearTimeout(autoSaveTimeoutRef.current);
+    }
+    autoSaveTimeoutRef.current = setTimeout(() => {
+      console.log("[Autosave] Debounced timer finished. Executing save.");
+      handleAutoSave();
+    }, AUTOSAVE_DELAY);
+  }, [handleAutoSave]);
+
+  const onContentModified = useCallback(() => {
+    setHasUnsavedChanges(true);
+  }, [setHasUnsavedChanges]);
   
   const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
     setCurrentFrontmatter(prev => ({ ...(prev || { title: '' }), ...update }));
     if (update.title !== undefined && isNewFileMode) {
       setSlug(slugify(update.title));
     }
-    setHasUnsavedChanges(true);
-  }, [isNewFileMode, setHasUnsavedChanges]);
+    onContentModified();
+  }, [isNewFileMode, onContentModified]);
 
   const handleSlugChange = useCallback((newSlug: string) => {
     if (isNewFileMode) {
       setSlug(slugify(newSlug));
-      setHasUnsavedChanges(true);
+      onContentModified();
     }
-  }, [isNewFileMode, setHasUnsavedChanges]);
+  }, [isNewFileMode, onContentModified]);
   
-  const handleEditorContentChange = useCallback(() => {
-    setHasUnsavedChanges(true);
-  }, [setHasUnsavedChanges]);
-
   const handleDelete = useCallback(async () => {
     if (isNewFileMode || !currentFilePath.endsWith('.md')) return;
     try {
@@ -128,7 +154,7 @@ export default function EditContentPage() {
     } catch (error) { toast.error(`Failed to delete file: ${(error as Error).message}`); }
   }, [isNewFileMode, currentFilePath, siteId, currentFrontmatter, deleteContentFileAndState, router]);
 
-  // --- Main data loading effect ---
+  // --- Effects ---
   useEffect(() => {
     if (site?.contentFiles && !isDataReady) {
       if (isNewFileMode) {
@@ -156,27 +182,22 @@ export default function EditContentPage() {
     }
   }, [site, isDataReady, currentFilePath, isNewFileMode, router, siteId, setHasUnsavedChanges]);
   
-  // --- Effect to register the manual save action ---
   useEffect(() => {
     registerSaveAction(handleSave);
   }, [handleSave, registerSaveAction]);
 
-  // --- THIS IS THE FIX ---
-  // Reinstated the call to the useAutosave hook and removed the manual timer.
-  // The hook's `onSave` callback is given a function that calls `handleAutoSave`.
-  // This is the clean, correct, and reusable pattern.
-  useAutosave({
-    dataToSave: { // The data object passed to the onSave callback if it were used
-      frontmatter: currentFrontmatter,
-      bodyContent: editorRef.current?.getMarkdown() || ''
-    },
-    hasUnsavedChanges,
-    isSaveable: isDataReady && !isNewFileMode,
-    onSave: () => handleAutoSave(),
-  });
-  // -----------------------
+  /**
+   * This effect reacts to the `hasUnsavedChanges` flag. When it becomes true,
+   * it triggers the debounced autosave. This correctly separates the action of
+   * changing content from the reaction of saving it, and fixes the ESLint error.
+   */
+  useEffect(() => {
+    if (hasUnsavedChanges && !isNewFileMode) {
+      debouncedAutoSave();
+    }
+  }, [hasUnsavedChanges, isNewFileMode, debouncedAutoSave]);
 
-  // --- Effect to manage the sidebar content ---
+
   useEffect(() => {
     setLeftAvailable(true);
     setLeftSidebar(<LeftSidebar />);
@@ -221,7 +242,7 @@ export default function EditContentPage() {
               ref={editorRef}
               key={currentFilePath}
               initialValue={currentBodyContent}
-              onContentChange={handleEditorContentChange}
+              onContentChange={onContentModified}
             />
           </div>
       </div>

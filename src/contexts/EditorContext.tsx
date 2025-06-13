@@ -1,5 +1,6 @@
 // src/contexts/EditorContext.tsx
 'use client';
+import { toast } from 'sonner';
 
 import { createContext, useContext, useState, ReactNode, useMemo, useRef, useCallback } from 'react';
 
@@ -9,6 +10,8 @@ interface EditorContextType {
   setLeftSidebar: (content: ReactNode) => void;
   setRightSidebar: (content: ReactNode) => void;
   saveState: SaveState;
+  // --- ADD THIS FUNCTION TO THE TYPE ---
+  setSaveState: (state: SaveState) => void;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (hasChanges: boolean) => void;
   triggerSave: () => Promise<void>;
@@ -32,30 +35,29 @@ export function EditorProvider({ children }: EditorProviderProps) {
     saveActionRef.current = saveFn;
   }, []);
   
-  // --- FIX: Wrap triggerSave in useCallback to stabilize its reference ---
-  // This function will now only be re-created if `hasUnsavedChanges` changes.
   const triggerSave = useCallback(async () => {
-    // The ref ensures we always call the LATEST registered save function.
-    if (saveActionRef.current && hasUnsavedChanges) {
+    if (saveActionRef.current) { // Allow manual save even if no changes (for "new file" mode)
       setSaveState('saving');
       try {
         await saveActionRef.current();
         setSaveState('saved');
         setHasUnsavedChanges(false);
-        // Revert to 'no_changes' state after a delay to show feedback.
         setTimeout(() => setSaveState('no_changes'), 2000);
       } catch (error) {
         console.error("Save failed:", error);
-        setSaveState('idle'); // Revert to idle on error to allow another save attempt.
+        toast.error((error as Error).message || "Failed to save.");
+        setSaveState('idle'); 
       }
     }
-  }, [hasUnsavedChanges]); // Dependency: hasUnsavedChanges. `set...` functions are stable.
+  }, []);
 
-  // --- FIX: Add the now-stable `triggerSave` to the dependency array ---
   const contextValue = useMemo(() => ({
     setLeftSidebar: setLeftSidebarContent,
     setRightSidebar: setRightSidebarContent,
+    // Determine saveState based on hasUnsavedChanges
     saveState: hasUnsavedChanges ? 'idle' : saveState,
+    // --- EXPOSE THE SETTER FUNCTION ---
+    setSaveState,
     hasUnsavedChanges,
     setHasUnsavedChanges,
     triggerSave,

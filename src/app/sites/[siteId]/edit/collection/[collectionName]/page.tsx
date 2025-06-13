@@ -179,7 +179,7 @@ export default function EditCollectionPage() {
         const newManifest = { ...site.manifest, structure: newStructure };
         
         await updateManifest(siteId, newManifest);
-        toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
+        //toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
     }, [site?.manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
 
     // --- Effect for registering save action and autosave ---
