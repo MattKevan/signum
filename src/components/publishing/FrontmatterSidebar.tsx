@@ -1,4 +1,3 @@
-// src/components/publishing/FrontmatterSidebar.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
@@ -8,15 +7,36 @@ import { getLayoutManifest } from '@/lib/configHelpers';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Trash2, Save } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 
 interface FrontmatterSidebarProps {
-  site: LocalSiteData;
+  site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
   layoutPath: string;
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (newFrontmatter: Partial<MarkdownFrontmatter>) => void;
   isNewFileMode: boolean;
   slug: string;
   onSlugChange: (newSlug: string) => void;
+  onDelete: () => Promise<void>;
+  onSave: () => Promise<void>;
 }
 
 export default function FrontmatterSidebar({
@@ -27,6 +47,8 @@ export default function FrontmatterSidebar({
   isNewFileMode,
   slug,
   onSlugChange,
+  onDelete,
+  onSave
 }: FrontmatterSidebarProps) {
   
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
@@ -38,8 +60,6 @@ export default function FrontmatterSidebar({
       if (!layoutPath) return;
       setIsLoading(true);
       try {
-        // This helper function now returns a schema that is guaranteed
-        // to not contain 'title' or 'description'.
         const manifest = await getLayoutManifest(site, layoutPath);
         setSchema(manifest?.pageSchema || null);
         setUiSchema(manifest?.uiSchema);
@@ -55,53 +75,84 @@ export default function FrontmatterSidebar({
   
   if (isLoading) {
     return (
-      <aside className="w-80 border-l bg-muted/20 p-4 shrink-0 flex items-center justify-center">
+      <div className="p-4 flex items-center justify-center">
         <p className="text-sm text-muted-foreground">Loading settings...</p>
-      </aside>
+      </div>
     );
   }
 
-  return (
-    <aside className="w-80 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
-      <div>
-        <h2 className="text-lg font-semibold border-b pb-2 mb-4">Content Settings</h2>
-        {/* The Slug field is a hardcoded, fundamental part of the sidebar UI */}
-        <div className="space-y-2">
-            <Label htmlFor="slug-input">URL Slug</Label>
-            <Input 
-                id="slug-input"
-                value={slug}
-                onChange={(e) => onSlugChange(e.target.value)}
-                disabled={!isNewFileMode}
-                className={!isNewFileMode ? 'bg-muted/50' : ''}
-            />
-            <p className="text-xs text-muted-foreground">
-              {isNewFileMode 
-                ? "Auto-generates from title. Edit for a custom URL." 
-                : "URL cannot be changed after creation."}
-            </p>
-        </div>
+   return (
+    <div>
+      <div className='py-4 px-3'>
+      <Button onClick={onSave} className="w-full">
+        <Save className="h-4 w-4 mr-2" /> Save Changes
+      </Button>
+
       </div>
-      
-      {/* 
-        The GroupedFrontmatterForm handles everything ELSE.
-        It receives the cleaned schema and the full frontmatter object.
-        It will only render fields that are present in the schema.
-      */}
+
       {schema && Object.keys(schema.properties || {}).length > 0 ? (
-        <div className="border-t pt-6">
             <GroupedFrontmatterFields
                 schema={schema}
                 uiSchema={uiSchema}
                 formData={frontmatter}
                 onFormChange={onFrontmatterChange}
             />
-        </div>
       ) : (
-        <div className="text-sm text-muted-foreground p-3 rounded-md mt-4 text-center border-dashed border">
-            <p>No additional fields for this layout.</p>
+        <div className="text-sm text-muted-foreground p-3 rounded-md text-center border-dashed border">
+            <p>No additional settings for this layout.</p>
         </div>
       )}
-    </aside>
+            <Accordion type='single' collapsible>
+
+<AccordionItem value="item-1">                <AccordionTrigger>
+                  Config
+                </AccordionTrigger>
+                <AccordionContent>
+<div className="space-y-2">
+        <Label htmlFor="slug-input">URL Slug</Label>
+        <Input 
+            id="slug-input"
+            value={slug}
+            onChange={(e) => onSlugChange(e.target.value)}
+            disabled={!isNewFileMode}
+            className={!isNewFileMode ? 'bg-muted/50' : ''}
+        />
+        <p className="text-xs text-muted-foreground">
+          {isNewFileMode 
+            ? "Auto-generates from title." 
+            : "URL cannot be changed."}
+        </p>
+      </div>
+{!isNewFileMode && (
+    
+              <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                      <Button variant="outline" className="w-full mt-6 text-red-500">
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete page
+                      </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent> 
+                      <AlertDialogHeader>
+                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
+                          </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90">
+                              Yes, Delete
+                          </AlertDialogAction>
+                      </AlertDialogFooter>
+                  </AlertDialogContent>
+              </AlertDialog>
+      )}
+                </AccordionContent>
+                </AccordionItem>
+                </Accordion>
+      
+          </div>
+
+    // --- END OF FIX ---
   );
 }

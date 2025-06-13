@@ -6,7 +6,7 @@ import { useAppStore } from '@/stores/useAppStore';
 import './globals.css'; 
 import { Toaster } from "@/components/ui/sonner"; 
 import { ThemeProvider } from "@/components/core/ThemeProvider";
-
+import { useInitialiseUIStore } from '@/hooks/useInitialiseUIStore';
 
 function AppLoadingIndicator() {
   return (
@@ -27,9 +27,9 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  useInitialiseUIStore();
   const initialize = useAppStore(state => state.initialize);
   const isInitialized = useAppStore(state => state.isInitialized);
-  // Track if the client has mounted to prevent hydration mismatches
   const [clientMounted, setClientMounted] = useState(false);
 
   useEffect(() => {
@@ -50,7 +50,7 @@ export default function RootLayout({
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Signum - Decentralized Publishing</title>
       </head>
-      <body>
+      <body className="h-full">
         <ThemeProvider
             attribute="class"
             defaultTheme="system"

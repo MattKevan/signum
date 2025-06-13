@@ -60,7 +60,6 @@ function CustomFieldTemplate(props: FieldTemplateProps) {
 function CustomObjectFieldTemplate(props: ObjectFieldTemplateProps) {
   return (
     <div>
-        {props.title && <h3 className="text-lg font-semibold">{props.title}</h3>}
         {props.description && <p className="text-sm text-muted-foreground">{props.description}</p>}
         <div className="mt-4">
             {props.properties.map(element => (

@@ -1,41 +1,16 @@
 // src/stores/useAppStore.ts
 import { create } from 'zustand';
-import { AppState, LocalSiteData, Manifest, StructureNode } from '@/types';
+import { produce } from 'immer';
+import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
 import * as localSiteFs from '@/lib/localSiteFs';
 import { getParentPath } from '@/lib/fileTreeUtils';
 import { DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
-//import { slugify } from './utils';
-
-// Recursive helper to map over the structure tree
-function mapStructure(nodes: StructureNode[], predicate: (node: StructureNode) => boolean, transform: (node: StructureNode) => StructureNode): StructureNode[] {
-    return nodes.map(node => {
-        if (predicate(node)) {
-            return transform(node);
-        }
-        if (node.children) {
-            return { ...node, children: mapStructure(node.children, predicate, transform) };
-        }
-        return node;
-    });
-}
-
-// Recursive helper to filter the structure tree
-function filterStructure(nodes: StructureNode[], predicate: (node: StructureNode) => boolean): StructureNode[] {
-    return nodes.reduce((acc, node) => {
-        if (predicate(node)) {
-            acc.push({
-                ...node,
-                children: node.children ? filterStructure(node.children, predicate) : undefined,
-            });
-        }
-        return acc;
-    }, [] as StructureNode[]);
-}
-
 
 interface AppStoreWithInit extends AppState {
   isInitialized: boolean;
   initialize: () => Promise<void>;
+  // This is a new action specifically for background updates
+  updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => void;
 }
 
 export const useAppStore = create<AppStoreWithInit>()(
@@ -45,8 +20,13 @@ export const useAppStore = create<AppStoreWithInit>()(
 
     initialize: async () => {
       if (get().isInitialized) return;
-      const sites = await localSiteFs.loadAllSites();
-      set({ sites, isInitialized: true });
+      try {
+        const sites = await localSiteFs.loadAllSites();
+        set({ sites, isInitialized: true });
+      } catch (error) {
+        console.error("Failed to initialize app store:", error);
+        set({ isInitialized: true }); // Mark as initialized even on error to prevent loops
+      }
     },
 
     addSite: async (newSiteData: LocalSiteData) => {
@@ -56,14 +36,16 @@ export const useAppStore = create<AppStoreWithInit>()(
 
     updateManifest: async (siteId: string, newManifest: Manifest) => {
       await localSiteFs.saveManifest(siteId, newManifest);
-      set((state) => ({
-        sites: state.sites.map((s) => (s.siteId === siteId ? { ...s, manifest: newManifest } : s)),
+      set(produce((draft: AppStoreWithInit) => {
+        const site = draft.sites.find((s) => s.siteId === siteId);
+        if (site) {
+          site.manifest = newManifest;
+        }
       }));
     },
     
-    // CHANGED: Now correctly assigns default layouts for the collection and its items
     addNewCollection: async (siteId: string, name: string, slug: string, layout: string) => {
-      const site = get().sites.find(s => s.siteId === siteId);
+      const site = get().getSiteById(siteId);
       if (!site) return;
 
       const newCollectionNode: StructureNode = {
@@ -74,78 +56,83 @@ export const useAppStore = create<AppStoreWithInit>()(
         children: [],
         navOrder: site.manifest.structure.length,
         layout: layout || DEFAULT_COLLECTION_LAYOUT_PATH,
-        itemLayout: DEFAULT_PAGE_LAYOUT_PATH, // Default layout for items inside this collection
+        itemLayout: DEFAULT_PAGE_LAYOUT_PATH,
       };
       
-      const newStructure = [...site.manifest.structure, newCollectionNode];
-      const newManifest = { ...site.manifest, structure: newStructure };
+      const newManifest = produce(site.manifest, draft => {
+        draft.structure.push(newCollectionNode);
+      });
       
       await get().updateManifest(siteId, newManifest);
     },
     
-    // CHANGED: This action is now much smarter about assigning layouts and updating the manifest
+    // This is the background update action. It does NOT save the manifest.
+    updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => {
+        set(produce((draft: AppStoreWithInit) => {
+            const site = draft.sites.find(s => s.siteId === siteId);
+            if (!site) return;
+
+            const fileIndex = site.contentFiles.findIndex(f => f.path === savedFile.path);
+            if (fileIndex !== -1) {
+                site.contentFiles[fileIndex] = savedFile;
+            } else {
+                // This action should only be for updates, but handle adding as a fallback.
+                site.contentFiles.push(savedFile);
+            }
+        }));
+    },
+
+    // This is the main user-facing action that saves the file AND updates the manifest.
     addOrUpdateContentFile: async (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string): Promise<boolean> => {
+      // Step 1: Save the file to disk and get the parsed version.
+      const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
+      
+      // Step 2: Update the manifest based on the save.
       const site = get().getSiteById(siteId);
       if (!site) return false;
 
-      const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
-      
       const isNewFile = !site.contentFiles.some(f => f.path === filePath);
-      
-      const updatedContentFiles = isNewFile
-          ? [...site.contentFiles, savedFile]
-          : site.contentFiles.map(f => f.path === filePath ? savedFile : f);
 
-      let manifestChanged = false;
-      let newStructure = [...site.manifest.structure];
-
-      if (isNewFile) {
-        manifestChanged = true;
-        let parentFound = false;
-        const parentPath = getParentPath(filePath);
-
-        // Try to add the new file as a child of its parent in the structure
-        newStructure = mapStructure(site.manifest.structure, node => node.path === parentPath, parentNode => {
-          parentFound = true;
-          return {
-            ...parentNode,
-            children: [
-              ...(parentNode.children || []),
-              {
-                type: 'page',
-                title: savedFile.frontmatter.title,
-                path: filePath,
-                slug: savedFile.slug,
-                layout: layoutId, // Use the layout determined by the editor UI
-              },
-            ],
+      const newManifest = produce(site.manifest, draft => {
+          let parentFound = false;
+          
+          const mapNode = (node: StructureNode): StructureNode => {
+              if (isNewFile && node.path === getParentPath(filePath)) {
+                  parentFound = true;
+                  return { ...node, children: [...(node.children || []), { type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId }] };
+              }
+              if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
+                  return { ...node, title: savedFile.frontmatter.title };
+              }
+              if (node.children) {
+                  return { ...node, children: node.children.map(mapNode) };
+              }
+              return node;
           };
-        });
-        
-        // If no parent was found (e.g., a new top-level page), add it to the root.
-        if (!parentFound && parentPath === 'content') {
-            newStructure.push({ type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId, navOrder: newStructure.length });
-        }
-      } else {
-        // If an existing file's title changed, update it in the manifest.
-        newStructure = mapStructure(site.manifest.structure, node => node.path === filePath, node => {
-          if (node.title !== savedFile.frontmatter.title) {
-            manifestChanged = true;
-            return { ...node, title: savedFile.frontmatter.title };
-          }
-          return node;
-        });
-      }
 
-      const finalState = { ...site, contentFiles: updatedContentFiles };
-      if (manifestChanged) {
-        finalState.manifest = { ...site.manifest, structure: newStructure };
-        await localSiteFs.saveManifest(siteId, finalState.manifest);
-      }
+          draft.structure = draft.structure.map(mapNode);
+
+          if (isNewFile && !parentFound && getParentPath(filePath) === 'content') {
+            draft.structure.push({ type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId, navOrder: draft.structure.length });
+          }
+      });
       
-      set(state => ({
-        sites: state.sites.map(s => s.siteId === siteId ? finalState : s),
+      // Step 3: Atomically update the store with the new file AND the new manifest.
+      set(produce((draft: AppStoreWithInit) => {
+          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          if (siteToUpdate) {
+              const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === filePath);
+              if (fileIndex !== -1) {
+                  siteToUpdate.contentFiles[fileIndex] = savedFile;
+              } else {
+                  siteToUpdate.contentFiles.push(savedFile);
+              }
+              siteToUpdate.manifest = newManifest;
+          }
       }));
+
+      // Step 4: Save the updated manifest to disk.
+      await localSiteFs.saveManifest(siteId, newManifest);
       
       return true;
     },
@@ -163,14 +150,26 @@ export const useAppStore = create<AppStoreWithInit>()(
 
       await localSiteFs.deleteContentFile(siteId, filePath);
       
-      const newStructure = filterStructure(site.manifest.structure, node => node.path !== filePath);
-      const newContentFiles = site.contentFiles.filter(f => f.path !== filePath);
-      const newManifest = { ...site.manifest, structure: newStructure };
-
+      const newManifest = produce(site.manifest, draft => {
+          const filterStructure = (nodes: StructureNode[]): StructureNode[] => {
+              return nodes.filter(node => node.path !== filePath).map(node => {
+                  if (node.children) {
+                      node.children = filterStructure(node.children);
+                  }
+                  return node;
+              });
+          };
+          draft.structure = filterStructure(draft.structure);
+      });
+      
       await localSiteFs.saveManifest(siteId, newManifest);
       
-      set(state => ({
-          sites: state.sites.map(s => s.siteId === siteId ? { ...s, manifest: newManifest, contentFiles: newContentFiles } : s),
+      set(produce((draft: AppStoreWithInit) => {
+          const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+          if(siteToUpdate) {
+            siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
+            siteToUpdate.manifest = newManifest;
+          }
       }));
     },
 

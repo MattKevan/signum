@@ -2,97 +2,56 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
-import { Button } from '@/components/ui/button';
-import { toast } from 'sonner';
-import { exportSiteToZip } from '@/lib/siteExporter';
-import { slugify } from '@/lib/utils';
-import { useState } from 'react';
-import ErrorBoundary from '@/components/core/ErrorBoundary';
-import Image from 'next/image';
+import { usePathname } from 'next/navigation';
 import { TbEdit, TbSettings } from "react-icons/tb";
+import { cn } from '@/lib/utils';
+import Image from 'next/image';
+
 export default function SingleSiteLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams();
   const pathname = usePathname();
-  const siteId = params.siteId as string;
+  const siteId = pathname.split('/')[2];
 
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  const [isPublishing, setIsPublishing] = useState(false);
-
-  const handlePublishSite = async () => {
-    if (!site) return;
-    setIsPublishing(true);
-    toast.info("Generating site bundle for download...");
-    try {
-      const blob = await exportSiteToZip(site);
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${slugify(site.manifest.title || 'signum-site')}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      toast.success("Site bundle downloaded!");
-    } catch (error) {
-      console.error("Error publishing site to Zip:", error);
-      toast.error(`Failed to generate Zip: ${(error as Error).message}`);
-    } finally {
-      setIsPublishing(false);
-    }
-  };
-
-  if (!site) {
-    return (
-      <div className="flex justify-center items-center h-full">
-        <p>Loading site...</p>
-      </div>
-    );
-  }
-
-  // Determine active state for links based on the new structure
-  const isViewActive = pathname === `/sites/${siteId}/view`;
   const isEditorActive = pathname.startsWith(`/sites/${siteId}/edit`);
   const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
+  const navItems = [
+    { href: `/sites/${siteId}/edit`, title: 'Edit', icon: TbEdit, isActive: isEditorActive },
+    { href: `/sites/${siteId}/settings`, title: 'Settings', icon: TbSettings, isActive: isSettingsActive },
+  ];
+
   return (
-      
-              
-    <div className="relative isolate flex flex-col min-h-screen w-full dark:bg-black">
-   
-    
-      <aside className="w-[60px] flex-0 gap-4 h-full border-r bg-muted/20 fixed top-0">
-        <div className="mt-3 flex flex-col gap-2  left-2.5">
-          <Link href={`/sites/${site.siteId}/view`} 
-            className={`p-1 rounded-sm aspect-square size-10 mx-auto flex items-center ${isViewActive && ('bg-gray-100')}`}
+    <div className="flex h-screen flex-col lg:flex-row">
+
+      <aside className="fixed inset-x-0 bottom-0 z-30 flex h-16 w-full shrink-0 border-t bg-background lg:static lg:inset-y-0 lg:left-0 lg:h-full lg:w-[60px] lg:border-r lg:border-t-0">
+        <nav className="flex w-full items-center justify-center gap-4 px-2 lg:flex-col lg:justify-start lg:pb-5">
+          <Link
+            href="/sites"
+            title="Dashboard"
+            className=' lg:flex flex-col items-center w-[60px] h-[60px] border-b hidden'
           >
-            <div className='size-8 rounded-full bg-pink-200 '></div>
+            <Image src="/signum.svg" width={34} height={34} alt="" className='m-auto'/>
           </Link>
-
-          <Link href={`/sites/${site.siteId}/edit`} 
-            title="Edit site" 
-            className={`p-1 rounded-sm aspect-square size-10 mx-auto flex items-center ${isEditorActive && ('bg-gray-100')}`}
+          
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={item.title}
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                item.isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              )}
             >
-            <TbEdit className="size-7 mx-auto transition-colors" />
-          </Link>
-
-          <Link href={`/sites/${site.siteId}/settings`} 
-            title="Settings" 
-            className={`p-1 rounded-sm aspect-square size-10 mx-auto flex items-center ${isSettingsActive && ('bg-gray-100')}`}
-            >
-            <TbSettings className="size-7 mx-auto transition-colors" />
-          </Link>
-        </div>
-        {/* Add other core app navigation icons here in the future (e.g., social, settings) */}
+              <item.icon className="size-6" />
+            </Link>
+          ))}
+        </nav>
       </aside>
-      
-
-      {/* The content (preview, editor, settings) renders here */}
-      <div className=" bg-white dark:bg-zinc-900  h-full">
-        <ErrorBoundary>
-          {children}
-        </ErrorBoundary>
-      </div>
+      <main className="flex-1 overflow-auto pb-16 lg:pb-0">
+        {children}
+      </main>
     </div>
   );
 }

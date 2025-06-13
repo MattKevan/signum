@@ -60,7 +60,7 @@ export default function GroupedFrontmatterForm({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="border-t">
       <Accordion type="multiple" defaultValue={groups.map(g => g.title)} className="w-full">
         {groups.map((group) => {
           if (group.fields.length === 0) return null;
@@ -80,16 +80,22 @@ export default function GroupedFrontmatterForm({
       </Accordion>
 
       {ungroupedFields.length > 0 && (
-        <div className="border-t pt-6 mt-6">
-          <h3 className="text-sm font-semibold mb-4 text-muted-foreground uppercase tracking-wider">
-            Other Fields
-          </h3>
-          <SchemaDrivenForm
+        <div className="">
+            <Accordion type='single' collapsible>
+
+<AccordionItem value="item-1">                <AccordionTrigger>
+                  Fields
+                </AccordionTrigger>
+                <AccordionContent>
+<SchemaDrivenForm
             schema={createSubSchema(schema, ungroupedFields)}
             formData={formData}
             onFormChange={handleChange}
           />
-        </div>
+                </AccordionContent>
+              </AccordionItem>
+            </Accordion>
+          </div>
       )}
     </div>
   );

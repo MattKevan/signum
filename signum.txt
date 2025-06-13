@@ -109,21 +109,63 @@ export interface AppState {
 
 ================================================================================
 
+File: contexts/LayoutContext.tsx
+'use client';
+
+import { createContext, useContext, useState, ReactNode } from 'react';
+
+interface LayoutContextType {
+  setLeftSidebar: (content: ReactNode) => void;
+  setRightSidebar: (content: ReactNode) => void;
+}
+
+const LayoutContext = createContext<LayoutContextType | undefined>(undefined);
+
+// --- START OF FIX ---
+// Define the shape of the props for LayoutProvider
+interface LayoutProviderProps {
+  children: (slots: { leftSidebar: ReactNode; rightSidebar: ReactNode }) => ReactNode;
+}
+
+export function LayoutProvider({ children }: LayoutProviderProps) { // Use the new props type
+// --- END OF FIX ---
+  const [leftSidebarContent, setLeftSidebarContent] = useState<ReactNode>(null);
+  const [rightSidebarContent, setRightSidebarContent] = useState<ReactNode>(null);
+
+  const value = {
+    setLeftSidebar: setLeftSidebarContent,
+    setRightSidebar: setRightSidebarContent,
+  };
+
+  return (
+    <LayoutContext.Provider value={value}>
+      {children({ leftSidebar: leftSidebarContent, rightSidebar: rightSidebarContent })}
+    </LayoutContext.Provider>
+  );
+}
+
+export function useLayout() {
+  const context = useContext(LayoutContext);
+  if (context === undefined) {
+    throw new Error('useLayout must be used within a LayoutProvider');
+  }
+  return context;
+}
+
+================================================================================
+
 File: app/layout.tsx
 // src/app/layout.tsx
 'use client'; 
 
 import { useEffect, useState, Suspense } from 'react';
 import { useAppStore } from '@/stores/useAppStore';
-//import Navbar from '@/components/core/Navbar'; 
-//import Footer from '@/components/core/Footer';   
 import './globals.css'; 
 import { Toaster } from "@/components/ui/sonner"; 
-import { ThemeProvider } from "@/components/core/ThemeProvider"; 
-import { LiaEdit } from "react-icons/lia";
-import { Link } from '@/components/ui/link';
-// Loading component to show during initialization or suspense
-function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
+import { ThemeProvider } from "@/components/core/ThemeProvider";
+import { useInitialiseUIStore } from '@/hooks/useInitialiseUIStore';
+
+function AppLoadingIndicator() {
   return (
     <div className="flex items-center justify-center h-screen bg-background text-foreground">
       <div className="flex flex-col items-center">
@@ -137,23 +179,25 @@ function AppLoadingIndicator() { // CORRECTED: Ensure it returns JSX
   ); 
 }
 
-
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  useInitialiseUIStore();
   const initialize = useAppStore(state => state.initialize);
   const isInitialized = useAppStore(state => state.isInitialized);
   const [clientMounted, setClientMounted] = useState(false);
 
   useEffect(() => {
     setClientMounted(true); 
+    // Initialize the app state from storage only once
     if (!isInitialized) {
       initialize();
     }
   }, [initialize, isInitialized]); 
 
+  // Show the loading indicator only on the client and before initialization is complete
   const showLoading = clientMounted && !isInitialized;
 
   return (
@@ -162,37 +206,23 @@ export default function RootLayout({
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>Signum - Decentralized Publishing</title>
-        {/* Ensure no stray characters or whitespace directly in <head> */}
       </head>
-      <body>
+      <body className="h-full">
         <ThemeProvider
             attribute="class"
             defaultTheme="system"
             enableSystem
             disableTransitionOnChange
         >
-          <div className=" min-h-screen bg-background text-foreground">
-            {showLoading ? (
-              <AppLoadingIndicator /> // Now correctly used
-            ) : (
-              <div className=" flex flex-row h-full">
-                <div className='w-[60px] flex-none flex flex-col gap-4 h-screen sticky top-0 border-r'>
-                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
-                  
-
-                    </div>
-                    <Link href=""><LiaEdit className='size-7 mx-auto'/></Link>
-                </div>
-                <main className="flex-grow"> 
-                  <Suspense fallback={<AppLoadingIndicator />}>
-                    {children}
-                  </Suspense>
-                  
-                </main>
-                
-              </div>
-            )}
-          </div>
+          {showLoading ? (
+            <AppLoadingIndicator />
+          ) : (
+         
+                <Suspense fallback={<AppLoadingIndicator />}>
+                  {children}
+                </Suspense>
+              
+          )}
           <Toaster richColors position="top-right" />
         </ThemeProvider>
       </body>
@@ -206,100 +236,74 @@ File: app/page.tsx
 // src/app/page.tsx
 'use client';
 
-import Link from 'next/link';
-import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Edit3, Eye, Trash2, FilePlus2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { toast } from "sonner";
+import { Link } from '@/components/ui/link';
+import { ShieldCheck, Feather, Zap, Archive, Leaf } from 'lucide-react';
 
-export default function HomePageDashboard() {
-  const sites = useAppStore((state) => state.sites);
-  const deleteSiteAndState = useAppStore((state) => state.deleteSiteAndState);
-
-  const handleDeleteSite = async (siteId: string, siteTitle: string) => {
-    try {
-      await deleteSiteAndState(siteId);
-      toast.success(`Site "${siteTitle}" has been deleted.`);
-    } catch (error) {
-      toast.error(`Failed to delete site "${siteTitle}".`);
-      console.error("Error deleting site:", error);
-    }
-  };
-
-  const validSites = sites.filter(site => site && site.manifest);
-
+export default function MarketingHomePage() {
   return (
-    <div className="container mx-auto p-4 sm:p-6 lg:p-8">
-      <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
-        <h1 className="text-3xl font-bold text-foreground">My Signum Sites</h1>
+    <>
+    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-sm">
+                <div className="container mx-auto flex h-16 items-center justify-between px-4">
+                  <Link href="/" className="flex items-center gap-2">
+                    <Leaf className="h-7 w-7 text-primary" />
+                    <span className="text-2xl font-bold text-foreground hidden sm:inline">Signum</span>
+                  </Link>
+                  <Button asChild variant="ghost">
+                    <Link href="/sites">Dashboard</Link>
+                  </Button>
+                </div>
+              </header>
+    <div className="container mx-auto px-4 py-16 sm:py-24 text-center">
+      <header className="mb-12">
+        <h1 className="text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-foreground">
+          Signum: Own Your Content.
+        </h1>
+        <p className="mt-4 max-w-2xl mx-auto text-lg sm:text-xl text-muted-foreground">
+          A simple, private, and portable publishing platform that puts you back in control.
+        </p>
+      </header>
+
+      <div className="mb-16">
         <Button asChild size="lg">
-          <Link href="/create-site">
-            <FilePlus2 className="mr-2 h-5 w-5" /> Create New Site
+          <Link href="/sites">
+            Open Dashboard & Get Started
           </Link>
         </Button>
       </div>
 
-      {validSites.length === 0 ? (
-        <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
-          <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
-          <p className="text-muted-foreground mb-4">Click &quot;Create New Site&quot; to get started.</p>
-          <Button asChild>
-            <Link href="/create-site">
-                <PlusCircle className="mr-2 h-4 w-4" /> Start Creating
-            </Link>
-          </Button>
+      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 max-w-5xl mx-auto">
+        <div className="flex flex-col items-center p-6 bg-card border rounded-lg">
+          <ShieldCheck className="size-10 text-primary mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Private & Secure</h3>
+          <p className="text-muted-foreground text-sm">
+            No tracking or surveillance by default. Your data is yours.
+          </p>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {validSites.map((site) => (
-            <div key={site.siteId} className="bg-card border rounded-lg p-6 shadow-sm hover:shadow-lg transition-shadow flex flex-col justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-card-foreground mb-2 truncate" title={site.manifest.title}>
-                  {site.manifest.title || "Untitled Site"}
-                </h2>
-                <p className="text-sm text-muted-foreground mb-4 line-clamp-2" title={site.manifest.description}>
-                  {site.manifest.description || 'No description provided.'}
-                </p>
-              </div>
-              <div className="mt-4 flex flex-wrap justify-start gap-2">
-                <Button variant="outline" size="sm" asChild>
-                  <Link href={`/${site.siteId}`} target="_blank" rel="noopener noreferrer">
-                    <Eye className="mr-2 h-4 w-4" /> View
-                  </Link>
-                </Button>
-                <Button variant="default" size="sm" asChild>
-                  <Link href={`/${site.siteId}/edit`}>
-                     <Edit3 className="mr-2 h-4 w-4" /> Edit
-                  </Link>
-                </Button>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="destructive" size="sm">
-                      <Trash2 className="mr-2 h-4 w-4" /> Delete
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        This will permanently delete &quot;{site.manifest.title || 'this site'}&quot; from local storage.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDeleteSite(site.siteId, site.manifest.title || 'Untitled Site')}>
-                        Yes, delete site
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </div>
-            </div>
-          ))}
+        <div className="flex flex-col items-center p-6 bg-card border rounded-lg">
+          <Feather className="size-10 text-primary mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Simple & Focused</h3>
+          <p className="text-muted-foreground text-sm">
+            A minimal, content-first editor lets you focus on writing.
+          </p>
         </div>
-      )}
+        <div className="flex flex-col items-center p-6 bg-card border rounded-lg">
+          <Zap className="size-10 text-primary mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Blazingly Fast</h3>
+          <p className="text-muted-foreground text-sm">
+            Static sites are fast, reliable, and efficient to host.
+          </p>
+        </div>
+        <div className="flex flex-col items-center p-6 bg-card border rounded-lg">
+          <Archive className="size-10 text-primary mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Truly Portable</h3>
+          <p className="text-muted-foreground text-sm">
+            Export your entire site anytime. No vendor lock-in, ever.
+          </p>
+        </div>
+      </section>
     </div>
+    </>
   );
 }
 
@@ -432,63 +436,6 @@ File: app/globals.css
 
 ================================================================================
 
-File: app/sites/layout.tsx
-// src/app/layout.tsx
-'use client'; 
-
-import { useEffect, useState, Suspense } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
-//import Navbar from '@/components/core/Navbar'; 
-//import Footer from '@/components/core/Footer';   
-//import './globals.css'; 
-import { Toaster } from "@/components/ui/sonner"; 
-import { ThemeProvider } from "@/components/core/ThemeProvider"; 
-import { LiaEdit } from "react-icons/lia";
-import { Link } from '@/components/ui/link';
-// Loading component to show during initialization or suspense
-
-
-export default function SitesLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const initialize = useAppStore(state => state.initialize);
-  const isInitialized = useAppStore(state => state.isInitialized);
-  const [clientMounted, setClientMounted] = useState(false);
-
-  useEffect(() => {
-    setClientMounted(true); 
-    if (!isInitialized) {
-      initialize();
-    }
-  }, [initialize, isInitialized]); 
-
-  const showLoading = clientMounted && !isInitialized;
-
-  return (
-   
-              <div className=" flex flex-row h-full">
-                <div className='w-[60px] flex-none flex flex-col gap-4 h-screen sticky top-0 border-r'>
-                  <div className='bg-gray-300 rounded-full size-[30px] mx-auto mt-3'>
-                  
-
-                    </div>
-                    <Link href=""><LiaEdit className='size-7 mx-auto'/></Link>
-                </div>
-                <main className="flex-grow"> 
-                    {children}
-                  
-                </main>
-                
-              </div>
-            )}
-          
-  );
-}
-
-================================================================================
-
 File: app/sites/page.tsx
 // src/app/page.tsx
 'use client';
@@ -496,7 +443,7 @@ File: app/sites/page.tsx
 import Link from 'next/link';
 import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Edit3, Eye, Trash2, FilePlus2 } from 'lucide-react';
+import { PlusCircle, Edit3, Eye, Trash2, FilePlus2, Leaf } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
 
@@ -517,6 +464,18 @@ export default function HomePageDashboard() {
   const validSites = sites.filter(site => site && site.manifest);
 
   return (
+    <>
+    <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-sm">
+                <div className="container mx-auto flex h-16 items-center justify-between px-4">
+                  <Link href="/" className="flex items-center gap-2">
+                    <Leaf className="h-7 w-7 text-primary" />
+                    <span className="text-2xl font-bold text-foreground hidden sm:inline">Signum</span>
+                  </Link>
+                  <Button asChild variant="ghost">
+                    <Link href="/sites">Dashboard</Link>
+                  </Button>
+                </div>
+              </header>
     <div className="container mx-auto p-4 sm:p-6 lg:p-8">
       <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-8 gap-4">
         <h1 className="text-3xl font-bold text-foreground">My Signum Sites</h1>
@@ -551,12 +510,12 @@ export default function HomePageDashboard() {
               </div>
               <div className="mt-4 flex flex-wrap justify-start gap-2">
                 <Button variant="outline" size="sm" asChild>
-                  <Link href={`/${site.siteId}`} target="_blank" rel="noopener noreferrer">
+                  <Link href={`/sites/${site.siteId}/`} target="_blank" rel="noopener noreferrer">
                     <Eye className="mr-2 h-4 w-4" /> View
                   </Link>
                 </Button>
                 <Button variant="default" size="sm" asChild>
-                  <Link href={`/${site.siteId}/edit`}>
+                  <Link href={`/sites/${site.siteId}/edit`}>
                      <Edit3 className="mr-2 h-4 w-4" /> Edit
                   </Link>
                 </Button>
@@ -587,224 +546,241 @@ export default function HomePageDashboard() {
         </div>
       )}
     </div>
+    </>
   );
 }
 
 ================================================================================
 
-File: app/sites/[siteId]/edit/layout.tsx
-// src/app/(publishing)/edit/[siteId]/layout.tsx
+File: app/sites/[siteId]/layout.tsx
+// src/app/sites/[siteId]/layout.tsx
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
-import { Button } from '@/components/ui/button';
-import { Settings, Eye, Home, PlusCircle, FolderPlus, UploadCloud, Palette } from 'lucide-react';
-import FileTree from '@/components/publishing/FileTree';
-import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import { toast } from 'sonner';
-import { exportSiteToZip } from '@/lib/siteExporter';
-import { slugify } from '@/lib/utils';
-import { StructureNode, LayoutInfo } from '@/types'; // FIXED: Import LayoutInfo
-import { getAvailableLayouts } from '@/lib/configHelpers'; // FIXED: Correct import path
-import ErrorBoundary from '@/components/core/ErrorBoundary';
+import { usePathname } from 'next/navigation';
+import { TbEdit, TbSettings } from "react-icons/tb";
+import { Leaf } from 'lucide-react'; // Assuming you use this for the logo
+import { cn } from '@/lib/utils';
 
-const NEW_FILE_SLUG_MARKER = '_new';
-
-export default function EditSiteLayout({ children }: { children: React.ReactNode }) {
-  const params = useParams();
+export default function SingleSiteLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const router = useRouter();
-  const siteId = params.siteId as string;
+  const siteId = pathname.split('/')[2];
 
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  const updateManifest = useAppStore((state) => state.updateManifest);
-  const addNewCollection = useAppStore((state) => state.addNewCollection);
-  
-  const [isPublishing, setIsPublishing] = useState(false);
-  const [activePath, setActivePath] = useState<string | undefined>();
+  const isEditorActive = pathname.startsWith(`/sites/${siteId}/edit`);
+  const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
-  const siteStructure = useMemo(() => site?.manifest.structure || [], [site?.manifest.structure]);
-
-  // FIXED: Replaced useEffect with a simpler useMemo. The helper function is synchronous.
-  const availableCollectionLayouts = useMemo(() => {
-    if (!site?.manifest) {
-      return [];
-    }
-    // The getAvailableLayouts function now reads from the manifest itself.
-    return getAvailableLayouts(site.manifest).filter((l: LayoutInfo) => l.type === 'collection');
-  }, [site?.manifest]);
-
-
-  // This useEffect correctly determines the active file in the sidebar tree.
-  useEffect(() => {
-    const pathSegments = pathname.split('/');
-    if (pathname.includes('/collection/')) {
-        const slug = pathSegments[pathSegments.indexOf('collection') + 1];
-        setActivePath(`content/${slug}`);
-    } else if (pathname.includes('/content/')) {
-        const contentPath = pathname.substring(pathname.indexOf('/content/') + 8).replace(/\/$/, '');
-        const pathWithExt = `content/${contentPath}.md`;
-        const existingFile = site?.contentFiles.find(f => f.path === pathWithExt);
-        setActivePath(existingFile?.path);
-    } else {
-        setActivePath(undefined);
-    }
-  }, [pathname, site?.contentFiles]);
-
-
-  const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
-      if (!site) return;
-      const newManifest = { ...site.manifest, structure: reorderedNodes };
-      updateManifest(siteId, newManifest);
-  }, [site, siteId, updateManifest]);
-
-  const handleNavigateToNewFile = (parentPath: string = 'content') => {
-    const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
-    const newFileRoute = `/edit/${siteId}/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
-    router.push(newFileRoute.replace(/\/\//g, '/'));
-  };
-  
-   const handleCreateNewCollection = async (name: string, slug: string, layout: string) => {
-    if (!site) return;
-    await addNewCollection(siteId, name, slug, layout);
-    toast.success(`Collection "${name}" created!`);
-    router.push(`/edit/${siteId}/collection/${slug}`);
-  };
-
-  const handlePublishSite = async () => {
-    if (!site) {
-      toast.error("Site data not found. Cannot publish.");
-      return;
-    }
-    setIsPublishing(true);
-    toast.info("Generating site bundle for download...");
-    try {
-      const blob = await exportSiteToZip(site);
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = `${slugify(site.manifest.title || 'signum-site')}.zip`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-      toast.success("Site bundle downloaded!");
-    } catch (error) {
-      console.error("Error publishing site to Zip:", error);
-      toast.error(`Failed to generate Zip: ${(error as Error).message}`);
-    } finally {
-        setIsPublishing(false);
-    }
-  };
-  
-  const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map(c => c.slug) || [], [site?.manifest.structure]);
-
-  if (!site) {
-    return <div className="p-6">Loading site editor...</div>;
-  }
-
-  const isSiteSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/site`);
-  const isAppearanceSettingsActive = pathname.startsWith(`/edit/${siteId}/settings/appearance`);
+  const navItems = [
+    { href: `/sites/${siteId}/edit`, title: 'Edit', icon: TbEdit, isActive: isEditorActive },
+    { href: `/sites/${siteId}/settings`, title: 'Settings', icon: TbSettings, isActive: isSettingsActive },
+  ];
 
   return (
-    <div className='h-screen'>
-    <div className='border-b h-[60px]'>
+    <div className="flex h-screen flex-col lg:flex-row">
 
-    </div>
-    <div className="flex  bg-background w-full">
-        
-      <aside className="w-72 border-r bg-muted/40 p-4 flex flex-col shrink-0">
-        <h2 className="text-xl font-semibold truncate mb-4" title={site.manifest.title}>
-            {site.manifest.title || 'Site Editor'}
-        </h2>
-
-        <nav className="flex flex-col space-y-1 mb-4">
-          <Button variant="ghost" asChild className={`justify-start ${isSiteSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/settings/site`}><Settings className="mr-2 h-4 w-4" /> Site Settings</Link>
-          </Button>
-          <Button variant="ghost" asChild className={`justify-start ${isAppearanceSettingsActive ? 'bg-accent text-accent-foreground' : ''}`}>
-            <Link href={`/edit/${siteId}/settings/appearance`}><Palette className="mr-2 h-4 w-4" /> Appearance</Link>
-          </Button>
-        </nav>
-        
-        <div className="border-t pt-4 mt-4">
-            <h3 className="px-3 text-xs font-semibold text-muted-foreground uppercase mb-2">Content</h3>
-            <Button variant="ghost" onClick={() => handleNavigateToNewFile('content')} className="justify-start w-full">
-              <PlusCircle className="mr-2 h-4 w-4" /> New Page
-            </Button>
-            <NewCollectionDialog 
-                existingSlugs={existingTopLevelSlugs} 
-                availableLayouts={availableCollectionLayouts}
-                onSubmit={handleCreateNewCollection}
+      <aside className="fixed inset-x-0 bottom-0 z-30 flex h-16 w-full shrink-0 border-t bg-background lg:static lg:inset-y-0 lg:left-0 lg:h-full lg:w-[60px] lg:border-r lg:border-t-0">
+        <nav className="flex w-full items-center justify-center gap-4 px-2 lg:flex-col lg:justify-start lg:py-5">
+          <Link
+            href="/sites"
+            className="group mb-0 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground lg:mb-4"
+            title="Dashboard"
+          >
+            <Leaf className="size-6 transition-transform group-hover:scale-110" />
+          </Link>
+          
+          {navItems.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              title={item.title}
+              className={cn(
+                'flex h-10 w-10 items-center justify-center rounded-lg transition-colors',
+                item.isActive
+                  ? 'bg-accent text-accent-foreground'
+                  : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+              )}
             >
-                <Button variant="ghost" className="w-full justify-start">
-                    <FolderPlus className="mr-2 h-4 w-4" /> New Collection
-                </Button>
-            </NewCollectionDialog>
-        </div>
-
-        <div className="flex-grow overflow-y-auto pr-1 -mr-1 mt-2">
-          <FileTree 
-            nodes={siteStructure} 
-            baseEditPath={`/${siteId}/edit/`}
-            activePath={activePath}
-            onFileCreate={handleNavigateToNewFile} 
-            onStructureChange={handleStructureChange}
-          />
-        </div>
-
-        <div className="mt-auto space-y-2 pt-4 border-t shrink-0">
-            <Button variant="default" onClick={handlePublishSite} disabled={isPublishing} className="w-full">
-              <UploadCloud className="mr-2 h-4 w-4" /> {isPublishing ? 'Publishing...' : 'Publish Site'}
-            </Button>
-            <Button variant="outline" asChild className="w-full">
-                <Link href={`/${siteId}`} target="_blank"><Eye className="mr-2 h-4 w-4" /> View Site</Link>
-            </Button>
-            <Button variant="ghost" asChild className="w-full">
-              <Link href="/"><Home className="mr-2 h-4 w-4" /> App Dashboard</Link>
-            </Button>
-        </div>
+              <item.icon className="size-6" />
+            </Link>
+          ))}
+        </nav>
       </aside>
-        <ErrorBoundary>
-          {children}
-        </ErrorBoundary>
-    </div>
+      <main className="flex-1 overflow-auto pb-16 lg:pb-0">
+        {children}
+      </main>
     </div>
   );
 }
 
 ================================================================================
 
-File: app/sites/[siteId]/edit/page.tsx
-// src/app/(publishing)/[siteId]/edit/page.tsx
+File: app/sites/[siteId]/page.tsx
+// src/app/sites/[siteId]/page.tsx
 'use client';
 
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 
-// This page now simply redirects to the site settings page by default.
-export default function SiteEditorRootPage() {
+// This page now acts as a smart entry point for a site.
+// Its only job is to redirect the user to the editor.
+export default function SiteRootPage() {
   const router = useRouter();
   const params = useParams();
   const siteId = params.siteId as string;
 
   useEffect(() => {
     if (siteId) {
+      // Use `replace` to avoid polluting the browser's history.
+      // This sends the user directly to the site editor.
+      router.replace(`/sites/${siteId}/edit`);
     }
   }, [siteId, router]);
 
+  // Display a loading message while the redirect is processed.
   return (
-    <div className="p-6 flex justify-center items-center h-full">
-      <p>Redirecting to site settings...</p>
+    <div className="flex justify-center items-center h-full">
+      <p>Redirecting to editor...</p>
     </div>
   );
 }
 
 ================================================================================
 
-File: app/sites/[siteId]/edit/settings/appearance/page.tsx
+File: app/sites/[siteId]/settings/layout.tsx
+'use client';
+
+import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import { ReactNode, useEffect } from 'react';
+import { useUIStore } from '@/stores/uiStore';
+import SettingsNav from '@/components/publishing/SettingsNav'; // We will create this component next
+
+// This layout sets a *fixed* left sidebar for all settings pages.
+export default function SettingsLayout({ children }: { children: ReactNode }) {
+  const { setLeftSidebarContent, setRightSidebarContent } = useUIStore(state => state.sidebar);
+
+  useEffect(() => {
+    // On mount, tell the store what to render in the left sidebar.
+    setLeftSidebarContent(<SettingsNav />);
+    // Ensure the right sidebar is empty for all settings pages.
+    setRightSidebarContent(null); 
+
+    // On unmount, clean up the sidebar content.
+    return () => {
+      setLeftSidebarContent(null);
+    };
+  }, [setLeftSidebarContent, setRightSidebarContent]);
+
+  return <ThreeColumnLayout>{children}</ThreeColumnLayout>;
+}
+
+================================================================================
+
+File: app/sites/[siteId]/settings/page.tsx
+// src/app/(publishing)/edit/[siteId]/settings/site/page.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useAppStore } from '@/stores/useAppStore';
+import SiteSettingsForm from '@/components/publishing/SiteSettingsForm';
+import { Button } from '@/components/ui/button';
+import { Manifest } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+import Link from 'next/link';
+
+export default function SiteSettingsPage() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateManifestAction = useAppStore(state => state.updateManifest);
+  const isStoreInitialized = useAppStore(state => state.isInitialized);
+
+  const [formData, setFormData] = useState({ title: '', description: '', author: '' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  useEffect(() => {
+    if (site?.manifest) {
+      setFormData({
+        title: site.manifest.title,
+        description: site.manifest.description,
+        author: site.manifest.author || '',
+      });
+      setHasChanges(false);
+    }
+  }, [site]);
+  
+  const handleFormChange = useCallback((newData: typeof formData) => {
+    setFormData(newData);
+    setHasChanges(true);
+  }, []);
+
+  const handleSave = async () => {
+    if (!site || !site.manifest) return;
+    if (!formData.title.trim()) {
+      toast.error("Site title cannot be empty.");
+      return;
+    }
+    
+    setIsLoading(true);
+    const newManifest: Manifest = {
+      ...site.manifest,
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      author: formData.author.trim(),
+    };
+
+    try {
+      await updateManifestAction(siteId, newManifest);
+      toast.success('Site settings saved successfully!');
+      setHasChanges(false);
+    } catch (error) {
+      console.error("Error saving site settings:", error);
+      toast.error("Failed to save settings. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (!isStoreInitialized || (site && !formData.title && !site.manifest.title)) {
+    return <div className="p-6">Loading settings...</div>;
+  }
+  
+  if (!site) {
+    return (
+      <div className="p-6 text-center">
+        <h2 className="text-xl font-semibold">Site Not Found</h2>
+        <Button asChild variant="outline" className="mt-4">
+          <Link href="/">Go to Dashboard</Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div>
+        <h1 className="text-2xl font-bold">Site Settings</h1>
+        <p className="text-muted-foreground">Manage the core details of your website.</p>
+      </div>
+      <div className="border-t pt-6">
+        <SiteSettingsForm 
+          formData={formData}
+          onFormChange={handleFormChange} 
+        />
+      </div>
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
+          {isLoading ? 'Saving...' : 'Save Settings'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/sites/[siteId]/settings/appearance/page.tsx
 // src/app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
 'use client';
 
@@ -928,106 +904,56 @@ export default function AppearanceSettingsPage() {
 
 ================================================================================
 
-File: app/sites/[siteId]/edit/settings/site/page.tsx
-// src/app/(publishing)/edit/[siteId]/settings/site/page.tsx
+File: app/sites/[siteId]/edit/layout.tsx
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
-import SiteSettingsForm from '@/components/publishing/SiteSettingsForm';
-import { Button } from '@/components/ui/button';
-import { Manifest } from '@/types';
-import { useEffect, useState, useCallback } from 'react';
-import { toast } from "sonner";
-import Link from 'next/link';
+import { LayoutProvider } from '@/contexts/LayoutContext';
+import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import { ReactNode } from 'react';
 
-export default function SiteSettingsPage() {
+export default function EditSiteLayout({ children }: { children: ReactNode }) {
+  return (
+    <LayoutProvider>
+      {({ leftSidebar, rightSidebar }) => (
+        <ThreeColumnLayout
+          leftSidebar={leftSidebar}
+          rightSidebar={rightSidebar}
+        >
+          {children}
+        </ThreeColumnLayout>
+      )}
+    </LayoutProvider>
+  );
+}
+
+================================================================================
+
+File: app/sites/[siteId]/edit/page.tsx
+// src/app/sites/[siteId]/edit/page.tsx
+'use client';
+
+import { useEffect } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+
+// This page acts as a default entry point for the editor.
+// It immediately redirects to the editor for the site's homepage (index.md).
+export default function SiteEditorRootPage() {
+  const router = useRouter();
   const params = useParams();
   const siteId = params.siteId as string;
 
-  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
-  const updateManifestAction = useAppStore(state => state.updateManifest);
-  const isStoreInitialized = useAppStore(state => state.isInitialized);
-
-  const [formData, setFormData] = useState({ title: '', description: '', author: '' });
-  const [isLoading, setIsLoading] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-
   useEffect(() => {
-    if (site?.manifest) {
-      setFormData({
-        title: site.manifest.title,
-        description: site.manifest.description,
-        author: site.manifest.author || '',
-      });
-      setHasChanges(false);
+    if (siteId) {
+      // Use `replace` to avoid adding this redirect page to the browser history.
+      // This will navigate to the content editor for the file at `content/index.md`.
+      router.replace(`/sites/${siteId}/edit/content/`);
     }
-  }, [site]);
-  
-  const handleFormChange = useCallback((newData: typeof formData) => {
-    setFormData(newData);
-    setHasChanges(true);
-  }, []);
+  }, [siteId, router]);
 
-  const handleSave = async () => {
-    if (!site || !site.manifest) return;
-    if (!formData.title.trim()) {
-      toast.error("Site title cannot be empty.");
-      return;
-    }
-    
-    setIsLoading(true);
-    const newManifest: Manifest = {
-      ...site.manifest,
-      title: formData.title.trim(),
-      description: formData.description.trim(),
-      author: formData.author.trim(),
-    };
-
-    try {
-      await updateManifestAction(siteId, newManifest);
-      toast.success('Site settings saved successfully!');
-      setHasChanges(false);
-    } catch (error) {
-      console.error("Error saving site settings:", error);
-      toast.error("Failed to save settings. Please try again.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  if (!isStoreInitialized || (site && !formData.title && !site.manifest.title)) {
-    return <div className="p-6">Loading settings...</div>;
-  }
-  
-  if (!site) {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold">Site Not Found</h2>
-        <Button asChild variant="outline" className="mt-4">
-          <Link href="/">Go to Dashboard</Link>
-        </Button>
-      </div>
-    );
-  }
-
+  // Return a loading state while the redirect is happening.
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h1 className="text-2xl font-bold">Site Settings</h1>
-        <p className="text-muted-foreground">Manage the core details of your website.</p>
-      </div>
-      <div className="border-t pt-6">
-        <SiteSettingsForm 
-          formData={formData}
-          onFormChange={handleFormChange} 
-        />
-      </div>
-      <div className="flex justify-end pt-4">
-        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
-          {isLoading ? 'Saving...' : 'Save Settings'}
-        </Button>
-      </div>
+    <div className="p-6 flex justify-center items-center h-full">
+      <p>Loading editor...</p>
     </div>
   );
 }
@@ -1232,205 +1158,133 @@ File: app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { useLayout } from '@/contexts/LayoutContext';
+
+// --- Store and Component Imports ---
 import { useAppStore } from '@/stores/useAppStore';
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
-import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
 import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
-import { Button } from '@/components/ui/button';
+import LeftSidebar from '@/components/publishing/LeftSidebar';
+import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
+
+// --- Type and Util Imports ---
 import type { MarkdownFrontmatter } from '@/types';
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
-import { toast } from "sonner";
-import { Trash2, Save, Cloud, AlertCircle, CheckCircle } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Link } from '@/components/ui/link';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
+import { toast } from "sonner";
 import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
-type AutoSaveStatus = "unsaved" | "saving" | "saved" | "error";
 
 export default function EditContentPage() {
   const params = useParams();
   const router = useRouter();
   const siteId = params.siteId as string;
+
+  // --- Store and Context Hooks ---
+  const { setLeftSidebar, setRightSidebar } = useLayout();
+  const site = useAppStore(state => state.getSiteById(siteId));
+  const addOrUpdateContentFileAction = useAppStore(state => state.addOrUpdateContentFile);
+  const deleteContentFileAction = useAppStore(state => state.deleteContentFileAndState);
+
+  // --- State Management ---
+  const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
+  const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
+  const [currentFilePath, setCurrentFilePath] = useState<string>('');
+  const [layoutPath, setLayoutPath] = useState<string>('');
+  const [slug, setSlug] = useState<string>('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isNewFileMode, setIsNewFileMode] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+  // --- Refs ---
+  const editorRef = useRef<MarkdownEditorRef>(null);
+  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const frontmatterRef = useRef(currentFrontmatter);
+  const filePathRef = useRef(currentFilePath);
+  const isNewFileModeRef = useRef(isNewFileMode);
+  const slugRef = useRef(slug);
+
+  useEffect(() => { frontmatterRef.current = currentFrontmatter; }, [currentFrontmatter]);
+  useEffect(() => { filePathRef.current = currentFilePath; }, [currentFilePath]);
+  useEffect(() => { isNewFileModeRef.current = isNewFileMode; }, [isNewFileMode]);
+  useEffect(() => { slugRef.current = slug; }, [slug]);
   
+  // --- Memoized URL Parsing ---
   const slugSegments = useMemo(() => (params.slug as string[]) || [], [params.slug]);
   const isNewFileIntent = useMemo(() => slugSegments.includes(NEW_FILE_SLUG_MARKER), [slugSegments]);
-  
   const parentPathForNewFile = useMemo(() => {
     if (!isNewFileIntent) return 'content';
     const newMarkerIndex = slugSegments.indexOf(NEW_FILE_SLUG_MARKER);
     const parentSlug = newMarkerIndex > 0 ? slugSegments.slice(0, newMarkerIndex).join('/') : '';
     return parentSlug ? `content/${parentSlug}` : 'content';
   }, [slugSegments, isNewFileIntent]);
-
   const targetPathForExistingFile = useMemo(() => {
     if (isNewFileIntent) return '';
     const pathParts = slugSegments.filter(s => s !== NEW_FILE_SLUG_MARKER);
-    if (pathParts.length === 0 && siteId) return 'content/index.md';
-    return `content/${pathParts.join('/')}.md`;
-  }, [slugSegments, isNewFileIntent, siteId]);
+    return pathParts.length === 0 ? 'content/index.md' : `content/${pathParts.join('/')}.md`;
+  }, [slugSegments, isNewFileIntent]);
 
-  const site = useAppStore(state => state.getSiteById(siteId));
-  const addOrUpdateContentFileAction = useAppStore(state => state.addOrUpdateContentFile);
-  const deleteContentFileAction = useAppStore(state => state.deleteContentFileAndState);
-
-  const [currentFrontmatter, setCurrentFrontmatter] = useState<MarkdownFrontmatter | null>(null);
-  const [currentBodyContent, setCurrentBodyContent] = useState<string>('');
-  const [currentFilePath, setCurrentFilePath] = useState<string>('');
-  const [layoutPath, setLayoutPath] = useState<string>('');
-  const [slug, setSlug] = useState<string>('');
-
-  const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isNewFileMode, setIsNewFileMode] = useState(false);
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<AutoSaveStatus>("saved");
-
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const editorRef = useRef<MarkdownEditorRef>(null);
-
-  const frontmatterRef = useRef<MarkdownFrontmatter | null>(null);
-  useEffect(() => {
-    frontmatterRef.current = currentFrontmatter;
-  }, [currentFrontmatter]);
-
-  const updateSlugFromTitle = useCallback((title: string) => {
-    if (isNewFileMode) {
-      setSlug(slugify(title));
-    }
-  }, [isNewFileMode]);
-
-  // =========================================================================
-  // --- MODIFIED SECTION 1: The Save Handler ---
-  // =========================================================================
+  // --- Callbacks ---
+  const handleFrontmatterChange = useCallback((newData: Partial<MarkdownFrontmatter>) => {
+    setCurrentFrontmatter(prev => {
+        const newFm = { ...(prev || { title: '' }), ...newData };
+        if (newData.title !== undefined && isNewFileModeRef.current) {
+            setSlug(slugify(newData.title));
+        }
+        return newFm;
+    });
+    setHasUnsavedChanges(true);
+  }, []);
+  const handleEditorContentChange = useCallback(() => { setHasUnsavedChanges(true); }, []);
   const handleSaveContent = useCallback(async (isAutosave: boolean = false) => {
-    // Revert to getting the latest content from the ref at the moment of saving.
     const latestBodyContent = editorRef.current?.getMarkdown();
-
-    if (typeof latestBodyContent !== 'string') {
-        if (!isAutosave) toast.warning("Editor is not ready, please wait a moment.");
-        return;
-    }
-
-    if (!currentFrontmatter || !siteId || !layoutPath) {
-      if (!isAutosave) toast.error("Cannot save: Critical data is missing.");
-      setAutoSaveStatus("error");
-      return;
-    }
-    const title = (currentFrontmatter.title as string)?.trim();
-    if (!title) {
-      if (!isAutosave) toast.error("A title is required to save.");
-      setAutoSaveStatus(isNewFileMode ? "unsaved" : "error");
-      return;
-    }
-
-    if (!isAutosave) setIsSaving(true);
-    setAutoSaveStatus("saving");
-
-    let filePathToSave = currentFilePath;
-
-    if (isNewFileMode) {
-      const currentSlug = slug.trim();
-      if (!currentSlug) {
-        if (!isAutosave) toast.error("A valid URL slug is required for a new file.");
-        setAutoSaveStatus("unsaved");
-        if (!isAutosave) setIsSaving(false);
-        return;
-      }
-      
+    const frontmatter = frontmatterRef.current;
+    if (typeof latestBodyContent !== 'string' || !frontmatter || !siteId || !layoutPath) return;
+    const title = (frontmatter.title as string)?.trim();
+    if (!title) { if (!isAutosave) toast.error("A title is required to save."); return; }
+    let filePathToSave = filePathRef.current;
+    if (isNewFileModeRef.current) {
+      const currentSlug = slugRef.current.trim();
+      if (!currentSlug) { if (!isAutosave) toast.error("A valid URL slug is required for a new file."); return; }
       filePathToSave = `${parentPathForNewFile}/${currentSlug}.md`.replace(/\/\//g, '/');
-      
-      if (site?.contentFiles.some(f => f.path === filePathToSave)) {
-        if (!isAutosave) toast.error(`A file with the slug "${currentSlug}" already exists here.`);
-        setAutoSaveStatus("error");
-        if (!isAutosave) setIsSaving(false);
-        return;
-      }
+      if (site?.contentFiles.some(f => f.path === filePathToSave)) { if (!isAutosave) toast.error(`A file with the slug "${currentSlug}" already exists here.`); return; }
     }
-
-    // Use the content fetched from the ref.
-    const rawMarkdownToSave = stringifyToMarkdown(currentFrontmatter, latestBodyContent);
-    
+    if (!filePathToSave) return;
+    const rawMarkdownToSave = stringifyToMarkdown(frontmatter, latestBodyContent);
     try {
       await addOrUpdateContentFileAction(siteId, filePathToSave, rawMarkdownToSave, layoutPath);
-      
-      // After a successful save, update the component's state to match.
-      setCurrentBodyContent(latestBodyContent);
-
-      if (!isAutosave) toast.success(`Content "${title}" saved successfully!`);
       setHasUnsavedChanges(false);
-      setAutoSaveStatus("saved");
-      
-      if (isNewFileMode) {
+      if (isNewFileModeRef.current) {
         setIsNewFileMode(false);
         setCurrentFilePath(filePathToSave);
         const newEditPathSegments = filePathToSave.replace(/^content\//, '').replace(/\.md$/, '');
-        router.replace(`/edit/${siteId}/content/${newEditPathSegments}`);
+        router.replace(`/sites/${siteId}/edit/content/${newEditPathSegments}`);
       }
-    } catch (error) {
-      console.error("Error saving content:", error);
-      const errorMessage = (error as Error).message || "An unknown error occurred.";
-      toast.error(`Failed to save: ${errorMessage}`);
-      setAutoSaveStatus("error");
-    } finally {
-      if (!isAutosave) setIsSaving(false);
-    }
-  }, [
-    // Remove currentBodyContent from the dependency array, as the ref provides the value.
-    currentFrontmatter, siteId, currentFilePath, slug, isNewFileMode,
-    parentPathForNewFile, site?.contentFiles, addOrUpdateContentFileAction,
-    router, layoutPath
-  ]);
+    } catch (error) { toast.error(`Failed to save: ${(error as Error).message}`); }
+  }, [siteId, layoutPath, parentPathForNewFile, site?.contentFiles, addOrUpdateContentFileAction, router]);
+  const handleDeleteContentFile = useCallback(async () => {
+    const filePath = filePathRef.current;
+    const frontmatter = frontmatterRef.current;
+    if (isNewFileModeRef.current || !filePath || !site || !frontmatter) return;
+    try {
+      await deleteContentFileAction(siteId, filePath);
+      toast.success(`File "${frontmatter.title || filePath}" deleted.`);
+      router.push(`/sites/${siteId}/edit`);
+    } catch (error) { toast.error(`Failed to delete file: ${(error as Error).message}`); }
+  }, [site, siteId, deleteContentFileAction, router]);
 
-
-  const triggerAutoSave = useCallback(() => {
-    if (autoSaveTimeoutRef.current) {
-      clearTimeout(autoSaveTimeoutRef.current);
-    }
-    const title = (frontmatterRef.current?.title as string)?.trim();
-    if (isNewFileMode && (!title || !slug.trim())) {
-        setAutoSaveStatus("unsaved");
-        return;
-    }
-    if (!hasUnsavedChanges && autoSaveStatus !== "error") {
-        setAutoSaveStatus("saved");
-        return;
-    }
-
-    setAutoSaveStatus("unsaved");
-    autoSaveTimeoutRef.current = setTimeout(async () => {
-      await handleSaveContent(true);
-    }, AUTOSAVE_DELAY);
-  }, [isNewFileMode, hasUnsavedChanges, slug, autoSaveStatus, handleSaveContent]);
-
+  // --- Effects ---
   useEffect(() => {
-    setIsLoading(true);
-    setHasUnsavedChanges(false);
-    setAutoSaveStatus("saved");
-
+    setIsLoading(true); setHasUnsavedChanges(false);
     if (site) {
       if (isNewFileIntent) {
         setIsNewFileMode(true);
         const parentNode = findNodeByPath(site.manifest.structure, parentPathForNewFile);
-        const newFileLayout = parentNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH;
-        setLayoutPath(newFileLayout);
-
+        setLayoutPath(parentNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH);
         setCurrentFrontmatter({ title: '', date: new Date().toISOString().split('T')[0], status: 'draft' });
         setCurrentBodyContent('# Start writing...');
-        setSlug('');
-        setCurrentFilePath('');
+        setSlug(''); setCurrentFilePath('');
       } else {
         setIsNewFileMode(false);
         const fileNode = findNodeByPath(site.manifest.structure, targetPathForExistingFile);
@@ -1443,295 +1297,76 @@ export default function EditContentPage() {
           setSlug(existingFile.slug);
         } else {
           toast.error(`Content not found.`);
-          router.push(`/edit/${siteId}`);
+          router.push(`/sites/${siteId}/edit`);
         }
       }
     }
     setIsLoading(false);
   }, [site, siteId, targetPathForExistingFile, isNewFileIntent, parentPathForNewFile, router]);
-
-  // =========================================================================
-  // --- MODIFIED SECTION 2: The Autosave Trigger ---
-  // =========================================================================
-  // The `useEffect` that triggers autosave no longer needs to depend on `currentBodyContent`.
-  // It only cares about the frontmatter changing or the `hasUnsavedChanges` flag.
+  
   useEffect(() => {
+    if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
     if (!isLoading && hasUnsavedChanges) {
-      triggerAutoSave();
+      autoSaveTimeoutRef.current = setTimeout(() => handleSaveContent(true), AUTOSAVE_DELAY);
     }
     return () => { if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current); };
-  }, [currentFrontmatter, isLoading, hasUnsavedChanges, triggerAutoSave]);
+  }, [hasUnsavedChanges, isLoading, handleSaveContent]);
 
-
-  const handleFrontmatterChange = useCallback((newData: Partial<MarkdownFrontmatter>) => {
-    setCurrentFrontmatter(prev => ({ ...(prev || { title: '' }), ...newData }));
-    if (newData.title !== undefined) {
-        updateSlugFromTitle(newData.title);
-    }
-    setHasUnsavedChanges(true);
-    setAutoSaveStatus("unsaved");
-  }, [updateSlugFromTitle]);
-
-  // =========================================================================
-  // --- MODIFIED SECTION 3: The New Change Handler ---
-  // =========================================================================
-  // This function will be passed to the new MarkdownEditor's onContentChange prop.
-  // Its only job is to signal that the content has changed and an autosave is needed.
-  const handleEditorContentChange = useCallback(() => {
-    setHasUnsavedChanges(true);
-    setAutoSaveStatus("unsaved");
-  }, []);
-
-
-  const handleDeleteContentFile = async () => {
-    if (isNewFileMode || !currentFilePath || !site || !currentFrontmatter) return;
-    try {
-        await deleteContentFileAction(siteId, currentFilePath);
-        toast.success(`File "${currentFrontmatter.title || currentFilePath}" deleted.`);
-        const parentNodePath = currentFilePath.substring(0, currentFilePath.lastIndexOf('/'));
-        const parentNode = findNodeByPath(site.manifest.structure, parentNodePath);
-        if (parentNode?.type === 'collection') {
-            router.push(`/edit/${siteId}/collection/${parentNode.slug}`);
-        } else {
-            router.push(`/edit/${siteId}`);
-        }
-    } catch (error) {
-        toast.error(`Failed to delete file: ${(error as Error).message}`);
-    }
-  };
-
-  const renderAutoSaveIndicator = () => {
-    switch (autoSaveStatus) {
-      case "saving": return <><Cloud className="h-4 w-4 mr-1.5 animate-pulse text-blue-500" /> Saving...</>;
-      case "saved": return <><CheckCircle className="h-4 w-4 mr-1.5 text-green-500" /> Saved</>;
-      case "unsaved": return <><Save className="h-4 w-4 mr-1.5 text-amber-500" /> Unsaved</>;
-      case "error": return <><AlertCircle className="h-4 w-4 mr-1.5 text-red-500" /> Save error!</>;
-      default: return null;
-    }
-  };
-
-  if (isLoading) {
-    return <div className="p-6 flex justify-center items-center h-full"><p>Loading editor...</p></div>;
-  }
-  if (!currentFrontmatter && !isNewFileMode && !isLoading) {
-    return (
-        <div className="p-6 text-center">
-            <h2 className="text-xl font-semibold mb-4">Content Not Found</h2>
-            <p className="text-muted-foreground mb-4">The requested content could not be loaded.</p>
-            <Button asChild variant="outline">
-                <Link href={`/edit/${siteId}`}>Go to Site Editor Home</Link>
-            </Button>
-        </div>
-    );
-  }
-
-  const isSaveDisabled = isSaving || (isNewFileMode && (!(currentFrontmatter?.title as string)?.trim() || !slug.trim()));
-
-  return (
-    <div className="flex flex-row h-full gap-6 w-full">
-      <main className="flex-grow flex flex-col p-6 overflow-hidden">
-
-        <div className="flex flex-col sm:flex-row justify-between sm:items-center mb-4 gap-4">
-          <h1 className="text-xl font-bold truncate">
-            {isNewFileMode ? 'Create New Content' : `Edit: ${currentFrontmatter?.title || slug || 'Content'}`}
-          </h1>
-          <div className="flex items-center gap-2">
-            <div className="text-sm text-muted-foreground flex items-center min-w-[120px]">{renderAutoSaveIndicator()}</div>
-            {!isNewFileMode && (
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="outline" size="sm" className="text-destructive border-destructive hover:bg-destructive/10 hover:text-destructive focus-visible:ring-destructive/50">
-                            <Trash2 className="h-4 w-4 mr-1.5" /> Delete
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent> 
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Delete this content file?</AlertDialogTitle>
-                            <AlertDialogDescription>Are you sure you want to delete &quot;{currentFrontmatter?.title || currentFilePath}&quot;?</AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={handleDeleteContentFile} className="bg-destructive hover:bg-destructive/90">Yes, Delete</AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-            )}
-            <Button onClick={() => handleSaveContent(false)} disabled={isSaveDisabled} size="sm" title={isSaveDisabled ? "Enter a title to enable saving" : "Save changes"}>
-              <Save className="h-4 w-4 mr-1.5" />{isSaving ? 'Saving...' : 'Save Now'}
-            </Button>
-          </div>
-        </div>
-        
-        {currentFrontmatter ? (
-            <>
-                <PrimaryContentFields
-                    frontmatter={currentFrontmatter}
-                    onFrontmatterChange={handleFrontmatterChange}
-                    showDescription={true}
-                />
-                <div className="flex-grow mt-6">
-                    <MarkdownEditor
-                        ref={editorRef}
-                        key={currentFilePath || 'new-file-editor'}
-                        initialValue={currentBodyContent}
-                        onContentChange={handleEditorContentChange}
-                    />
-                </div>
-            </>
-        ) : (
-             <div className="flex-grow flex items-center justify-center text-muted-foreground"><p>Initializing editor...</p></div>
-        )}
-      </main>
-      
-      {currentFrontmatter && site && layoutPath && (
-        <div className='flex-none sticky top-0 right-0'>
+  useEffect(() => {
+    setLeftSidebar(<LeftSidebar />);
+    if (currentFrontmatter && site && layoutPath) {
+      setRightSidebar(
         <FrontmatterSidebar
-            site={site}
-            layoutPath={layoutPath}
-            frontmatter={currentFrontmatter}
-            onFrontmatterChange={handleFrontmatterChange}
-            isNewFileMode={isNewFileMode}
-            slug={slug}
-            onSlugChange={(newSlug: string) => {
-                if(isNewFileMode) {
-                    setSlug(slugify(newSlug));
-                    setHasUnsavedChanges(true);
-                    setAutoSaveStatus("unsaved");
-                }
-            }}
+          site={site} layoutPath={layoutPath} frontmatter={currentFrontmatter}
+          onFrontmatterChange={handleFrontmatterChange} isNewFileMode={isNewFileMode} slug={slug}
+          onSlugChange={(_newSlug) => { // <-- Linter fix: prefixed unused variable
+            if (isNewFileMode) { setSlug(slugify(_newSlug)); setHasUnsavedChanges(true); }
+          }}
+          onDelete={handleDeleteContentFile}
         />
-        </div>
-      )}
+      );
+    } else {
+      setRightSidebar(null);
+    }
+    return () => { setLeftSidebar(null); setRightSidebar(null); };
+  }, [
+    site, layoutPath, currentFrontmatter, isNewFileMode, slug,
+    handleFrontmatterChange, handleDeleteContentFile, setLeftSidebar, setRightSidebar,
+  ]);
+
+  // --- Render Logic ---
+  if (isLoading || !site) { return <div className="p-6 flex justify-center items-center h-full"><p>Loading editor...</p></div>; }
+  if (!currentFrontmatter && !isNewFileMode && !isLoading) { return (<div className="p-6 text-center"><h2 className="text-xl font-semibold mb-4">Content Not Found</h2></div>); }
+  return (
+    <div className='w-full px-6 pt-4'>
+      <div className='container max-w-[900px] mx-auto'>
+        {currentFrontmatter ? (
+          <>
+            <PrimaryContentFields frontmatter={currentFrontmatter} onFrontmatterChange={handleFrontmatterChange} showDescription={false} />
+            <div className="flex-grow mt-6 h-full">
+              <MarkdownEditor ref={editorRef} key={currentFilePath || 'new-file-editor'} initialValue={currentBodyContent} onContentChange={handleEditorContentChange} />
+            </div>
+          </>
+        ) : (
+          <div className="flex-grow flex items-center justify-center text-muted-foreground"><p>Initializing editor...</p></div>
+        )}
+      </div>
     </div>
   );
 }
 
 ================================================================================
 
-File: app/sites/[siteId]/[[...slug]]/page.tsx
-// src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
+File: app/sites/[siteId]/view/[[...slug]]/page.tsx
+// src/app/sites/[siteId]/view/[[...slug]]/page.tsx
 'use client';
 
-import { useParams } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react';
-import * as localSiteFs from '@/lib/localSiteFs';
-import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
-import type { LocalSiteData } from '@/types';
-import { Button } from '@/components/ui/button';
-import { AlertTriangle } from 'lucide-react';
-import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
-import Link from 'next/link';
-import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { render as renderWithTheme } from '@/lib/themeEngine'; // The name is aliased
-import ErrorBoundary from '@/components/core/ErrorBoundary';
+import SitePreview from '@/components/view/SiteViewer';
 
-enum PageRenderState { Loading, Display, NotFound, Error }
-
-export default function CatchAllSitePage() {
-  const paramsHook = useParams();
-  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
-  const [renderState, setRenderState] = useState<PageRenderState>(PageRenderState.Loading);
-  const [pageHtmlContent, setPageHtmlContent] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading...");
-  const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
-
-  const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
-  const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
-
-  useEffect(() => {
-    setRenderState(PageRenderState.Loading);
-    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
-    if (!localParsedResult) {
-        setErrorMessage("Invalid site identifier in URL.");
-        setRenderState(PageRenderState.Error);
-        return;
-    }
-    setParsedPageIdentifier(localParsedResult);
-
-    async function processAndRenderSiteContent(validParsedResult: ParsedSiteIdentifier) {
-      let fetchedSiteData: LocalSiteData | null = null;
-      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
-        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
-        if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote site: ${validParsedResult.remoteBaseUrl}.`);
-      } else if (!validParsedResult.isRemote) {
-        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
-        if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
-      }
-
-      if (!fetchedSiteData) {
-        setSiteData(null); 
-        setRenderState(PageRenderState.Error); 
-        return;
-      }
-      setSiteData(fetchedSiteData);
-
-      const resolution = resolvePageContent(fetchedSiteData, slugArray);
-      
-      if (resolution.type === PageType.NotFound) {
-          setRenderState(PageRenderState.NotFound);
-          setErrorMessage(resolution.errorMessage || "Page not found.");
-          setPageMetaTitle("Page Not Found");
-          return;
-      }
-      
-      setPageMetaTitle(resolution.pageTitle || 'Untitled');
-      
-      try {
-        // FIXED: The call to renderWithTheme now passes a single options object.
-        const fullPageHtml = await renderWithTheme(
-          fetchedSiteData,
-          resolution,
-          {
-            siteRootPath: `/${validParsedResult.rawParam}`,
-            isExport: false // This is a live preview, not an export
-          }
-        );
-        setPageHtmlContent(fullPageHtml);
-        setRenderState(PageRenderState.Display);
-      } catch (e) {
-          console.error("Theme rendering failed:", e);
-          setErrorMessage(`Theme Error: ${(e as Error).message}`);
-          setRenderState(PageRenderState.Error);
-      }
-    }
-    processAndRenderSiteContent(localParsedResult);
-  }, [siteIdParamValue, slugArray]);
-
-  useEffect(() => {
-    if (renderState === PageRenderState.Loading) {
-        document.title = "Loading... | Signum";
-    } else {
-        let title = pageMetaTitle;
-        if (siteData?.manifest?.title) title += ` | ${siteData.manifest.title}`;
-        document.title = title;
-    }
-  }, [renderState, pageMetaTitle, siteData]);
-
-  if (renderState === PageRenderState.Loading) {
-    return <div className="container mx-auto p-8"><p>Loading content...</p></div>;
-  }
-
-  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
-  if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
-      return (
-        <div className="container mx-auto p-8 text-center">
-          <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
-          <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>
-          <Button asChild variant="outline" className="mt-6">
-              <Link href={siteData ? siteHomeLinkForError : '/'}>
-                  {siteData ? 'Go to Site Home' : 'Go to Dashboard'}
-              </Link>
-          </Button>
-        </div>
-      );
-  }
-
-  return (
-  <ErrorBoundary>
-    <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />
-  </ErrorBoundary>);
+export default function ViewSitePage() {
+  // This page's only job is to render the master preview component.
+  // The component itself will read the URL from the browser.
+  return <SitePreview />;
 }
 
 ================================================================================
@@ -1925,170 +1560,6 @@ export default function CreateSitePage() {
 
 ================================================================================
 
-File: app/(browsing)/[siteId]/layout.tsx
-// src/app/(browsing)/[siteId]/layout.tsx
-'use client';
-
-// Most imports can be removed as this layout is now just a shell.
-import Link from 'next/link';
-import { useAppStore } from '@/stores/useAppStore';
-import { Button } from '@/components/ui/button';
-
-export default function SiteBrowsingLayout({ children }: { children: React.ReactNode; }) {
-  // The complex logic for fetching data and building nav links is now handled by the page component.
-  // This layout can be a simple pass-through or contain a minimal "back to dashboard" frame.
-  const isInitialized = useAppStore(state => state.isInitialized);
-
-  if (!isInitialized) {
-    return <div className="p-4 text-center">Initializing...</div>;
-  }
-
-  return (
-    <div className='flex-grow flex-col h-screen bg-background overflow-hidden'>
-      {/* This top-level navbar is part of the Signum App UI, not the browsed site's UI */}
-      <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur-sm">
-        <div className=" flex h-14 items-center justify-end">
-          <Button asChild variant="outline" size="sm">
-            <Link href="/">Back to Signum Dashboard</Link>
-          </Button>
-        </div>
-      </header>
-      {/* The page component will render the full themed site below this bar */}
-      {children}
-    </div>
-  );
-}
-
-================================================================================
-
-File: app/(browsing)/[siteId]/[[...slug]]/page.tsx
-// src/app/(browsing)/[siteId]/[[...slug]]/page.tsx
-'use client';
-
-import { useParams } from 'next/navigation';
-import { useEffect, useState, useMemo } from 'react';
-import * as localSiteFs from '@/lib/localSiteFs';
-import { fetchRemoteSiteData } from '@/lib/remoteSiteFetcher';
-import type { LocalSiteData } from '@/types';
-import { Button } from '@/components/ui/button';
-import { AlertTriangle } from 'lucide-react';
-import { parseSiteIdentifier, type ParsedSiteIdentifier } from '@/lib/browsingUtils';
-import Link from 'next/link';
-import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { render as renderWithTheme } from '@/lib/themeEngine'; // The name is aliased
-import ErrorBoundary from '@/components/core/ErrorBoundary';
-
-enum PageRenderState { Loading, Display, NotFound, Error }
-
-export default function CatchAllSitePage() {
-  const paramsHook = useParams();
-  const [siteData, setSiteData] = useState<LocalSiteData | null | undefined>(undefined);
-  const [renderState, setRenderState] = useState<PageRenderState>(PageRenderState.Loading);
-  const [pageHtmlContent, setPageHtmlContent] = useState<string>("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pageMetaTitle, setPageMetaTitle] = useState<string>("Loading...");
-  const [parsedPageIdentifier, setParsedPageIdentifier] = useState<ParsedSiteIdentifier | null>(null);
-
-  const siteIdParamValue = useMemo(() => paramsHook.siteId as string, [paramsHook.siteId]);
-  const slugArray = useMemo(() => (paramsHook.slug as string[] | undefined) || [], [paramsHook.slug]);
-
-  useEffect(() => {
-    setRenderState(PageRenderState.Loading);
-    const localParsedResult = parseSiteIdentifier(siteIdParamValue);
-    if (!localParsedResult) {
-        setErrorMessage("Invalid site identifier in URL.");
-        setRenderState(PageRenderState.Error);
-        return;
-    }
-    setParsedPageIdentifier(localParsedResult);
-
-    async function processAndRenderSiteContent(validParsedResult: ParsedSiteIdentifier) {
-      let fetchedSiteData: LocalSiteData | null = null;
-      if (validParsedResult.isRemote && validParsedResult.remoteBaseUrl) {
-        fetchedSiteData = await fetchRemoteSiteData(validParsedResult.remoteBaseUrl);
-        if (!fetchedSiteData) setErrorMessage(`Failed to fetch remote site: ${validParsedResult.remoteBaseUrl}.`);
-      } else if (!validParsedResult.isRemote) {
-        fetchedSiteData = await localSiteFs.getSiteById(validParsedResult.effectiveSiteId);
-        if (!fetchedSiteData) setErrorMessage(`Local site "${validParsedResult.effectiveSiteId}" not found.`);
-      }
-
-      if (!fetchedSiteData) {
-        setSiteData(null); 
-        setRenderState(PageRenderState.Error); 
-        return;
-      }
-      setSiteData(fetchedSiteData);
-
-      const resolution = resolvePageContent(fetchedSiteData, slugArray);
-      
-      if (resolution.type === PageType.NotFound) {
-          setRenderState(PageRenderState.NotFound);
-          setErrorMessage(resolution.errorMessage || "Page not found.");
-          setPageMetaTitle("Page Not Found");
-          return;
-      }
-      
-      setPageMetaTitle(resolution.pageTitle || 'Untitled');
-      
-      try {
-        // FIXED: The call to renderWithTheme now passes a single options object.
-        const fullPageHtml = await renderWithTheme(
-          fetchedSiteData,
-          resolution,
-          {
-            siteRootPath: `/${validParsedResult.rawParam}`,
-            isExport: false // This is a live preview, not an export
-          }
-        );
-        setPageHtmlContent(fullPageHtml);
-        setRenderState(PageRenderState.Display);
-      } catch (e) {
-          console.error("Theme rendering failed:", e);
-          setErrorMessage(`Theme Error: ${(e as Error).message}`);
-          setRenderState(PageRenderState.Error);
-      }
-    }
-    processAndRenderSiteContent(localParsedResult);
-  }, [siteIdParamValue, slugArray]);
-
-  useEffect(() => {
-    if (renderState === PageRenderState.Loading) {
-        document.title = "Loading... | Signum";
-    } else {
-        let title = pageMetaTitle;
-        if (siteData?.manifest?.title) title += ` | ${siteData.manifest.title}`;
-        document.title = title;
-    }
-  }, [renderState, pageMetaTitle, siteData]);
-
-  if (renderState === PageRenderState.Loading) {
-    return <div className="container mx-auto p-8"><p>Loading content...</p></div>;
-  }
-
-  const siteHomeLinkForError = parsedPageIdentifier?.rawParam ? `/${parsedPageIdentifier.rawParam}` : '/';
-  if (renderState === PageRenderState.Error || renderState === PageRenderState.NotFound) {
-      return (
-        <div className="w-full mx-auto p-8 text-center">
-          <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2">{pageMetaTitle}</h1>
-          <p className="text-muted-foreground">{errorMessage || "The requested content could not be loaded."}</p>
-          <Button asChild variant="outline" className="mt-6">
-              <Link href={siteData ? siteHomeLinkForError : '/'}>
-                  {siteData ? 'Go to Site Home' : 'Go to Dashboard'}
-              </Link>
-          </Button>
-        </div>
-      );
-  }
-
-  return (
-  <ErrorBoundary>
-    <div dangerouslySetInnerHTML={{ __html: pageHtmlContent }} />
-  </ErrorBoundary>);
-}
-
-================================================================================
-
 File: config/editorConfig.ts
 // src/config/editorConfig.ts
 import type { ThemeInfo, LayoutInfo } from '@/types';
@@ -2255,6 +1726,102 @@ File: config/base.schema.json
     }
   }
 }
+
+================================================================================
+
+File: stores/uiStore.ts
+import { create } from 'zustand';
+import { ReactNode } from 'react'; // Import ReactNode
+
+// --- Helper for screen size ---
+const isDesktopView = () => typeof window !== 'undefined' && window.innerWidth >= 1024;
+
+// --- Type Definitions ---
+interface SidebarSlice {
+  isLeftOpen: boolean;
+  isRightOpen: boolean;
+  leftSidebarContent: ReactNode | null; // <-- ADD
+  rightSidebarContent: ReactNode | null; // <-- ADD
+  toggleLeftSidebar: () => void;
+  toggleRightSidebar: () => void;
+  setLeftSidebarContent: (content: ReactNode | null) => void; // <-- ADD
+  setRightSidebarContent: (content: ReactNode | null) => void; // <-- ADD
+}
+
+interface ScreenSlice {
+  isDesktop: boolean;
+  initializeScreenSize: () => void;
+}
+
+interface UIState {
+  sidebar: SidebarSlice;
+  screen: ScreenSlice;
+}
+
+// --- The Store Implementation ---
+export const useUIStore = create<UIState>((set, get) => ({
+  // --- Sidebar Slice ---
+  sidebar: {
+    isLeftOpen: isDesktopView(),
+    isRightOpen: isDesktopView(),
+    leftSidebarContent: null, // Default to empty
+    rightSidebarContent: null, // Default to empty
+
+    toggleLeftSidebar: () => {
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          isLeftOpen: !state.sidebar.isLeftOpen,
+          // On mobile, opening one sidebar closes the other
+          isRightOpen: !get().screen.isDesktop && !state.sidebar.isLeftOpen ? false : state.sidebar.isRightOpen,
+        },
+      }));
+    },
+    
+    toggleRightSidebar: () => {
+      set((state) => ({
+        sidebar: {
+          ...state.sidebar,
+          isRightOpen: !state.sidebar.isRightOpen,
+          isLeftOpen: !get().screen.isDesktop && !state.sidebar.isRightOpen ? false : state.sidebar.isLeftOpen,
+        },
+      }));
+    },
+
+    // New actions to set the content of the sidebars
+    setLeftSidebarContent: (content) => {
+      set((state) => ({ sidebar: { ...state.sidebar, leftSidebarContent: content }}));
+    },
+    setRightSidebarContent: (content) => {
+      set((state) => ({ sidebar: { ...state.sidebar, rightSidebarContent: content }}));
+    },
+  },
+
+  // --- Screen Slice ---
+  screen: {
+    isDesktop: isDesktopView(),
+    initializeScreenSize: () => {
+      if (typeof window === 'undefined') return;
+
+      const handleResize = () => {
+        const desktop = isDesktopView();
+        if (desktop !== get().screen.isDesktop) {
+            set({
+              screen: { ...get().screen, isDesktop: desktop },
+              sidebar: {
+                  ...get().sidebar,
+                  isLeftOpen: desktop, // Reset to default state on breakpoint change
+                  isRightOpen: desktop,
+              }
+            });
+        }
+      };
+      
+      window.addEventListener('resize', handleResize);
+      handleResize(); // Set initial state
+    },
+  },
+}));
 
 ================================================================================
 
@@ -2489,7 +2056,7 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
     return (
       <div className="space-y-2 h-full">
       <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400">
-            Description
+            Content
           </Label>
       <textarea
         id="content-body"
@@ -2507,6 +2074,117 @@ const MarkdownEditor = forwardRef<MarkdownEditorRef, MarkdownEditorProps>(
 
 MarkdownEditor.displayName = 'MarkdownEditor';
 export default MarkdownEditor;
+
+================================================================================
+
+File: components/publishing/EditorHeader.tsx
+'use client';
+
+import { useState } from 'react';
+import { useParams } from 'next/navigation';
+import Link from 'next/link';
+import { useUIStore } from '@/stores/uiStore';
+import { useAppStore } from '@/stores/useAppStore';
+import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
+import { exportSiteToZip } from '@/lib/siteExporter';
+import { slugify } from '@/lib/utils';
+import { Eye, PanelLeft, UploadCloud, PanelRight } from 'lucide-react';
+
+export default function EditorHeader() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  // This state is now correctly used by handlePublishSite
+  const [isPublishing, setIsPublishing] = useState(false);
+
+  // --- Get data and actions from our stores & context ---
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const { 
+      toggleLeftSidebar, 
+      toggleRightSidebar,
+      leftSidebarContent,
+      rightSidebarContent 
+    } = useUIStore(state => state.sidebar); 
+
+  // --- Re-implemented Publish Handler ---
+  const handlePublishSite = async () => {
+    if (!site) {
+      toast.error("Site data not found. Cannot publish.");
+      return;
+    }
+    setIsPublishing(true); // Now used
+    toast.info("Generating site bundle for download...");
+    try {
+      // These imports are now correctly used
+      const blob = await exportSiteToZip(site);
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${slugify(site.manifest.title || 'signum-site')}.zip`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(link.href);
+      toast.success("Site bundle downloaded!");
+    } catch (error) {
+      console.error("Error publishing site to Zip:", error);
+      toast.error(`Failed to generate Zip: ${(error as Error).message}`);
+    } finally {
+        setIsPublishing(false); // Now used
+    }
+  };
+  
+  // Render a minimal header or nothing if site data isn't loaded yet
+  if (!site) {
+    return (
+        <header className="sticky top-0 z-10 flex h-14 items-center gap-4 border-b bg-background px-4 lg:h-[57px]"></header>
+    );
+  }
+
+  return (
+    <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-4 border-b bg-background px-4 lg:h-[57px]">
+      <div className="flex items-center gap-2">
+        {leftSidebarContent && (
+            <Button 
+                variant="outline" 
+                size="icon" 
+                className="shrink-0" 
+                onClick={toggleLeftSidebar}
+            >
+                <PanelLeft className="h-5 w-5" />
+                <span className="sr-only">Toggle file tree</span>
+            </Button>
+        )}
+      </div>
+
+      <div className="flex-1 text-center text-sm text-muted-foreground">
+        Editing: <span className="ml-1 font-semibold text-foreground">{site.manifest.title}</span>
+      </div>
+      
+      <div className="flex items-center justify-end gap-2">
+        {/* View Site Button */}
+        <Button variant="outline" asChild>
+            <Link href={`/sites/${siteId}/view`} target="_blank">
+                <Eye className="mr-2 h-4 w-4" /> View
+            </Link>
+        </Button>
+        {/* Publish Button */}
+        <Button variant="default" onClick={handlePublishSite} disabled={isPublishing}>
+            <UploadCloud className="mr-2 h-4 w-4" /> 
+            {isPublishing ? 'Publishing...' : 'Publish'}
+        </Button>
+
+        {/* Conditional Right Sidebar Toggle */}
+        {rightSidebarContent && (
+            <Button variant="outline" size="icon" className="shrink-0" onClick={toggleRightSidebar}>
+                <PanelRight className="h-5 w-5" />
+                <span className="sr-only">Toggle settings sidebar</span>
+            </Button>
+        )}
+      </div>
+    </header>
+  );
+}
 
 ================================================================================
 
@@ -2860,13 +2538,13 @@ File: components/publishing/FileTree.tsx
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { type StructureNode } from '@/types';
-import { Folder, FileText as FileTextIcon, PlusSquare, GripVertical, ChevronRight, FolderGit2 } from 'lucide-react';
+import { PlusSquare, GripVertical, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { DndContext, closestCenter, DragEndEvent } from '@dnd-kit/core';
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-
+import { TbFileDescription, TbLayoutGrid, TbSquareDashed, TbSquarePlus } from "react-icons/tb";
 interface FileTreeProps {
   nodes: StructureNode[];
   baseEditPath: string;
@@ -2895,7 +2573,7 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
         : `${baseEditPath}/content/${relativeContentPath}`;
 
     const isSelected = activePath === node.path;
-    const NodeIcon = node.type === 'collection' ? Folder : (node.type === 'page' && node.children && node.children.length > 0 ? FolderGit2 : FileTextIcon);
+    const NodeIcon = node.type === 'collection' ? TbLayoutGrid : (node.type === 'page' && node.children && node.children.length > 0 ? TbLayoutGrid : TbFileDescription);
 
     const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
         onStructureChange([{ ...node, children: reorderedChildren }]);
@@ -2907,26 +2585,20 @@ const SortableNode: React.FC<FileTreeNodeProps> = ({ node, baseEditPath, activeP
                 <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none">
                     <GripVertical className="h-4 w-4 text-muted-foreground/50" />
                 </div>
-                <div className={cn("flex-grow flex items-center py-1.5 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
+                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1 rounded-md hover:bg-muted relative", isSelected && "bg-accent text-accent-foreground")}>
                     {isFolderType && (
                         <ChevronRight 
                             className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90", !node.children?.length && "invisible")} 
                             onClick={() => setIsOpen(!isOpen)} 
                         />
                     )}
-                    <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-amber-500' : 'text-sky-500', !isFolderType && 'ml-5')} />
+                    <NodeIcon className={cn("h-4 w-4 shrink-0", isFolderType ? 'text-foreground' : 'text-foreground', !isFolderType && 'ml-5')} />
                     
-                    <Link href={href} className="truncate flex-grow mx-1.5" title={node.title}>
+                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={node.title}>
                         {node.title}
                     </Link>
 
-                    {isFolderType && (
-                        <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button variant="ghost" size="icon" className="h-6 w-6" title="New File" onClick={(e) => { e.stopPropagation(); onFileCreate(node.path); }}>
-                                <PlusSquare className="h-3.5 w-3.5" />
-                            </Button>
-                        </div>
-                    )}
+                    
                 </div>
             </div>
             {isFolderType && isOpen && node.children && node.children.length > 0 && (
@@ -3083,6 +2755,255 @@ export default function NewFolderDialog({ children, onSubmit }: NewFolderDialogP
 
 ================================================================================
 
+File: components/publishing/SettingsNav.tsx
+'use-client';
+
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { TbUserCircle, TbPalette } from 'react-icons/tb';
+import { cn } from '@/lib/utils';
+
+// This is the navigation component for the settings area.
+export default function SettingsNav() {
+  const pathname = usePathname();
+  const siteId = pathname.split('/')[2];
+
+  const navItems = [
+    { href: `/sites/${siteId}/settings`, title: 'Site Details', icon: TbUserCircle },
+    { href: `/sites/${siteId}/settings/appearance`, title: 'Appearance', icon: TbPalette },
+    // Add more settings links here as needed
+  ];
+
+  return (
+    <div className="flex h-full flex-col p-4">
+      <h2 className="px-2 text-lg font-semibold tracking-tight">Settings</h2>
+      <nav className="mt-4 flex flex-col gap-1">
+        {navItems.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={cn(
+              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+              pathname === item.href
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+            )}
+          >
+            <item.icon className="h-5 w-5" />
+            {item.title}
+          </Link>
+        ))}
+      </nav>
+    </div>
+  );
+}
+
+================================================================================
+
+File: components/publishing/RightSidebar.tsx
+'use client';
+
+import { ReactNode } from 'react';
+import { useUIStore } from '@/stores/uiStore';
+import { cn } from '@/lib/utils';
+
+interface RightSidebarProps {
+  children: ReactNode;
+}
+
+export default function RightSidebar({ children }: RightSidebarProps) {
+  const { isRightOpen } = useUIStore((state) => state.sidebar);
+
+  return (
+    <aside
+      className={cn(
+        // Base styles
+        'h-full w-80 shrink-0 border-l bg-muted/20 transition-all duration-300 ease-in-out',
+        
+        // Hide/Show Logic
+        isRightOpen ? 'ml-0' : '-mr-[320px] w-0 border-l-0 opacity-0'
+      )}
+    >
+      <div className="h-full overflow-y-auto">
+        {children}
+      </div>
+    </aside>
+  );
+}
+
+================================================================================
+
+File: components/publishing/LeftSidebar.tsx
+'use client';
+
+import Link from 'next/link';
+import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useMemo, useCallback, useEffect, useState } from 'react';
+
+// --- Store and Component Imports ---
+import { useAppStore } from '@/stores/useAppStore';
+import { useUIStore } from '@/stores/uiStore';
+import { Button } from '@/components/ui/button';
+import FileTree from '@/components/publishing/FileTree';
+import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
+
+// --- Type, Util, and Config Imports ---
+import type { StructureNode, LayoutInfo } from '@/types';
+import { getAvailableLayouts } from '@/lib/configHelpers';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
+
+// --- Icon Imports ---
+import { Home, FilePlus, FolderPlus } from 'lucide-react';
+
+/**
+ * Renders the primary left sidebar for the site editor.
+ * It displays the site's file structure, handles navigation,
+ * and provides actions for creating new pages and collections.
+ */
+export default function LeftSidebar() {
+  const params = useParams();
+  const pathname = usePathname();
+  const router = useRouter();
+  const siteId = params.siteId as string;
+
+  // --- State & Store Hooks ---
+  const [activePath, setActivePath] = useState<string | undefined>();
+  
+  // --- CORRECTED STATE SELECTION ---
+  // Select each piece of state individually. This is type-safe and performant.
+  const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
+  const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
+  const isDesktop = useUIStore((state) => state.screen.isDesktop);
+  // --- END CORRECTION ---
+
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const addNewCollection = useAppStore((state) => state.addNewCollection);
+  const updateManifest = useAppStore((state) => state.updateManifest);
+  
+  // --- Memoized Values ---
+  const siteStructure = useMemo(() => site?.manifest.structure || [], [site?.manifest.structure]);
+
+  const availableCollectionLayouts = useMemo(() => {
+    if (!site?.manifest) return [];
+    return getAvailableLayouts(site.manifest).filter((l: LayoutInfo) => l.type === 'collection');
+  }, [site?.manifest]);
+
+  const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map(c => c.slug) || [], [site?.manifest.structure]);
+
+  // --- Effects ---
+  // Determines which file/collection is currently active based on the URL
+  useEffect(() => {
+    if (!site) return;
+
+    const pathSegments = pathname.split('/');
+    let currentPath = '';
+
+    if (pathname.includes('/edit/collection/')) {
+        const slug = pathSegments[pathSegments.indexOf('collection') + 1];
+        currentPath = `content/${slug}`;
+    } else if (pathname.includes('/edit/content/')) {
+        const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
+        const pathWithExt = `content/${contentSlug}.md`;
+        currentPath = site.contentFiles.find(f => f.path === pathWithExt)?.path || pathWithExt;
+    } else {
+        currentPath = 'content/index.md';
+    }
+    setActivePath(currentPath);
+  }, [pathname, site]);
+
+  // --- Handlers ---
+  const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
+      if (!site) return;
+      const newManifest = { ...site.manifest, structure: reorderedNodes };
+      updateManifest(siteId, newManifest);
+  }, [site, siteId, updateManifest]);
+
+  const handleNavigateToNewFile = useCallback((parentPath: string = 'content') => {
+    const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
+    const newFileRoute = `/sites/${siteId}/edit/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
+    router.push(newFileRoute.replace(/\/\//g, '/'));
+    if (!isDesktop) toggleLeftSidebar();
+  }, [siteId, router, isDesktop, toggleLeftSidebar]);
+  
+  const handleCreateNewCollection = useCallback(async (name: string, slug: string, layout: string) => {
+    if (!site) return;
+    await addNewCollection(siteId, name, slug, layout);
+    toast.success(`Collection "${name}" created!`);
+    router.push(`/sites/${siteId}/edit/collection/${slug}`);
+    if (!isDesktop) toggleLeftSidebar();
+  }, [site, siteId, addNewCollection, router, isDesktop, toggleLeftSidebar]);
+
+  if (!site) {
+    return null;
+  }
+
+  // --- RENDER LOGIC ---
+  // The responsive behavior is no longer managed here. It is now handled
+  // by the parent ThreeColumnLayout. This component now only needs to render
+  // its content and the mobile-only backdrop.
+  return (
+    <>
+      {/* Mobile-only overlay to close the sidebar when clicking outside */}
+      {!isDesktop && (
+        <div
+          onClick={toggleLeftSidebar}
+          className={cn(
+            'fixed inset-0 z-40 bg-black/60 transition-opacity',
+            isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
+          )}
+        ></div>
+      )}
+
+      {/* The main sidebar container */}
+      <div
+        className={cn(
+          'flex h-full flex-col' // The container is simpler now
+        )}
+      >
+        <div className="flex h-14 shrink-0 items-center justify-between border-b px-3">
+            <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Content</h4>
+            <div className="flex items-center gap-1">
+                <Button variant="ghost" size="icon" onClick={() => handleNavigateToNewFile('content')} title="New Page">
+                    <FilePlus className="h-4 w-4" />
+                </Button>
+                <NewCollectionDialog 
+                    existingSlugs={existingTopLevelSlugs} 
+                    availableLayouts={availableCollectionLayouts}
+                    onSubmit={handleCreateNewCollection}
+                >
+                    <Button variant="ghost" size="icon" title="New Collection">
+                        <FolderPlus className="h-4 w-4" />
+                    </Button>
+                </NewCollectionDialog>
+            </div>
+        </div>
+        
+        <div className="flex-grow overflow-y-auto px-2 py-4">
+            <FileTree 
+                nodes={siteStructure} 
+                baseEditPath={`/sites/${siteId}/edit`}
+                activePath={activePath}
+                onFileCreate={handleNavigateToNewFile} 
+                onStructureChange={handleStructureChange}
+            />
+        </div>
+
+        <div className="mt-auto shrink-0 border-t p-2">
+            <Button variant="ghost" asChild className="w-full justify-start gap-2">
+                <Link href="/sites">
+                    <Home className="h-4 w-4" /> App Dashboard
+                </Link>
+            </Button>
+        </div>
+      </div>
+    </>
+  );
+}
+
+================================================================================
+
 File: components/publishing/SchemaDrivenForm.tsx
 'use client';
 
@@ -3213,6 +3134,19 @@ import { getLayoutManifest } from '@/lib/configHelpers';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Trash2 } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 
 interface FrontmatterSidebarProps {
   site: LocalSiteData;
@@ -3222,6 +3156,7 @@ interface FrontmatterSidebarProps {
   isNewFileMode: boolean;
   slug: string;
   onSlugChange: (newSlug: string) => void;
+  onDelete: () => Promise<void>;
 }
 
 export default function FrontmatterSidebar({
@@ -3232,6 +3167,7 @@ export default function FrontmatterSidebar({
   isNewFileMode,
   slug,
   onSlugChange,
+  onDelete
 }: FrontmatterSidebarProps) {
   
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
@@ -3306,6 +3242,32 @@ export default function FrontmatterSidebar({
         <div className="text-sm text-muted-foreground p-3 rounded-md mt-4 text-center border-dashed border">
             <p>No additional fields for this layout.</p>
         </div>
+      )}
+      {!isNewFileMode && (
+          <div className="border-t pt-6 mt-6">
+              <h3 className="text-sm font-semibold mb-2 text-destructive">Danger Zone</h3>
+              <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                      <Button className="w-full">
+                          <Trash2 className="h-4 w-4 mr-2" /> Delete this content file
+                      </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent> 
+                      <AlertDialogHeader>
+                          <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                              This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
+                          </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90">
+                              Yes, Delete
+                          </AlertDialogAction>
+                      </AlertDialogFooter>
+                  </AlertDialogContent>
+              </AlertDialog>
+          </div>
       )}
     </aside>
   );
@@ -3694,17 +3656,18 @@ function AccordionTrigger({
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Trigger>) {
   return (
-    <AccordionPrimitive.Header className="flex">
+    <AccordionPrimitive.Header className="flex border-b">
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start justify-between gap-4 rounded-md py-4 text-left text-sm font-medium transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
+          "focus-visible:border-ring focus-visible:ring-ring/50 flex flex-1 items-start justify-between gap-4 rounded-md text-left text-[11px] items-center uppercase transition-all outline-none hover:underline focus-visible:ring-[3px] disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
           className
         )}
         {...props}
       >
-        {children}
         <ChevronDownIcon className="text-muted-foreground pointer-events-none size-4 shrink-0 translate-y-0.5 transition-transform duration-200" />
+        {children}
+        
       </AccordionPrimitive.Trigger>
     </AccordionPrimitive.Header>
   )
@@ -4391,7 +4354,190 @@ export default ErrorBoundary;
 
 ================================================================================
 
-File: components/browsing/MarkdownRenderer.tsx
+File: components/layout/ThreeColumnLayout.tsx
+'use client';
+
+import { ReactNode } from 'react';
+import { useUIStore } from '@/stores/uiStore';
+import { cn } from '@/lib/utils';
+import EditorHeader from '@/components/publishing/EditorHeader';
+
+// The component now accepts the sidebar content as props
+interface ThreeColumnLayoutProps {
+  leftSidebar: ReactNode;
+  rightSidebar: ReactNode;
+  children: ReactNode;
+}
+
+export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children }: ThreeColumnLayoutProps) {
+  const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
+  const isRightOpen = useUIStore((state) => state.sidebar.isRightOpen);
+
+  return (
+    <div className="flex h-screen w-full flex-col bg-muted/20">
+      <EditorHeader />
+      
+      <div className="relative flex flex-grow overflow-hidden">
+        {/* Left Sidebar CONTAINER - Always in the DOM */}
+        <aside
+          className={cn(
+            'z-50 h-full w-72 shrink-0 border-r bg-background',
+            'fixed inset-y-0 left-0 transition-transform duration-300 ease-in-out lg:static lg:translate-x-0',
+            isLeftOpen ? 'translate-x-0' : '-translate-x-full',
+            'lg:transition-[margin-left] lg:duration-300 lg:ease-in-out',
+            isLeftOpen ? 'lg:ml-0' : 'lg:-ml-72'
+          )}
+        >
+          {leftSidebar} {/* Render the content passed via props */}
+        </aside>
+        
+        <div className={cn(
+            "flex flex-1 flex-col overflow-hidden",
+            "transition-[margin-right] duration-300 ease-in-out",
+            isRightOpen ? 'lg:mr-[20rem]' : 'lg:mr-0' 
+        )}>
+          <main className="flex-1 overflow-y-auto">
+            {children}
+          </main>
+        </div>
+          
+        {/* Right Sidebar CONTAINER - Always in the DOM */}
+        <aside
+          className={cn(
+            'h-full w-80 shrink-0 border-l bg-background',
+            'fixed inset-y-14 right-0',
+            'transition-transform duration-300 ease-in-out',
+            isRightOpen ? 'translate-x-0' : 'translate-x-full'
+          )}
+        >
+          {rightSidebar} {/* Render the content passed via props */}
+        </aside>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+File: components/view/SiteViewer.tsx
+// src/components/view/SiteViewer.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useEffect, useState, useCallback } from 'react';
+import { useAppStore } from '@/stores/useAppStore';
+import { resolvePageContent, PageType } from '@/lib/pageResolver';
+import { render as renderWithTheme } from '@/lib/themeEngine';
+import { AlertTriangle, Edit } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import Link from 'next/link';
+
+export default function SiteViewer() {
+  const params = useParams();
+  //const router = useRouter();
+
+  const siteId = params.siteId as string;
+  // This state now tracks the relative path within the site (e.g., '/', '/about')
+  const [currentRelativePath, setCurrentRelativePath] = useState('/');
+  const [htmlContent, setHtmlContent] = useState<string>('<p>Loading Preview...</p>');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const site = useAppStore((state) => state.getSiteById(siteId));
+
+  const updateIframeContent = useCallback(async () => {
+    if (!site) return;
+
+    const slugArray = currentRelativePath.split('/').filter(Boolean);
+    const resolution = resolvePageContent(site, slugArray);
+    
+    if (resolution.type === PageType.NotFound) {
+      setErrorMessage(resolution.errorMessage);
+      return;
+    }
+
+    try {
+      // 1. Render the PURE HTML from the theme engine.
+      const pureHtml = await renderWithTheme(site, resolution, {
+        siteRootPath: `/sites/${siteId}`,
+        isExport: false,
+      });
+
+      // 2. Define the communication script that will be injected.
+      const communicationScript = `
+        <script>
+          // Intercept clicks on internal links within the iframe
+          document.addEventListener('click', function(e) {
+            const link = e.target.closest('a');
+            if (link && link.href && link.origin === window.location.origin) {
+              e.preventDefault();
+              const newPath = new URL(link.href).pathname;
+              // Send a message to the parent window (our React app)
+              window.parent.postMessage({ type: 'SIGNUM_NAVIGATE', path: newPath }, '*');
+            }
+          });
+        <\/script>
+      `;
+
+      // 3. Inject the script into the HTML string just before the closing </body> tag.
+      const finalHtml = pureHtml.replace('</body>', `${communicationScript}</body>`);
+
+      setHtmlContent(finalHtml);
+      setErrorMessage(null);
+    } catch (e) {
+      setErrorMessage(`Theme Error: ${(e as Error).message}`);
+    }
+  }, [site, siteId, currentRelativePath]);
+
+  useEffect(() => {
+    updateIframeContent();
+  }, [updateIframeContent]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      // In production, you should validate event.origin for security
+      const { type, path } = event.data;
+
+      if (type === 'SIGNUM_NAVIGATE') {
+        // When the iframe tells us a link was clicked, update the parent URL
+        history.pushState(null, '', path);
+        // And update our internal state to trigger a re-render of the iframe's content
+        const relativePath = path.replace(`/sites/${siteId}`, '') || '/';
+        setCurrentRelativePath(relativePath);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [siteId]);
+
+  if (errorMessage) {
+    return (
+      <div className="p-8 text-center">
+        <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
+        <h1 className="text-2xl font-bold mb-2">Could Not Render Preview</h1>
+        <p className="text-muted-foreground">{errorMessage}</p>
+        <Button asChild variant="default" className="mt-6">
+          <Link href={`/sites/${siteId}/edit`}>
+            <Edit className="mr-2 h-4 w-4" /> Go to Editor
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <iframe
+      srcDoc={htmlContent}
+      title={site?.manifest.title || 'Site Preview'}
+      className="w-full h-full border-0"
+      sandbox="allow-scripts allow-same-origin"
+    />
+  );
+}
+
+================================================================================
+
+File: components/view/MarkdownRenderer.tsx
 // src/components/browsing/MarkdownRenderer.tsx
 'use client'; // It uses `dangerouslySetInnerHTML`, making it client-side for this pattern.
               // Alternatively, HTML parsing can be done on the server and HTML passed as prop.
@@ -4430,6 +4576,25 @@ export default function MarkdownRenderer({ markdown }: MarkdownRendererProps) {
   // For remote content later, sanitization will be critical.
   return <div dangerouslySetInnerHTML={{ __html: html }} />;
 }
+
+================================================================================
+
+File: hooks/useInitialiseUIStore.ts
+'use client';
+
+import { useUIStore } from '@/stores/uiStore';
+import { useEffect } from 'react';
+
+export function useInitialiseUIStore() {
+  const initialize = useUIStore((state) => state.screen.initializeScreenSize);
+  const isInitialized = useUIStore((state) => state.screen.isInitialized);
+
+  useEffect(() => {
+    if (!isInitialized) {
+      initialize();
+    }
+  }, [initialize, isInitialized]);
+}   
 
 ================================================================================
 

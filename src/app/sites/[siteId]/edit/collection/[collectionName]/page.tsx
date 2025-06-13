@@ -1,95 +1,161 @@
-// src/app/(publishing)/edit/[siteId]/collection/[collectionName]/page.tsx
 'use client';
 
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useMemo, useState, useEffect, useCallback } from 'react';
+import { useLayout } from '@/contexts/LayoutContext';
+import { useUIStore } from '@/stores/uiStore';
 import { useAppStore } from '@/stores/useAppStore';
-import { useMemo, useState, useEffect } from 'react';
+
+// --- Component Imports ---
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { toast } from 'sonner';
-import { FileText, PlusCircle } from 'lucide-react';
-import { StructureNode, LayoutInfo, MarkdownFrontmatter } from '@/types'; // Import LayoutInfo
-import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/lib/configHelpers'; // FIXED: Correct import path
+import LeftSidebar from '@/components/publishing/LeftSidebar';
 import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
 import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
+
+// --- Type, Util, and Config Imports ---
+import { toast } from 'sonner';
+import { FileText, PlusCircle, Save } from 'lucide-react';
+import type { StructureNode, LayoutInfo, MarkdownFrontmatter, LocalSiteData } from '@/types';
+import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/lib/configHelpers';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+
+// A helper type for the stable data we need for the sidebar
+type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
+
+const CollectionSettingsSidebar = ({
+    collectionNodeData,
+    availableLayouts,
+    layoutManifest,
+    hasChanges,
+    onLayoutChange,
+    onPrimaryFieldsChange,
+    onFormChange,
+    onSaveChanges
+}: {
+    collectionNodeData: StructureNode,
+    availableLayouts: LayoutInfo[],
+    layoutManifest: LayoutManifest | null,
+    hasChanges: boolean,
+    onLayoutChange: (newLayoutPath: string) => void,
+    onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
+    onFormChange: (data: Partial<StructureNode>) => void,
+    onSaveChanges: () => void,
+}) => {
+    const { title, description, ...otherFields } = collectionNodeData;
+    const primaryFields = {
+        title: typeof title === 'string' ? title : '',
+        description: typeof description === 'string' ? description : '',
+    };
+    return (
+        <div className="flex h-full flex-col p-4">
+            <div className="flex-grow space-y-6">
+                <h2 className="text-lg font-semibold border-b pb-3">Collection Settings</h2>
+                <div className="space-y-4">
+                    <PrimaryContentFields
+                        frontmatter={primaryFields}
+                        onFrontmatterChange={onPrimaryFieldsChange}
+                        showDescription={true}
+                    />
+                </div>
+                <div className="border-t pt-4 space-y-4">
+                    <div>
+                        <Label htmlFor="layout-select">Collection Layout</Label>
+                        <Select value={collectionNodeData.layout} onValueChange={onLayoutChange}>
+                            <SelectTrigger id="layout-select" className="mt-1">
+                                <SelectValue placeholder="Select a layout..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {availableLayouts.map(layout => (
+                                    <SelectItem key={layout.path} value={layout.path}>{layout.name}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
+                    </div>
+                    {layoutManifest?.layoutSchema ? (
+                        <GroupedFrontmatterForm
+                            schema={layoutManifest.layoutSchema}
+                            uiSchema={layoutManifest.uiSchema}
+                            formData={otherFields}
+                            onFormChange={onFormChange}
+                        />
+                    ) : (
+                        <p className="text-sm text-muted-foreground pt-4">This layout has no additional settings.</p>
+                    )}
+                </div>
+            </div>
+            <div className="mt-auto pt-4">
+                <Button onClick={onSaveChanges} disabled={!hasChanges} className="w-full">
+                    <Save className="mr-2 h-4 w-4" />
+                    {hasChanges ? 'Save Settings' : 'Settings up to date'}
+                </Button>
+            </div>
+        </div>
+    );
+};
 
 export default function EditCollectionPage() {
     const params = useParams();
+    const router = useRouter();
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
+    
+    // --- Store and Context Hooks ---
+    const { setLeftSidebar, setRightSidebar } = useLayout();
+    const setLeftAvailable = useUIStore((state) => state.sidebar.setLeftAvailable);
+    const setRightAvailable = useUIStore((state) => state.sidebar.setRightAvailable);
+    
+    // --- START OF FIX: Select stable data individually ---
+    const manifest = useAppStore(state => state.getSiteById(siteId)?.manifest);
+    const layoutFiles = useAppStore(state => state.getSiteById(siteId)?.layoutFiles);
+    const themeFiles = useAppStore(state => state.getSiteById(siteId)?.themeFiles);
+    const { updateManifest } = useAppStore.getState();
+    // --- END OF FIX ---
 
-    const site = useAppStore(state => state.getSiteById(siteId));
-    const updateManifest = useAppStore(state => state.updateManifest);
+    // --- State Management ---
     const collectionPath = `content/${collectionName}`;
-
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
     const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutInfo[]>([]);
     const [hasChanges, setHasChanges] = useState(false);
 
     const originalCollectionNode = useMemo(() => {
-        return site?.manifest.structure.find(node => node.path === collectionPath);
-    }, [site?.manifest.structure, collectionPath]);
+        // --- FIX: Use the individually selected `manifest` ---
+        return manifest?.structure.find((node: StructureNode) => node.path === collectionPath);
+    }, [manifest?.structure, collectionPath]);
 
-    useEffect(() => {
-        if (originalCollectionNode) {
-            setCollectionNodeData(originalCollectionNode);
-            setHasChanges(false);
-        }
-    }, [originalCollectionNode]);
-    
-    useEffect(() => {
-        if(site?.manifest) {
-            // FIXED: Correctly typed parameter 'l'
-            const allLayouts = getAvailableLayouts(site.manifest);
-            setAvailableLayouts(allLayouts.filter((l: LayoutInfo) => l.type === 'collection'));
-        }
-    }, [site?.manifest]);
-
-    useEffect(() => {
-        async function loadSchema() {
-            if (site && collectionNodeData?.layout) {
-                const manifest = await getLayoutManifest(site, collectionNodeData.layout);
-                setLayoutManifest(manifest);
-            }
-        }
-        loadSchema();
-    }, [collectionNodeData?.layout, site]);
-
-    const handleFormChange = (data: Partial<StructureNode>) => {
+    // --- Handlers (wrapped in useCallback for stability) ---
+    const handleFormChange = useCallback((data: Partial<StructureNode>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasChanges(true);
-    };
+    }, []);
 
-    const handlePrimaryFieldsChange = (data: Partial<MarkdownFrontmatter>) => {
+    const handlePrimaryFieldsChange = useCallback((data: Partial<MarkdownFrontmatter>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasChanges(true);
-    };
+    }, []);
 
-    const handleLayoutChange = (newLayoutPath: string) => {
+    const handleLayoutChange = useCallback((newLayoutPath: string) => {
         setCollectionNodeData(prev => prev ? { 
             ...prev, 
             layout: newLayoutPath,
-            itemLayout: DEFAULT_PAGE_LAYOUT_PATH // Reset item layout when collection layout changes
+            itemLayout: DEFAULT_PAGE_LAYOUT_PATH
         } : null);
         setHasChanges(true);
-    }
+    }, []);
 
-    const handleSaveChanges = async () => {
-        if (!site || !collectionNodeData) {
+    const handleSaveChanges = useCallback(async () => {
+        if (!manifest || !collectionNodeData) {
             toast.error("Cannot save, data not found.");
             return;
         }
-
-        const newStructure = site.manifest.structure.map(node =>
+        // --- FIX: Use the individually selected `manifest` and type `node` ---
+        const newStructure = manifest.structure.map((node: StructureNode) =>
             node.path === collectionPath ? collectionNodeData : node
         );
-        
-        const newManifest = { ...site.manifest, structure: newStructure };
-        
+        const newManifest = { ...manifest, structure: newStructure };
         try {
             await updateManifest(siteId, newManifest);
             setHasChanges(false);
@@ -97,94 +163,102 @@ export default function EditCollectionPage() {
         } catch (error) {
             toast.error(`Failed to update collection: ${(error as Error).message}`);
         }
-    };
+    }, [manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
+
+    // --- Effects ---
+    useEffect(() => {
+        if (originalCollectionNode) {
+            setCollectionNodeData(originalCollectionNode);
+            setHasChanges(false);
+        } else if (manifest) {
+            toast.error(`Collection "${collectionName}" not found.`);
+            router.push(`/sites/${siteId}/edit`);
+        }
+    }, [originalCollectionNode, manifest, collectionName, siteId, router]);
     
-    if (!site || !collectionNodeData) {
+    useEffect(() => {
+        if(manifest) {
+            const allLayouts = getAvailableLayouts(manifest);
+            setAvailableLayouts(allLayouts.filter((l: LayoutInfo) => l.type === 'collection'));
+        }
+    }, [manifest]);
+
+    useEffect(() => {
+        async function loadSchema() {
+            if (manifest && layoutFiles && themeFiles && collectionNodeData?.layout) {
+                const siteForAssets: StableSiteDataForSidebar = { manifest, layoutFiles, themeFiles };
+                const loadedManifest = await getLayoutManifest(siteForAssets, collectionNodeData.layout);
+                setLayoutManifest(loadedManifest);
+            }
+        }
+        loadSchema();
+    }, [collectionNodeData?.layout, manifest, layoutFiles, themeFiles]);
+
+    useEffect(() => {
+        setLeftAvailable(true);
+        setLeftSidebar(<LeftSidebar />);
+        if (collectionNodeData) {
+            setRightAvailable(true);
+            setRightSidebar(
+                <CollectionSettingsSidebar
+                    collectionNodeData={collectionNodeData}
+                    availableLayouts={availableLayouts}
+                    layoutManifest={layoutManifest}
+                    hasChanges={hasChanges}
+                    onLayoutChange={handleLayoutChange}
+                    onPrimaryFieldsChange={handlePrimaryFieldsChange}
+                    onFormChange={handleFormChange}
+                    onSaveChanges={handleSaveChanges}
+                />
+            );
+        } else {
+            setRightAvailable(false);
+            setRightSidebar(null);
+        }
+        return () => {
+            setLeftAvailable(false);
+            setRightAvailable(false);
+            setLeftSidebar(null);
+            setRightSidebar(null);
+        };
+    // --- FIX: Added all missing function dependencies ---
+    }, [collectionNodeData, availableLayouts, layoutManifest, hasChanges, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, handleSaveChanges, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
+    
+    // --- Render Logic ---
+    if (!manifest || !collectionNodeData) {
         return <div className="p-6">Loading collection data...</div>;
     }
 
-    const { title, description, ...otherFields } = collectionNodeData;
-    const primaryFields = {
-        title: typeof title === 'string' ? title : '',
-        description: typeof description === 'string' ? description : '',
-    };
-
     return (
-        <div className="flex flex-row h-full gap-6">
-            <main className="flex-1 flex flex-col">
-                <div className="flex justify-between items-center mb-4">
-                    <h1 className="text-2xl font-bold">Editing Collection: {originalCollectionNode?.title}</h1>
-                    <Button asChild>
-                        <Link href={`/edit/${siteId}/content/${collectionName}/_new`}>
-                            <PlusCircle className="mr-2 h-4 w-4" /> New Item
-                        </Link>
-                    </Button>
-                </div>
-                <div className="flex-grow p-4 border rounded-lg bg-background overflow-y-auto">
-                    <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
-                    {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
-                        <ul className="space-y-2">
-                            {collectionNodeData.children.map((item: StructureNode) => {
-                                const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
-                                return (
-                                    <li key={item.path}>
-                                        <Link href={`/edit/${siteId}/content/${relativePath}`} className="flex items-center p-2 rounded-md hover:bg-muted transition-colors">
-                                            <FileText className="h-4 w-4 mr-3 text-muted-foreground" />
-                                            <span className="font-medium">{item.title || item.slug}</span>
-                                        </Link>
-                                    </li>
-                                );
-                            })}
-                        </ul>
-                    ) : (
-                        <p className="text-muted-foreground text-center py-8">No items have been added to this collection yet.</p>
-                    )}
-                </div>
-            </main>
-
-            <aside className="w-96 border-l bg-muted/20 p-4 space-y-6 overflow-y-auto h-full shrink-0">
-                <div className="space-y-4">
-                     <PrimaryContentFields
-                        frontmatter={primaryFields}
-                        onFrontmatterChange={handlePrimaryFieldsChange}
-                        showDescription={true}
-                    />
-                </div>
-                
-                <div className="border-t pt-4 space-y-4">
-                    <div>
-                        <Label htmlFor="layout-select">Collection Layout</Label>
-                        <Select value={collectionNodeData.layout} onValueChange={handleLayoutChange}>
-                            <SelectTrigger id="layout-select" className="mt-1">
-                                <SelectValue placeholder="Select a layout..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {availableLayouts.map(layout => (
-                                    // FIXED: Key should be the unique layout.path
-                                    <SelectItem key={layout.path} value={layout.path}>
-                                        {layout.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {layoutManifest?.layoutSchema ? (
-                        <GroupedFrontmatterForm
-                            schema={layoutManifest.layoutSchema}
-                            uiSchema={layoutManifest.uiSchema}
-                            formData={otherFields}
-                            onFormChange={handleFormChange}
-                        />
-                    ) : (
-                        <p className="text-sm text-muted-foreground pt-4">This layout has no additional settings.</p>
-                    )}
-                </div>
-
-                <Button onClick={handleSaveChanges} disabled={!hasChanges} className="w-full">
-                    {hasChanges ? 'Save Collection Settings' : 'Settings up to date'}
+        <div className="h-full flex flex-col p-6">
+            <div className="flex shrink-0 items-center justify-between mb-4">
+                <h1 className="text-3xl font-bold">Editing Collection: {originalCollectionNode?.title}</h1>
+                <Button asChild>
+                    <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
+                        <PlusCircle className="mr-2 h-4 w-4" /> New Item
+                    </Link>
                 </Button>
-            </aside>
+            </div>
+            <div className="flex-grow rounded-lg bg-background p-4 border overflow-y-auto">
+                <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
+                {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
+                    <ul className="space-y-2">
+                        {collectionNodeData.children.map((item: StructureNode) => {
+                            const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+                            return (
+                                <li key={item.path}>
+                                    <Link href={`/sites/${siteId}/edit/content/${relativePath}`} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">
+                                        <FileText className="mr-3 h-4 w-4 text-muted-foreground" />
+                                        <span className="font-medium">{item.title || item.slug}</span>
+                                    </Link>
+                                </li>
+                            );
+                        })}
+                    </ul>
+                ) : (
+                    <p className="text-center text-muted-foreground py-8">No items have been added to this collection yet.</p>
+                )}
+            </div>
         </div>
     );
 }

@@ -1,7 +1,7 @@
 // src/lib/localSiteFs.ts
 import { LocalSiteData, Manifest, ParsedMarkdownFile, RawFile } from '@/types';
 import localforage from 'localforage';
-import { parseMarkdownString } from './markdownParser';
+import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
 
 /**
  * This module provides a file system-like abstraction for storing and retrieving
@@ -161,4 +161,21 @@ export async function deleteContentFile(siteId: string, filePath: string): Promi
     const contentFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId) ?? [];
     const updatedContentFiles = contentFiles.filter(f => f.path !== filePath);
     await siteContentFilesStore.setItem(siteId, updatedContentFiles);
+}
+
+/**
+ * Retrieves the raw string content of a single file by reconstructing it
+ * from the stored parsed data. This is useful for loading the freshest version
+_ * of a file without relying on the main app state.
+_ * @param siteId The ID of the site.
+_ * @param filePath The path of the file to retrieve.
+_ * @returns A Promise resolving to the raw markdown string, or null if not found.
+ */
+export async function getContentFileRaw(siteId: string, filePath: string): Promise<string | null> {
+    const allFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId) ?? [];
+    const fileData = allFiles.find(f => f.path === filePath);
+    if (!fileData) return null;
+    
+    // Reconstruct the full markdown string from its parts
+    return stringifyToMarkdown(fileData.frontmatter, fileData.content);
 }

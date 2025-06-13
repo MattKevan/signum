@@ -21,7 +21,6 @@ interface PrimaryFieldsProps {
 export default function PrimaryContentFields({
   frontmatter,
   onFrontmatterChange,
-  showDescription = false,
 }: PrimaryFieldsProps) {
 
   // FIXED: The handler now only passes back the single field that changed.
@@ -48,7 +47,6 @@ export default function PrimaryContentFields({
         />
       </div>
 
-      {showDescription && (
         <div className="space-y-2 mb-6 border-b pb-3">
           <Label htmlFor="content-description" className="text-[10px] font-medium uppercase text-gray-400">
             Description
@@ -63,7 +61,6 @@ export default function PrimaryContentFields({
             rows={1}
           />
         </div>
-      )}
     </div>
   );
 }
