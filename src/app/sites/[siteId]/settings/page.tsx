@@ -1,4 +1,4 @@
-// src/app/(publishing)/edit/[siteId]/settings/site/page.tsx
+// src/app/sites/[siteId]/settings/page.tsx
 'use client';
 
 import { useParams } from 'next/navigation';
@@ -18,7 +18,8 @@ export default function SiteSettingsPage() {
   const updateManifestAction = useAppStore(state => state.updateManifest);
   const isStoreInitialized = useAppStore(state => state.isInitialized);
 
-  const [formData, setFormData] = useState({ title: '', description: '', author: '' });
+  // Add baseUrl to the form state
+  const [formData, setFormData] = useState({ title: '', description: '', author: '', baseUrl: '' });
   const [isLoading, setIsLoading] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
@@ -28,6 +29,7 @@ export default function SiteSettingsPage() {
         title: site.manifest.title,
         description: site.manifest.description,
         author: site.manifest.author || '',
+        baseUrl: site.manifest.baseUrl || '',
       });
       setHasChanges(false);
     }
@@ -45,12 +47,23 @@ export default function SiteSettingsPage() {
       return;
     }
     
+    const trimmedBaseUrl = formData.baseUrl.trim();
+    if (trimmedBaseUrl) {
+      try {
+        new URL(trimmedBaseUrl);
+      } catch (error) {
+        toast.error("The Base URL you entered is not a valid URL. Please include https://");
+        return;
+      }
+    }
+    
     setIsLoading(true);
     const newManifest: Manifest = {
       ...site.manifest,
       title: formData.title.trim(),
       description: formData.description.trim(),
       author: formData.author.trim(),
+      baseUrl: trimmedBaseUrl,
     };
 
     try {
@@ -80,8 +93,9 @@ export default function SiteSettingsPage() {
     );
   }
 
+  // The component now only returns its content, not the layout.
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Site Settings</h1>
         <p className="text-muted-foreground">Manage the core details of your website.</p>

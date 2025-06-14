@@ -10,7 +10,6 @@ interface EditorContextType {
   setLeftSidebar: (content: ReactNode) => void;
   setRightSidebar: (content: ReactNode) => void;
   saveState: SaveState;
-  // --- ADD THIS FUNCTION TO THE TYPE ---
   setSaveState: (state: SaveState) => void;
   hasUnsavedChanges: boolean;
   setHasUnsavedChanges: (hasChanges: boolean) => void;
@@ -18,7 +17,7 @@ interface EditorContextType {
   registerSaveAction: (saveFn: () => Promise<void>) => void;
 }
 
-const EditorContext = createContext<EditorContextType | undefined>(undefined);
+export const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 interface EditorProviderProps {
   children: (slots: { leftSidebar: ReactNode; rightSidebar: ReactNode }) => ReactNode;

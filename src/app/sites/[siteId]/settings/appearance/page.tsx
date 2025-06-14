@@ -1,16 +1,16 @@
-// src/app/(publishing)/edit/[siteId]/settings/appearance/page.tsx
+// src/app/sites/[siteId]/settings/appearance/page.tsx
 'use client';
 
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/stores/useAppStore';
 import AppearanceSettingsForm from '@/components/publishing/AppearanceSettingsForm';
 import { Button } from '@/components/ui/button';
-import { Manifest, ThemeConfig, ThemeInfo } from '@/types'; // Import ThemeInfo
+import { Manifest, ThemeConfig, ThemeInfo } from '@/types';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getAvailableThemes } from '@/lib/configHelpers'; // Correct import path
+import { getAvailableThemes } from '@/lib/configHelpers';
 
 export default function AppearanceSettingsPage() {
   const params = useParams();
@@ -24,15 +24,13 @@ export default function AppearanceSettingsPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
 
-  // Memoize the list of available themes
   const availableThemes = useMemo(() => {
     return getAvailableThemes(site?.manifest);
   }, [site?.manifest]);
 
-  // Set the initial state from the loaded site data
   useEffect(() => {
     if (site?.manifest.theme) {
-      setSelectedThemePath(site.manifest.theme.name); // theme.name is the path
+      setSelectedThemePath(site.manifest.theme.name);
       setThemeConfig(site.manifest.theme.config);
       setHasChanges(false);
     }
@@ -45,7 +43,7 @@ export default function AppearanceSettingsPage() {
 
   const handleThemeChange = (newThemePath: string) => {
     setSelectedThemePath(newThemePath);
-    setThemeConfig({}); // Reset config when theme changes
+    setThemeConfig({});
     setHasChanges(true);
   };
 
@@ -56,7 +54,7 @@ export default function AppearanceSettingsPage() {
     const newManifest: Manifest = {
       ...site.manifest,
       theme: {
-        name: selectedThemePath, // The path is the new name/ID
+        name: selectedThemePath,
         config: themeConfig,
       },
     };
@@ -76,8 +74,9 @@ export default function AppearanceSettingsPage() {
     return <div className="p-6">Loading settings...</div>;
   }
   
+  // The component now only returns its content, not the layout.
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Appearance</h1>
         <p className="text-muted-foreground">Customize the visual style of your site.</p>

@@ -1,19 +1,12 @@
 // src/lib/siteExporter.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ThemeInfo } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTreeUtils';
 import { resolvePageContent, PageType } from './pageResolver';
 import { render } from './themeEngine';
-import { getUrlForNode } from './urlUtils'; 
-import { CORE_THEMES } from '@/config/editorConfig';
-
-/**
- * Checks if a theme path corresponds to a core, built-in theme.
- * @param {string} path - The path of the theme.
- * @returns {boolean} True if the theme is a core theme.
- */
-const isCoreTheme = (path: string): boolean => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
+import { getUrlForNode } from './urlUtils';
+import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers'; 
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
@@ -31,8 +24,43 @@ function escapeForXml(str: unknown): string {
 }
 
 /**
+ * A helper function to find all files for a given asset (theme or layout)
+ * by reading its manifest's `files` array, and then add them to the ZIP archive.
+ * This ensures that core and custom assets are bundled with the site.
+ *
+ * @param {JSZip} zip - The JSZip instance to add files to.
+ * @param {LocalSiteData} siteData - The complete site data, including any custom asset files.
+ * @param {'theme' | 'layout'} assetType - The type of asset to bundle.
+ * @param {string} assetPath - The path/ID of the asset (e.g., 'default' or 'my-custom-theme').
+ */
+async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'theme' | 'layout', assetPath: string) {
+    const assetFolder = zip.folder('_signum')?.folder(`${assetType}s`)?.folder(assetPath);
+    if (!assetFolder) return;
+
+    // 1. Fetch the manifest for the asset (e.g., theme.json or layout.json).
+    const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetPath, `${assetType}.json`);
+    
+    // 2. If the manifest has a 'files' array, iterate through it. This is our source of truth.
+    if (!manifest || !manifest.files) {
+        console.warn(`Asset manifest for ${assetType}/${assetPath} is missing or has no 'files' array. Skipping bundle.`);
+        return;
+    }
+
+    // 3. For each file listed in the manifest, fetch its content and add it to the ZIP.
+    for (const file of manifest.files) {
+        const content = await getAssetContent(siteData, assetType, assetPath, file.path);
+        if (content) {
+            assetFolder.file(file.path, content);
+        } else {
+            console.warn(`Could not find content for declared file: ${assetType}s/${assetPath}/${file.path}`);
+        }
+    }
+}
+
+
+/**
  * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
- * This function orchestrates HTML generation, source file packaging, and feed creation.
+ * This function orchestrates HTML generation, source file packaging, asset bundling, and feed creation.
  *
  * @param {LocalSiteData} siteData - The complete, in-memory representation of the site.
  * @returns {Promise<Blob>} A promise that resolves to a Blob containing the ZIP archive.
@@ -41,7 +69,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const zip = new JSZip();
     const { manifest } = siteData;
     const allRenderableNodes = flattenStructureToRenderableNodes(manifest.structure);
-    const themePath = manifest.theme.name;
 
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
@@ -51,9 +78,11 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         
         const outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' }, true);
         
+        // Calculate the relative path depth for portable asset links (e.g., '../' or './').
         const depth = (outputPath.match(/\//g) || []).length;
         const relativePrefix = '../'.repeat(depth);
 
+        // Render the final HTML, passing the correct export options.
         const finalHtml = await render(siteData, resolution, {
             siteRootPath: '/',
             isExport: true,
@@ -62,32 +91,28 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         zip.file(outputPath, finalHtml);
     }
 
-    // --- 2. Add _signum Source and Asset Files ---
+    // --- 2. Add _signum Source Content and Asset Files ---
     const signumFolder = zip.folder('_signum');
     if (signumFolder) {
-        signumFolder.file(`manifest.json`, JSON.stringify(manifest, null, 2));
-        
-        // FIX: Add a type guard to ensure `siteData.contentFiles` exists before accessing it.
-        if (siteData.contentFiles) {
-            siteData.contentFiles.forEach(file => {
-                signumFolder.file(file.path, stringifyToMarkdown(file.frontmatter, file.content));
-            });
-        }
-    }
-    
-    if (siteData.themeFiles && !isCoreTheme(themePath)) {
-        siteData.themeFiles.forEach(file => {
-            zip.file(file.path, file.content);
+        // Add the main site manifest and all markdown content files.
+        signumFolder.file('manifest.json', JSON.stringify(manifest, null, 2));
+        (siteData.contentFiles ?? []).forEach(file => {
+            signumFolder.file(file.path, stringifyToMarkdown(file.frontmatter, file.content));
         });
     }
 
-    // --- 3. Generate RSS Feed and Sitemap with Correct Absolute URLs ---
-    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
-    
-    // FIX: Safely access contentFiles, defaulting to an empty array if it's undefined.
-    // This single constant fixes the TypeScript errors for both RSS and Sitemap generation.
-    const contentFiles = siteData.contentFiles ?? [];
+    // Bundle the active theme and all layouts used by the site.
+    const activeThemePath = manifest.theme.name;
+    const uniqueLayoutPaths = [...new Set(allRenderableNodes.map(n => n.layout))];
 
+    await bundleAsset(zip, siteData, 'theme', activeThemePath);
+    for (const layoutPath of uniqueLayoutPaths) {
+        await bundleAsset(zip, siteData, 'layout', layoutPath);
+    }
+    
+    // --- 3. Generate RSS Feed and Sitemap with Absolute URLs ---
+    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
+    const contentFiles = siteData.contentFiles ?? [];
     const allPageNodes = allRenderableNodes.filter((n: StructureNode): n is StructureNode & { type: 'page' } => n.type === 'page');
     type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
 
@@ -122,6 +147,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
 
-    // --- 4. Generate the ZIP file ---
+    // --- 4. Generate the Final ZIP file ---
     return zip.generateAsync({ type: 'blob' });
 }

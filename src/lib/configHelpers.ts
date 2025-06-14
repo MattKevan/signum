@@ -10,14 +10,39 @@ import {
 } from '@/types';
 
 // --- Type Definitions ---
+
 export type StrictUiSchema = UiSchema & { 'ui:groups'?: { title: string; fields: string[] }[] };
-type PartialsMap = Record<string, string>;
-interface BaseAssetManifest {
-  name: string;
-  partials?: PartialsMap;
-  stylesheets?: string[];
+export type PartialsMap = Record<string, string>;
+
+export type AssetFileType = 
+  | 'manifest' 
+  | 'base'
+  | 'page'
+  | 'collection-index'
+  | 'collection-item'
+  | 'partial' 
+  | 'stylesheet' 
+  | 'script' 
+  | 'asset';
+
+export interface AssetFile {
+  path: string;
+  type: AssetFileType;
+  name?: string;
 }
-export type ThemeManifest = BaseAssetManifest;
+
+/** The base properties shared by both Theme and Layout manifests. */
+export interface BaseAssetManifest {
+  name: string;
+  files: AssetFile[];
+}
+
+/** The structure of a theme.json file. */
+export interface ThemeManifest extends BaseAssetManifest {
+  appearanceSchema?: RJSFSchema;
+}
+
+/** The structure of a layout.json file. */
 export interface LayoutManifest extends BaseAssetManifest {
   type: 'page' | 'collection';
   layoutSchema?: RJSFSchema;
@@ -25,9 +50,20 @@ export interface LayoutManifest extends BaseAssetManifest {
   uiSchema?: StrictUiSchema;
 }
 
-// --- START OF FIX: Define the leaner site data type once ---
+/** The structure of a theme.json file. It extends the base and adds the appearance schema. */
+export interface ThemeManifest extends BaseAssetManifest {
+  appearanceSchema?: RJSFSchema;
+}
+
+/** The structure of a layout.json file. */
+export interface LayoutManifest extends BaseAssetManifest {
+  type: 'page' | 'collection';
+  layoutSchema?: RJSFSchema;
+  pageSchema: RJSFSchema;
+  uiSchema?: StrictUiSchema;
+}
+
 type SiteDataForAssets = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
-// --- END OF FIX ---
 
 
 // --- Caching and Core Helpers ---
@@ -40,9 +76,9 @@ function getBaseSchema(): { schema: RJSFSchema, uiSchema: UiSchema } {
     return BASE_SCHEMA;
 }
 
-// --- START OF FIX: Update function signature ---
+// --- The rest of the file (getAssetContent, getJsonAsset, getLayoutManifest, etc.) remains unchanged. ---
+
 export async function getAssetContent(siteData: SiteDataForAssets, assetType: 'theme' | 'layout', path: string, fileName: string): Promise<string | null> {
-// --- END OF FIX ---
     const isCore = assetType === 'theme' ? isCoreTheme(path) : isCoreLayout(path);
     const sourcePath = `/${assetType}s/${path}/${fileName}`;
 
@@ -67,9 +103,7 @@ export async function getAssetContent(siteData: SiteDataForAssets, assetType: 't
     }
 }
 
-// --- START OF FIX: Update function signature ---
 export async function getJsonAsset<T>(siteData: SiteDataForAssets, assetType: 'theme' | 'layout', path: string, fileName: string): Promise<T | null> {
-// --- END OF FIX ---
     const content = await getAssetContent(siteData, assetType, path, fileName);
     if (!content) return null;
     try {
@@ -110,9 +144,7 @@ export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
   return available;
 }
 
-// --- START OF FIX: Update function signature ---
 export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath: string): Promise<LayoutManifest | null> {
-// --- END OF FIX ---
     const layoutManifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
     const baseSchemaData = getBaseSchema();
 
@@ -121,7 +153,8 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
           name: layoutPath,
           type: 'page',
           pageSchema: baseSchemaData.schema,
-          uiSchema: baseSchemaData.uiSchema
+          uiSchema: baseSchemaData.uiSchema,
+          files: []
       }
     }
 

@@ -1,32 +1,49 @@
 {
-  "name": "Theme name",
+  "name": "Default Theme",
   "version": "1.0.0",
-  "partials": {
-    "head": "partials/head.hbs",
-    "header": "partials/header.hbs",
-    "footer": "partials/footer.hbs"
-  },
-
+  "files": [
+    { "path": "theme.json", "type": "manifest" },
+    { "path": "base.hbs", "type": "base", "name": "Base HTML Shell" },
+    { "path": "css/theme.css", "type": "stylesheet", "name": "Main Stylesheet" },
+    { "path": "partials/head.hbs", "type": "partial", "name": "head" },
+    { "path": "partials/header.hbs", "type": "partial", "name": "header" },
+    { "path": "partials/footer.hbs", "type": "partial", "name": "footer" }
+  ],
   "appearanceSchema": {
-    "title": "Theme appearance",
-    "description": "Customise the look and feel of the default theme.",
+    "title": "Theme Customization",
+    "description": "Customize the core fonts and colors of your site. These values override the theme's defaults.",
     "type": "object",
     "properties": {
-      "color_scheme": {
+      "font_body": {
         "type": "string",
-        "title": "Color scheme",
-        "description": "Select the color mode for your site.",
-        "enum": ["auto", "light", "dark"],
-        "enumNames": ["Auto (System preference)", "Light mode", "Dark mode"],
-        "default": "auto"
+        "title": "Body Font Family",
+        "description": "e.g., 'Helvetica, sans-serif' or 'Georgia, serif'",
+        "default": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
       },
-      "font_family": {
+      "font_heading": {
         "type": "string",
-        "title": "Font family",
-        "description": "Choose the primary font for body text.",
-        "enum": ["sans-serif", "serif", "monospace"],
-        "enumNames": ["Sans-Serif", "Serif", "Monospace"],
-        "default": "sans-serif"
+        "title": "Heading Font Family",
+        "description": "e.g., 'Georgia, serif'",
+        "default": "Georgia, 'Times New Roman', Times, serif"
+      },
+      "color_primary": {
+        "type": "string",
+        "title": "Primary Accent Color",
+        "description": "Used for links and important elements.",
+        "format": "color",
+        "default": "#0074D9"
+      },
+      "color_text": {
+        "type": "string",
+        "title": "Body Text Color",
+        "format": "color",
+        "default": "#333333"
+      },
+      "color_background": {
+        "type": "string",
+        "title": "Page Background Color",
+        "format": "color",
+        "default": "#f4f4f4"
       }
     }
   }

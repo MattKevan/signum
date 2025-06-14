@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useUIStore } from '@/stores/uiStore';
@@ -8,13 +8,23 @@ import { useAppStore } from '@/stores/useAppStore';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/lib/siteExporter';
+import { EditorContext, useEditor } from '@/contexts/EditorContext'; 
 import { slugify } from '@/lib/utils';
-// --- CHANGE: Import new context and icons ---
-import { useEditor } from '@/contexts/EditorContext';
 import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 
 const SaveButton = () => {
+  // --- START OF FIX ---
+  // Directly get the context. If it's undefined, we are not in an EditorProvider.
+  const editorContext = useContext(EditorContext);
+
+  // If there's no context, this button has no purpose, so render nothing.
+  if (!editorContext) {
+    return null;
+  }
+  // --- END OF FIX ---
+
+  // Now that we know the context exists, we can safely call the hook.
   const { saveState, triggerSave } = useEditor();
 
   const buttonContent = {

@@ -1,5 +1,4 @@
 {{! src/partials/head.hbs }}
-<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{pageTitle}} | {{manifest.title}}</title>
@@ -51,13 +50,9 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
-     {{!-- 1. Core CSS Toolkit (Tachyons) from CDN --}}
+     {{!-- STYLESHEETS --}}
     <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
-
-    {{!-- 2. Theme-specific styles.--}}
     <link rel="stylesheet" href="{{baseUrl}}/themes/{{manifest.theme.name}}/css/theme.css">
 
-    {{!-- 3. Dynamically generated style overrides from manifest config --}}
+    {{!-- This is where the user's custom choices are injected as CSS variables --}}
     {{{styleOverrides}}}
-
-</head>

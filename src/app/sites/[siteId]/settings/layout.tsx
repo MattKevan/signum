@@ -1,25 +1,39 @@
+// src/app/sites/[siteId]/settings/layout.tsx
 'use client';
 
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import SettingsNav from '@/components/publishing/SettingsNav';
 import { ReactNode, useEffect } from 'react';
 import { useUIStore } from '@/stores/uiStore';
-import SettingsNav from '@/components/publishing/SettingsNav'; // We will create this component next
-
-// This layout sets a *fixed* left sidebar for all settings pages.
-export default function SettingsLayout({ children }: { children: ReactNode }) {
-  const { setLeftSidebarContent, setRightSidebarContent } = useUIStore(state => state.sidebar);
+/**
+ * The root layout for the entire settings section.
+ * It provides the consistent ThreeColumnLayout structure and injects the
+ * a dedicated <SettingsNav /> component into the left sidebar.
+ * The right sidebar is intentionally left empty for this section.
+ */
+export default function SettingsSectionLayout({ children }: { children: ReactNode }) {
+  const { setLeftAvailable, setRightAvailable, setRightOpen } = useUIStore(state => state.sidebar);
 
   useEffect(() => {
-    // On mount, tell the store what to render in the left sidebar.
-    setLeftSidebarContent(<SettingsNav />);
-    // Ensure the right sidebar is empty for all settings pages.
-    setRightSidebarContent(null); 
+    // When this layout mounts, configure the UI for the settings section.
+    setLeftAvailable(true);   // Ensure the left sidebar (with SettingsNav) is available.
+    setRightAvailable(false); // Mark the right sidebar as unavailable, hiding its toggle button.
+    setRightOpen(false);      // Explicitly close the right sidebar in case it was open.
 
-    // On unmount, clean up the sidebar content.
+    // On unmount (when navigating away from settings), we can reset.
+    // Setting availability to false is a safe default.
     return () => {
-      setLeftSidebarContent(null);
+      setLeftAvailable(false);
+      setRightAvailable(false);
     };
-  }, [setLeftSidebarContent, setRightSidebarContent]);
+  }, [setLeftAvailable, setRightAvailable, setRightOpen]);
 
-  return <ThreeColumnLayout>{children}</ThreeColumnLayout>;
+  return (
+    <ThreeColumnLayout
+      leftSidebar={<SettingsNav />}
+      rightSidebar={null} // Pass null as content since it will be hidden.
+    >
+      {children}
+    </ThreeColumnLayout>
+  );
 }

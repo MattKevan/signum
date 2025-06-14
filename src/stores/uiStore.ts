@@ -19,6 +19,7 @@ interface SidebarActions {
   toggleRightSidebar: () => void;
   setLeftAvailable: (available: boolean) => void;
   setRightAvailable: (available: boolean) => void;
+  setRightOpen: (isOpen: boolean) => void;
 }
 
 // Defines the shape of the data in the screen slice
@@ -63,6 +64,8 @@ const createSidebarSlice: StateCreator<UIState, [], [], { sidebar: SidebarState 
     })),
     setLeftAvailable: (available) => set(state => ({ sidebar: { ...state.sidebar, isLeftAvailable: available }})),
     setRightAvailable: (available) => set(state => ({ sidebar: { ...state.sidebar, isRightAvailable: available }})),
+    setRightOpen: (isOpen) => set(state => ({ sidebar: { ...state.sidebar, isRightOpen: isOpen }})),
+
   }
 });
 

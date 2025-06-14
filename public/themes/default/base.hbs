@@ -1,44 +1,20 @@
 {{! themes/default/base.hbs }}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="scroll-smooth">
 <head>
     {{> head}}
 </head>
-{{!-- 
-  Tachyons classes for basic page styling:
-  - `bg-near-white`: Sets a light gray background color for the page.
-  - `dark-gray`: Sets the default text color to a dark gray.
-  - `sans-serif`: Sets the default font to a sans-serif stack.
---}}
-<body class="bg-near-white dark-gray sans-serif">
-    
-    {{!-- 
-      The Alpine.js `x-data` is for interactivity and is independent of the CSS framework.
-      The flexbox classes are from Tachyons:
-      - `flex`: Sets display: flex.
-      - `flex-column`: Sets flex-direction: column.
-      - `min-vh-100`: Ensures the container is at least the full viewport height.
-    --}}
-    <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
-        
-        {{> header}}
 
-        {{!--
-          - `flex-auto`: Allows this main element to grow and fill available space.
-          - `mw7`: Sets a max-width for optimal readability (measure).
-          - `center`: Horizontally centers the container.
-          - `pa3 pa4-ns`: Applies padding (pa3 for all, pa4 for "not small" screens).
-        --}}
+<body class="sans-serif">
+    
+    <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
+        {{> header}}
         <main class="flex-auto mw7 center pa3 pa4-ns">
             {{{body}}}
         </main>
-
-        {{!-- The footer is pushed to the bottom because main is flex-auto --}}
         {{> footer}}
-
     </div>
 
-    {{!-- Core JavaScript for interactivity, independent of CSS framework --}}
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </body>
 </html>

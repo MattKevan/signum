@@ -2,8 +2,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { RJSFSchema } from '@rjsf/utils'; // No event type import needed
-import { getJsonAsset } from '@/lib/configHelpers';
+import { RJSFSchema } from '@rjsf/utils';
+// --- FIX: We now need the type for the theme manifest ---
+import { getJsonAsset, type ThemeManifest } from '@/lib/configHelpers';
 import SchemaDrivenForm from './SchemaDrivenForm';
 import { ThemeConfig, LocalSiteData } from '@/types';
 
@@ -20,23 +21,40 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
 
   useEffect(() => {
     async function loadSchema() {
+      if (!themePath) {
+        setIsLoading(false);
+        setSchema(null);
+        return;
+      }
+      
       setIsLoading(true);
-      const appearanceSchema = await getJsonAsset<RJSFSchema>(
+
+      // --- START OF CORRECTED LOGIC ---
+
+      // 1. Fetch the entire theme.json file for the active theme.
+      const themeManifest = await getJsonAsset<ThemeManifest>(
         site,
         'theme',
         themePath,
-        'appearance.schema.json'
+        'theme.json' // <-- Correct filename
       );
-      setSchema(appearanceSchema);
+
+      // 2. Check if the manifest was found and if it contains the appearance schema.
+      if (themeManifest && themeManifest.appearanceSchema) {
+        setSchema(themeManifest.appearanceSchema);
+      } else {
+        // If not found, there are no settings, so set the schema to null.
+        setSchema(null);
+      }
+      
+      // --- END OF CORRECTED LOGIC ---
+
       setIsLoading(false);
     }
-    if (themePath) {
-        loadSchema();
-    }
+
+    loadSchema();
   }, [site, themePath]);
   
-  // FIXED: Define the event shape inline. The react-jsonschema-form event
-  // object is guaranteed to have a `formData` property.
   const handleChange = (event: { formData?: Record<string, unknown> }) => {
     onConfigChange(event.formData as ThemeConfig['config'] || {});
   };
@@ -57,7 +75,7 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme (&quot;{themePath}&quot;) does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme ("{themePath}") does not provide any customizable appearance settings.</p>
       </div>
     );
   }

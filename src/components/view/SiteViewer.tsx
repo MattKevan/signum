@@ -31,12 +31,18 @@ export default function SiteViewer() {
 
   const sandboxAttributes = 
     process.env.NODE_ENV === 'development'
-      ? 'allow-scripts allow-forms allow-same-origin' // More permissive for DevTools
-      : 'allow-scripts allow-forms';                  // Hardened for production
+      ? 'allow-scripts allow-forms allow-same-origin'
+      : 'allow-scripts allow-forms';
 
 
   const updateIframeContent = useCallback(async () => {
     if (!site) return;
+
+    // This ensures we don't try to render before the site's content is loaded.
+    if (!site.contentFiles) {
+        console.log("SiteViewer is waiting for content files to load...");
+        return;
+    }
 
     const slugArray = currentRelativePath.split('/').filter(Boolean);
     const resolution = resolvePageContent(site, slugArray);
@@ -52,18 +58,37 @@ export default function SiteViewer() {
         isExport: false,
       });
 
+      // --- START: NEW ROBUST COMMUNICATION SCRIPT ---
+      const parentOrigin = typeof window !== 'undefined' ? window.location.origin : '';
+
       const communicationScript = `
         <script>
+          // The parent component injects its own origin here. This is the key.
+          const PARENT_ORIGIN = '${parentOrigin}'; 
+
           document.addEventListener('click', function(e) {
             const link = e.target.closest('a');
-            if (link && link.href && link.origin === window.location.origin) {
+
+            // 1. If it's not a link, do nothing.
+            if (!link || !link.href) return;
+            
+            // 2. If it's an in-page anchor link, let the browser handle it.
+            if (link.hash && link.pathname === window.location.pathname) return;
+
+            // 3. This is the crucial check: Does the link point to the same origin
+            //    as the parent application? This works in ANY sandbox mode.
+            if (link.origin === PARENT_ORIGIN) {
               e.preventDefault();
               const newPath = new URL(link.href).pathname;
-              window.parent.postMessage({ type: 'SIGNUM_NAVIGATE', path: newPath }, window.location.origin);
+              // Post the message back to the parent, specifying its own origin for security.
+              window.parent.postMessage({ type: 'SIGNUM_NAVIGATE', path: newPath }, PARENT_ORIGIN);
             }
+            // 4. If it's an external link (e.g., to google.com), the condition fails
+            //    and the browser handles it normally (opening in a new tab if target="_blank").
           });
         <\/script>
       `;
+      // --- END: NEW ROBUST COMMUNICATION SCRIPT ---
 
       const finalHtml = pureHtml.replace('</body>', `${communicationScript}</body>`);
       setHtmlContent(finalHtml);
@@ -75,13 +100,17 @@ export default function SiteViewer() {
     }
   }, [site, viewRootPath, currentRelativePath]);
 
+  // Re-render the iframe whenever the path or the site data itself changes.
   useEffect(() => {
     updateIframeContent();
   }, [updateIframeContent]);
 
+  // This effect manages the browser history and remains unchanged.
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // Security: Only accept messages from our own origin.
       if (event.origin !== window.location.origin) return;
+      
       const { type, path } = event.data;
       if (type === 'SIGNUM_NAVIGATE' && path !== window.location.pathname) {
         history.pushState({ path }, '', path);
@@ -123,7 +152,6 @@ export default function SiteViewer() {
       srcDoc={htmlContent}
       title={site?.manifest.title || 'Site Preview'}
       className="w-full h-full border-0"
-      // Use the environment-specific sandbox attributes
       sandbox={sandboxAttributes}
     />
   );
