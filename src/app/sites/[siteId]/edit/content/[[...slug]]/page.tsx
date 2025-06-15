@@ -3,14 +3,14 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
-import { useUIStore } from '@/stores/uiStore';
-import { useEditor } from '@/contexts/EditorContext';
+import { useAppStore } from '@/core/state/useAppStore';
+import { useUIStore } from '@/core/state/uiStore';
+import { useEditor } from '@/features/editor/contexts/EditorContext';
 
 // --- Component Imports ---
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
-import FrontmatterSidebar from '@/components/publishing/FrontmatterSidebar';
-import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
+import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
+import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 
 // --- Type Imports ---

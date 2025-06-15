@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useParams } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore } from '@/core/state/useAppStore';
 
 export default function SiteLoaderLayout({ children }: { children: React.ReactNode }) {
   const params = useParams();

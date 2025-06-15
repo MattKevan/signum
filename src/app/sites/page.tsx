@@ -2,7 +2,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/components/ui/button';
 import { PlusCircle, Edit3, Eye, Trash2, FilePlus2, Leaf } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";

@@ -3,11 +3,11 @@
 
 import { useParams, usePathname } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
-import { resolvePageContent, PageType } from '@/lib/pageResolver';
-import { render as renderWithTheme } from '@/lib/themeEngine';
+import { useAppStore } from '@/core/state/useAppStore';
+import { resolvePageContent, PageType } from '@/core/services/pageResolver.service';
+import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.services';
 import { AlertTriangle, Edit } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/core/ui/button';
 import Link from 'next/link';
 
 /**

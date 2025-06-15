@@ -1,7 +1,7 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore } from '@/core/state/uiStore';
 import { cn } from '@/lib/utils';
 
 interface RightSidebarProps {

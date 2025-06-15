@@ -2,18 +2,18 @@
 import Handlebars from 'handlebars';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { PageResolutionResult, PageType } from './pageResolver';
+import { PageResolutionResult, PageType } from '../pageResolver.service';
 import { 
     LocalSiteData, 
     ParsedMarkdownFile, 
     ThemeInfo, 
     LayoutInfo 
 } from '@/types';
-import { generateNavLinks } from './navigationUtils';
-import { getJsonAsset, getLayoutManifest, ThemeManifest, LayoutManifest, AssetFile, AssetFileType } from './configHelpers';
+import { generateNavLinks } from '../../../lib/navigationUtils';
+import { getJsonAsset, getLayoutManifest, ThemeManifest, LayoutManifest, AssetFile, AssetFileType } from '../../../lib/configHelpers';
 import { CORE_THEMES, CORE_LAYOUTS } from '@/config/editorConfig';
-import { getUrlForNode } from './urlUtils';
-import { getRelativePath } from './pathUtils';
+import { getUrlForNode } from '../../../lib/urlUtils';
+import { getRelativePath } from '../../../lib/pathUtils';
 
 // --- Type Definitions ---
 

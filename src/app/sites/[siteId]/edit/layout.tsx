@@ -1,7 +1,7 @@
 // src/app/sites/[siteId]/edit/layout.tsx
 'use client';
 
-import { EditorProvider } from '@/contexts/EditorContext';
+import { EditorProvider } from '@/features/editor/contexts/EditorContext';
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
 import { ReactNode } from 'react';
 

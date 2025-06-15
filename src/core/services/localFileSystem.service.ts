@@ -1,7 +1,7 @@
 // src/lib/localSiteFs.ts
 import { LocalSiteData, Manifest, ParsedMarkdownFile, RawFile } from '@/types'; // Ensure RawFile is imported
 import localforage from 'localforage';
-import { parseMarkdownString, stringifyToMarkdown } from './markdownParser';
+import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser';
 
 const DB_NAME = 'SignumDB';
 

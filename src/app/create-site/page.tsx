@@ -3,7 +3,7 @@
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode, ThemeInfo } from '@/types';
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';

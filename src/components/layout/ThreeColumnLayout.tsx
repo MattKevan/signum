@@ -1,9 +1,9 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore } from '@/core/state/uiStore';
 import { cn } from '@/lib/utils';
-import EditorHeader from '@/components/publishing/EditorHeader';
+import EditorHeader from '@/features/editor/components/EditorHeader';
 
 interface ThreeColumnLayoutProps {
   leftSidebar: ReactNode;

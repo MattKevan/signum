@@ -2,11 +2,11 @@
 'use client'; 
 
 import { useEffect, useState, Suspense } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import './globals.css'; 
 import { Toaster } from "@/components/ui/sonner"; 
 import { ThemeProvider } from "@/components/core/ThemeProvider";
-import { useInitialiseUIStore } from '@/hooks/useInitialiseUIStore';
+import { useInitialiseUIStore } from '@/core/hooks/useInitialiseUIStore';
 
 function AppLoadingIndicator() {
   return (

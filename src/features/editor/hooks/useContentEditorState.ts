@@ -2,10 +2,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { useAppStore } from '@/stores/useAppStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import type { MarkdownFrontmatter } from '@/types';
 import { findNodeByPath } from '@/lib/fileTreeUtils';
-import * as localSiteFs from '@/lib/localSiteFs';
+import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { parseMarkdownString } from '@/lib/markdownParser';
 import { NEW_FILE_SLUG_MARKER, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 import { toast } from 'sonner';

@@ -2,9 +2,9 @@
 'use client';
 
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
-import SettingsNav from '@/components/publishing/SettingsNav';
+import SettingsNav from '@/features/site-settings/components/SettingsNav';
 import { ReactNode, useEffect } from 'react';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore } from '@/core/state/uiStore';
 /**
  * The root layout for the entire settings section.
  * It provides the consistent ThreeColumnLayout structure and injects the

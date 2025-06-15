@@ -3,12 +3,12 @@
 import { useState, useContext } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import { useUIStore } from '@/stores/uiStore';
-import { useAppStore } from '@/stores/useAppStore';
-import { Button } from '@/components/ui/button';
+import { useUIStore } from '@/core/state/uiStore';
+import { useAppStore } from '@/core/state/useAppStore';
+import { Button } from '@/core/ui/button';
 import { toast } from 'sonner';
-import { exportSiteToZip } from '@/lib/siteExporter';
-import { EditorContext, useEditor } from '@/contexts/EditorContext'; 
+import { exportSiteToZip } from '@/core/services/siteExporter.service';
+import { EditorContext, useEditor } from '@/features/editor/contexts/EditorContext'; 
 import { slugify } from '@/lib/utils';
 import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
 import Image from 'next/image';

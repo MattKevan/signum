@@ -6,11 +6,11 @@ import { useParams, usePathname, useRouter } from 'next/navigation';
 import { useMemo, useCallback, useEffect, useState } from 'react';
 
 // --- Store and Component Imports ---
-import { useAppStore } from '@/stores/useAppStore';
-import { useUIStore } from '@/stores/uiStore';
+import { useAppStore } from '@/core/state/useAppStore';
+import { useUIStore } from '@/core/state/uiStore';
 import { Button } from '@/components/ui/button';
-import FileTree from '@/components/publishing/FileTree';
-import NewCollectionDialog from '@/components/publishing/NewCollectionDialog';
+import FileTree from '@/features/editor/components/FileTree';
+import NewCollectionDialog from '@/features/editor/components/NewCollectionDialog';
 
 // --- Type, Util, and Config Imports ---
 import type { StructureNode, LayoutInfo, ParsedMarkdownFile } from '@/types'; // Added ParsedMarkdownFile

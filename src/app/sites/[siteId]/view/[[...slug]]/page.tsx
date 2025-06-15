@@ -1,7 +1,7 @@
 // src/app/sites/[siteId]/view/[[...slug]]/page.tsx
 'use client';
 
-import SitePreview from '@/components/view/SiteViewer';
+import SitePreview from '@/features/viewer/components/SiteViewer';
 
 export default function ViewSitePage() {
   // This page's only job is to render the master preview component.

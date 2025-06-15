@@ -3,16 +3,16 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { useEditor } from '@/contexts/EditorContext';
-import { useAutosave } from '@/hooks/useAutosave';
-import { useUIStore } from '@/stores/uiStore';
-import { useAppStore } from '@/stores/useAppStore';
+import { useEditor } from '@/features/editor/contexts/EditorContext';
+import { useAutosave } from '@/core/hooks/useAutosave';
+import { useUIStore } from '@/core/state/uiStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import LeftSidebar from '@/components/publishing/LeftSidebar';
-import PrimaryContentFields from '@/components/publishing/PrimaryContentFields';
+import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
