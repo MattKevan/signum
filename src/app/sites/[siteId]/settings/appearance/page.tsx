@@ -3,7 +3,7 @@
 
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import AppearanceSettingsForm from '@/components/publishing/AppearanceSettingsForm';
+import AppearanceSettingsForm from '@/features/site-settings/components/AppearanceSettingsForm';
 import { Button } from '@/core/ui/button';
 import { Manifest, ThemeConfig, ThemeInfo } from '@/types';
 import { useEffect, useState, useCallback, useMemo } from 'react';
