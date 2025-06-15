@@ -4,7 +4,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import type { MarkdownFrontmatter } from '@/types';
-import { findNodeByPath } from '@/lib/fileTreeUtils';
+import { findNodeByPath } from '@/core/services/fileTree.service';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { parseMarkdownString } from '@/lib/markdownParser';
 import { NEW_FILE_SLUG_MARKER, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';

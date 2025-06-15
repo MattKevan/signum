@@ -17,7 +17,7 @@ import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFi
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
 import type { StructureNode, LayoutInfo, MarkdownFrontmatter, LocalSiteData } from '@/types';
-import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/lib/configHelpers';
+import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/core/services/configHelpers.service';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;

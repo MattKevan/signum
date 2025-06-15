@@ -8,7 +8,7 @@ import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode, 
 import { Button } from '@/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getLayoutManifest } from '@/lib/configHelpers';
+import { getLayoutManifest } from '@/core/services/configHelpers.service';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';

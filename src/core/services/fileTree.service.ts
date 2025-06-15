@@ -1,4 +1,5 @@
-// src/lib/fileTreeUtils.ts
+// src/core/services/fileTree.service.ts
+
 import { StructureNode } from '@/types';
 
 /**
@@ -68,4 +69,59 @@ export function flattenStructureToRenderableNodes(nodes: StructureNode[]): Struc
 export function getParentPath(path: string): string {
   if (!path.includes('/')) return 'content';
   return path.substring(0, path.lastIndexOf('/'));
+}
+
+/**
+ * Finds a node by its path and removes it from a tree structure, returning both the found node and the modified tree.
+ * This is a pure function; it does not mutate the original array.
+ * @param {StructureNode[]} nodes - The array of nodes to search.
+ * @param {string} path - The path of the node to remove.
+ * @returns An object containing the found node and the updated tree.
+ */
+export function findAndRemoveNode(nodes: StructureNode[], path: string): { found: StructureNode | null, tree: StructureNode[] } {
+  let found: StructureNode | null = null;
+  
+  const filterRecursively = (currentNodes: StructureNode[]): StructureNode[] => {
+    const result: StructureNode[] = [];
+    for (const node of currentNodes) {
+      if (node.path === path) {
+        found = node;
+        continue; // Skip adding it to the result, effectively removing it
+      }
+      if (node.children) {
+        const newChildren = filterRecursively(node.children);
+        result.push({ ...node, children: newChildren });
+      } else {
+        result.push(node);
+      }
+    }
+    return result;
+  };
+
+  const newTree = filterRecursively(nodes);
+  return { found, tree: newTree };
+}
+
+
+/**
+ * Recursively updates the path of a node and all of its descendants based on a new parent path.
+ * @param {StructureNode} node - The node to start from.
+ * @param {string} newParentPath - The new parent path segment (e.g., 'content/about').
+ * @returns {StructureNode} The node with all paths and slugs updated.
+ */
+export function updatePathsRecursively(node: StructureNode, newParentPath: string): StructureNode {
+  const oldSlug = node.slug;
+  const newPath = `${newParentPath}/${oldSlug}.md`;
+  
+  const updatedNode: StructureNode = { ...node, path: newPath };
+
+  if (updatedNode.children) {
+    // The new parent path for the children is the updated node's path, without the '.md' extension.
+    const newChildsParentPath = newPath.replace(/\.md$/, '');
+    updatedNode.children = updatedNode.children.map(child => 
+      updatePathsRecursively(child, newChildsParentPath)
+    );
+  }
+
+  return updatedNode;
 }

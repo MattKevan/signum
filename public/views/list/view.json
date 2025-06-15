@@ -1,0 +1,47 @@
+{
+  "name": "Simple List View",
+  "version": "1.0.0",
+  "description": "Displays content from a collection in a standard, sorted list. Ideal for blogs.",
+  "icon": "list-ordered",
+  "files": [
+    { "path": "view.json", "type": "manifest" },
+    { "path": "template.hbs", "type": "template", "name": "List Container" }
+  ],
+  "schema": {
+    "title": "List View Configuration",
+    "description": "Configure how this list of content should be displayed.",
+    "type": "object",
+    "properties": {
+      "source_collection": {
+        "type": "string",
+        "title": "Content Source",
+        "description": "Choose the collection to display items from."
+      },
+      "item_layout": {
+        "type": "string",
+        "title": "Item Display Layout",
+        "description": "Choose how each item in the list should look (e.g., a teaser card)."
+      },
+      "sort_by": {
+        "type": "string",
+        "title": "Sort items by",
+        "enum": ["date", "title"],
+        "enumNames": ["Publication Date", "Title"],
+        "default": "date"
+      },
+      "sort_order": {
+        "type": "string",
+        "title": "Sort order",
+        "enum": ["desc", "asc"],
+        "enumNames": ["Descending", "Ascending"],
+        "default": "desc"
+      },
+      "limit": {
+        "type": "number",
+        "title": "Maximum Number of Items",
+        "description": "Leave blank to show all items.",
+        "default": 10
+      }
+    }
+  }
+}

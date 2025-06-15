@@ -132,3 +132,24 @@ export async function getContentFileRaw(siteId: string, filePath: string): Promi
     
     return stringifyToMarkdown(fileData.frontmatter, fileData.content);
 }
+
+/**
+ * Moves a set of content files from old paths to new paths in a single transaction.
+ * @param {string} siteId - The ID of the site.
+ * @param {{oldPath: string, newPath: string}[]} pathsToMove - An array of path mapping objects.
+ * @returns {Promise<void>}
+ */
+export async function moveContentFiles(siteId: string, pathsToMove: { oldPath: string, newPath: string }[]): Promise<void> {
+    const contentFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId) ?? [];
+    
+    const updatedFiles = contentFiles.map(file => {
+        const moveInstruction = pathsToMove.find(p => p.oldPath === file.path);
+        if (moveInstruction) {
+            const newSlug = moveInstruction.newPath.split('/').pop()?.replace('.md', '') || '';
+            return { ...file, path: moveInstruction.newPath, slug: newSlug };
+        }
+        return file;
+    });
+    
+    await siteContentFilesStore.setItem(siteId, updatedFiles);
+}

@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import type { MarkdownFrontmatter, LocalSiteData } from '@/types';
 import GroupedFrontmatterFields from '@/components/publishing/GroupedFrontmatterFields';
-import { getLayoutManifest } from '@/lib/configHelpers';
+import { getLayoutManifest } from '@/core/services/configHelpers.service';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';

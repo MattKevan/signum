@@ -4,7 +4,7 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import './globals.css'; 
-import { Toaster } from "@/components/ui/sonner"; 
+import { Toaster } from "@/core/ui/sonner"; 
 import { ThemeProvider } from "@/components/core/ThemeProvider";
 import { useInitialiseUIStore } from '@/core/hooks/useInitialiseUIStore';
 

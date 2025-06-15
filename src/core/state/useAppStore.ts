@@ -1,9 +1,9 @@
-// src/stores/useAppStore.ts
+// src/core/state/useAppStore.ts
 import { create } from 'zustand';
 import { produce, enableMapSet } from 'immer';
 import { AppState, LocalSiteData, Manifest, StructureNode, ParsedMarkdownFile } from '@/types';
-import * as localSiteFs from '@/lib/localSiteFs';
-import { getParentPath } from '@/lib/fileTreeUtils';
+import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { getParentPath } from '@/core/services/fileTree.service';
 import { DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
 import { toast } from 'sonner';
 

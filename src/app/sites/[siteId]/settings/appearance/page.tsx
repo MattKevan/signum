@@ -10,7 +10,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
 import { Label } from '@/core/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/ui/select';
-import { getAvailableThemes } from '@/lib/configHelpers';
+import { getAvailableThemes } from '@/core/services/configHelpers.service';
 
 export default function AppearanceSettingsPage() {
   const params = useParams();

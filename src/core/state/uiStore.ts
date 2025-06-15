@@ -1,3 +1,5 @@
+// src/core/state/uiStore.ts
+
 import { create, StateCreator } from 'zustand';
 
 // --- Helper for screen size ---

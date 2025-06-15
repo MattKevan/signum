@@ -19,7 +19,7 @@ import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
 // --- Util & Library Imports ---
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
-import { findNodeByPath } from '@/lib/fileTreeUtils';
+import { findNodeByPath } from '@/core/services/fileTree.service';
 import { toast } from "sonner";
 import * as localSiteFs from '@/lib/localSiteFs';
 import { NEW_FILE_SLUG_MARKER, AUTOSAVE_DELAY, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';

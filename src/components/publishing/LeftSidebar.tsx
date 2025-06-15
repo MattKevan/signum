@@ -14,7 +14,7 @@ import NewCollectionDialog from '@/features/editor/components/NewCollectionDialo
 
 // --- Type, Util, and Config Imports ---
 import type { StructureNode, LayoutInfo, ParsedMarkdownFile } from '@/types'; // Added ParsedMarkdownFile
-import { getAvailableLayouts } from '@/lib/configHelpers';
+import { getAvailableLayouts } from '@/core/services/configHelpers.service';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';

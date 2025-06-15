@@ -5,7 +5,7 @@ import { useParams, usePathname } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import { resolvePageContent, PageType } from '@/core/services/pageResolver.service';
-import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.services';
+import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.service';
 import { AlertTriangle, Edit } from 'lucide-react';
 import { Button } from '@/core/ui/button';
 import Link from 'next/link';
