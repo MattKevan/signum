@@ -1,7 +1,6 @@
 // src/components/publishing/LeftSidebar.tsx
 'use client';
 
-import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useMemo, useCallback, useEffect, useState } from 'react';
 
@@ -11,6 +10,7 @@ import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CollectionList from '@/features/editor/components/CollectionList';
+import NewViewDialog from '@/features/editor/components/NewViewDialog';
 
 import {
   Accordion,
@@ -20,8 +20,9 @@ import {
 } from "@/core/components/ui/accordion";
 import type { StructureNode } from '@/types';
 import { cn } from '@/lib/utils';
-import { Home, FilePlus } from 'lucide-react';
+import { Home, FilePlus, Newspaper } from 'lucide-react';
 import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
+import { Link } from '@/core/components/ui/link';
 
 
 export default function LeftSidebar() {
@@ -29,31 +30,30 @@ export default function LeftSidebar() {
   const pathname = usePathname();
   const siteId = params.siteId as string;
 
-  // --- START OF FIX ---
-  // Select each piece of state individually. Zustand's default shallow
-  // comparison will prevent re-renders if these specific values haven't changed.
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
   const isDesktop = useUIStore((state) => state.screen.isDesktop);
-  // --- END OF FIX ---
   
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { updateManifest, moveNode } = useAppStore.getState();
   
   const pageStructure = useMemo(() => {
-    return site?.manifest.structure.filter((node: StructureNode) => node.type !== 'collection') || [];
+    // Only show top-level pages in the main file tree. Nested pages are handled by the FileTree component itself.
+    return site?.manifest.structure.filter((node: StructureNode) => node.type === 'page' && !node.path.includes('/', 'content/'.length)) || [];
   }, [site?.manifest.structure]);
 
   const [activePath, setActivePath] = useState<string | undefined>();
   useEffect(() => {
     if (!site?.contentFiles) return;
 
-    const pathSegments = pathname.split('/');
     let currentPath = '';
 
     if (pathname.includes('/edit/content/')) {
         const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
         currentPath = `content/${contentSlug}.md`;
+    } else if (pathname.includes('/edit/collection/')) {
+        const collectionSlug = pathname.substring(pathname.indexOf('/edit/collection/') + 17).replace(/\/$/, '');
+        currentPath = `content/${collectionSlug}`;
     }
     setActivePath(currentPath);
   }, [pathname, site?.contentFiles]);
@@ -103,11 +103,18 @@ export default function LeftSidebar() {
                   <AccordionTrigger className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b-0 p-0 hover:no-underline">
                     Pages
                   </AccordionTrigger>
-                  <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                      <Button variant="ghost" className='size-6 p-2 rounded-sm' title="New Page">
-                          <FilePlus className="h-4 w-4" />
-                      </Button>
-                  </NewPageDialog>
+                  <div className="flex items-center gap-1">
+                      <NewViewDialog siteId={siteId} onComplete={onCreationComplete}>
+                          <Button variant="ghost" className='size-6 p-1 rounded-sm' title="New View Page">
+                              <Newspaper className="h-4 w-4" />
+                          </Button>
+                      </NewViewDialog>
+                      <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
+                          <Button variant="ghost" className='size-6 p-1 rounded-sm' title="New Content Page">
+                              <FilePlus className="h-4 w-4" />
+                          </Button>
+                      </NewPageDialog>
+                  </div>
               </div>
               <AccordionContent ref={setRootDroppableRef} className={cn("px-2 py-2 transition-colors", unnestDropZoneStyle)}>
                 {pageStructure.length > 0 ? (

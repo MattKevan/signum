@@ -1,7 +1,7 @@
-// src/stores/slices/contentSlice.ts
+// src/core/state/slices/contentSlice.ts
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
-import { ParsedMarkdownFile, StructureNode, LocalSiteData } from '@/types';
+import { ParsedMarkdownFile, StructureNode } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { getParentPath, findNodeByPath, findAndRemoveNode, updatePathsRecursively } from '@/core/services/fileTree.service';
 import { toast } from 'sonner';
@@ -11,6 +11,7 @@ import { stringifyToMarkdown } from '@/lib/markdownParser';
 export interface ContentSlice {
   /**
    * Creates a new content file or updates an existing one, and updates the manifest structure.
+   * This function recursively finds the correct parent node to ensure items are nested correctly.
    * @param siteId - The ID of the site.
    * @param filePath - The full path of the file to save (e.g., 'content/about.md').
    * @param rawMarkdownContent - The full string content of the file, including frontmatter.
@@ -37,6 +38,14 @@ export interface ContentSlice {
    * @returns {Promise<void>}
    */
   moveNode: (siteId: string, draggedNodePath: string, targetNodePath: string | null) => Promise<void>;
+
+  /**
+   * Updates only the content of a file in storage and state.
+   * Does not modify the manifest. Used for fast autosaving.
+   * @param siteId - The ID of the site.
+   * @param savedFile - The parsed markdown file object to save.
+   * @returns {Promise<void>}
+   */
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
 }
 
@@ -69,23 +78,57 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
 
     const newManifest = produce(site.manifest, draft => {
         let parentFound = false;
-        
-        const mapNode = (node: StructureNode): StructureNode => {
-            if (isNewFile && node.type === 'page' && node.path === getParentPath(filePath)) {
-                parentFound = true;
-                return { ...node, children: [...(node.children || []), { type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId }] };
-            }
-            if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
-                return { ...node, title: savedFile.frontmatter.title };
-            }
-            if (node.children) {
-                return { ...node, children: node.children.map(mapNode) };
-            }
-            return node;
-        };
-        draft.structure = draft.structure.map(mapNode);
+        const parentPath = getParentPath(filePath);
 
-        if (isNewFile && !parentFound && getParentPath(filePath) === 'content') {
+        // --- START OF FIX: RECURSIVE PARENT FINDER ---
+        /**
+         * Recursively traverses the structure to find the correct parent node
+         * and adds the new file as a child.
+         * @param nodes - The current array of nodes to search through.
+         * @returns A new array of nodes with the update applied.
+         */
+        const findAndUpdateParent = (nodes: StructureNode[]): StructureNode[] => {
+            return nodes.map(node => {
+                // Check if this node is the parent we're looking for.
+                // It can be a page or a collection.
+                if (isNewFile && node.path === parentPath) {
+                    parentFound = true;
+                    // Add the new file as a child to this node.
+                    return { 
+                        ...node, 
+                        children: [
+                            ...(node.children || []), 
+                            { 
+                                type: 'page', 
+                                title: savedFile.frontmatter.title, 
+                                path: filePath, 
+                                slug: savedFile.slug, 
+                                layout: layoutId 
+                            }
+                        ] 
+                    };
+                }
+
+                // If not the parent, check if it's the file being updated (for a title change).
+                if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
+                    return { ...node, title: savedFile.frontmatter.title };
+                }
+
+                // If this node has children, recurse into them.
+                if (node.children) {
+                    return { ...node, children: findAndUpdateParent(node.children) };
+                }
+
+                // Otherwise, return the node as is.
+                return node;
+            });
+        };
+
+        draft.structure = findAndUpdateParent(draft.structure);
+        // --- END OF FIX ---
+
+        // Handle creating a new top-level page (if parent is root 'content' folder)
+        if (isNewFile && !parentFound && parentPath === 'content') {
           draft.structure.push({ type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId, navOrder: draft.structure.length });
         }
     });
@@ -114,25 +157,26 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const site = get().getSiteById(siteId);
     if (!site) return;
 
+    // Use a recursive filter to remove the node from anywhere in the tree.
     const newManifest = produce(site.manifest, draft => {
         const filterStructure = (nodes: StructureNode[]): StructureNode[] => {
-            return nodes.filter(node => node.path !== filePath).map(node => {
-                if (node.children) {
-                    node.children = filterStructure(node.children);
-                }
-                return node;
-            });
+            return nodes
+                .filter(node => node.path !== filePath)
+                .map(node => {
+                    if (node.children) {
+                        node.children = filterStructure(node.children);
+                    }
+                    return node;
+                });
         };
         draft.structure = filterStructure(draft.structure);
     });
     
-    // Perform file system and manifest updates in parallel for efficiency.
     await Promise.all([
       localSiteFs.deleteContentFile(siteId, filePath),
       get().updateManifest(siteId, newManifest)
     ]);
     
-    // Update local state after operations are complete.
     set(produce((draft: SiteSlice) => {
         const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
         if (siteToUpdate?.contentFiles) {
@@ -145,30 +189,30 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const site = get().getSiteById(siteId);
     if (!site) {
       toast.error("Site data not found.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     const draggedNodeInfo = findNodeByPath(site.manifest.structure, draggedNodePath);
     if (!draggedNodeInfo || draggedNodeInfo.type !== 'page') {
       toast.error("Only pages can be moved.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     const targetNodeInfo = targetNodePath ? findNodeByPath(site.manifest.structure, targetNodePath) : null;
-    if (targetNodePath && (!targetNodeInfo || targetNodeInfo.type !== 'page')) {
-      toast.error("Pages can only be nested under other pages.");
-      return; // <-- FIX: Separate the toast call from the return.
+    if (targetNodePath && (!targetNodeInfo || (targetNodeInfo.type !== 'page' && targetNodeInfo.type !== 'collection'))) {
+      toast.error("Pages can only be nested under other pages or collections.");
+      return;
     }
 
     // 1. Remove the dragged node from the tree.
     const { found: draggedNode, tree: treeWithoutDraggedNode } = findAndRemoveNode([...site.manifest.structure], draggedNodePath);
     if (!draggedNode) {
       toast.error("An error occurred while moving the page.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     // 2. Recursively update paths for the dragged node and its children.
-    const newParentPath = targetNodePath ? targetNodePath.replace(/\.md$/, '') : 'content';
+    const newParentPath = targetNodePath ? targetNodePath : 'content';
     const updatedNode = updatePathsRecursively(draggedNode, newParentPath);
 
     // 3. Collect all old and new paths for the file system move.

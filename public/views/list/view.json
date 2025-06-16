@@ -1,30 +1,16 @@
 {
   "name": "Simple List View",
   "version": "1.0.0",
-  "description": "Displays content from a collection in a standard, sorted list. Ideal for blogs.",
+  "description": "Displays content from a collection in a standard, sorted list.",
   "icon": "list-ordered",
   "files": [
     { "path": "view.json", "type": "manifest" },
-    { "path": "template.hbs", "type": "template", "name": "List Container" }
+    { "path": "template.hbs", "type": "template" }
   ],
   "schema": {
-    "title": "List View Configuration",
-    "description": "Configure how this list of content should be displayed.",
+    "title": "List-Specific Options",
     "type": "object",
     "properties": {
-      "source_collection": {
-        "type": "string",
-        "title": "Content Source",
-        "description": "Choose the collection to display items from.",
-        "ui:dataSource": "collections" 
-      },
-      "item_layout": {
-        "type": "string",
-        "title": "Item Display Layout",
-        "description": "Choose how each item in the list should look.",
-        "ui:dataSource": "layouts",       
-        "ui:layoutType": "collection-item"  
-      },
       "sort_by": {
         "type": "string",
         "title": "Sort items by",
@@ -39,10 +25,16 @@
         "enumNames": ["Descending", "Ascending"],
         "default": "desc"
       },
-      "limit": {
+      "show_pager": {
+        "type": "boolean",
+        "title": "Show Pagination Controls",
+        "description": "If enabled, the list will be split into multiple pages.",
+        "default": false
+      },
+      "items_per_page": {
         "type": "number",
-        "title": "Maximum Number of Items",
-        "description": "Leave blank to show all items.",
+        "title": "Items Per Page",
+        "description": "The number of items to show per page if pagination is enabled.",
         "default": 10
       }
     }

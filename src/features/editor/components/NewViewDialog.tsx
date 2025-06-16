@@ -1,7 +1,7 @@
-// src/features/editor/components/NewPageDialog.tsx
+// src/features/editor/components/NewViewDialog.tsx
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useState, useMemo, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { slugify } from '@/lib/utils';
@@ -13,38 +13,45 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import { Plus } from 'lucide-react';
-import type { MarkdownFrontmatter } from '@/types';
-import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+import type { MarkdownFrontmatter, StructureNode } from '@/types';
+import { DEFAULT_VIEW_LAYOUT_PATH } from '@/config/editorConfig';
 
-interface NewPageDialogProps {
+interface NewViewDialogProps {
   siteId: string;
   children: ReactNode;
   onComplete?: () => void;
 }
 
-export default function NewPageDialog({ siteId, children, onComplete }: NewPageDialogProps) {
+export default function NewViewDialog({ siteId, children, onComplete }: NewViewDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [sourceCollection, setSourceCollection] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { addOrUpdateContentFile } = useAppStore.getState();
+
+  const availableCollections = useMemo(() => {
+    return site?.manifest.structure.filter((node: StructureNode) => node.type === 'collection') || [];
+  }, [site?.manifest.structure]);
 
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
     if (!open) {
       setTimeout(() => {
         setTitle('');
+        setSourceCollection('');
         setIsSubmitting(false);
       }, 200);
     }
   };
 
-  const handleCreatePage = async () => {
-    if (!title.trim()) {
-      toast.error("Page title cannot be empty.");
+  const handleCreateView = async () => {
+    if (!title.trim() || !sourceCollection) {
+      toast.error("Both a title and a source collection are required.");
       return;
     }
     setIsSubmitting(true);
@@ -57,19 +64,23 @@ export default function NewPageDialog({ siteId, children, onComplete }: NewPageD
         setIsSubmitting(false);
         return;
     }
-    
+
     const frontmatter: MarkdownFrontmatter = {
         title: title.trim(),
-        layout: DEFAULT_PAGE_LAYOUT_PATH,
+        layout: DEFAULT_VIEW_LAYOUT_PATH,
         date: new Date().toISOString().split('T')[0],
+        view: {
+            template: 'list',
+            source_collection: sourceCollection,
+        }
     };
 
-    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# ${title.trim()}\n\nStart writing your content here.\n`;
+    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# ${title.trim()}\n\nThis page lists content from the "${sourceCollection}" collection. You can add introductory text here.`;
 
     try {
       const success = await addOrUpdateContentFile(siteId, filePath, initialContent, frontmatter.layout);
       if (success) {
-        toast.success(`Page "${title}" created!`);
+        toast.success(`View page "${title}" created!`);
         handleOpenChange(false);
         onComplete?.();
         router.push(`/sites/${siteId}/edit/content/${slug}`);
@@ -85,21 +96,30 @@ export default function NewPageDialog({ siteId, children, onComplete }: NewPageD
       <DialogTrigger asChild>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Create New Content Page</DialogTitle>
+          <DialogTitle>Create New View Page</DialogTitle>
           <DialogDescription>
-            Give your new page a title. You can add content and change settings later.
+            This page will display a list of items from a collection.
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <div className="space-y-1">
-            <Label htmlFor="title">Page Title</Label>
-            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., About Us" />
+            <Label htmlFor="view-title">Page Title</Label>
+            <Input id="view-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Blog" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="source-collection">Content Source</Label>
+            <Select value={sourceCollection} onValueChange={setSourceCollection}>
+              <SelectTrigger id="source-collection"><SelectValue placeholder="Select a collection..." /></SelectTrigger>
+              <SelectContent>
+                {availableCollections.map(c => <SelectItem key={c.slug} value={c.slug}>{c.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
         <DialogFooter>
           <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
-          <Button type="button" onClick={handleCreatePage} disabled={!title.trim() || isSubmitting}>
-            {isSubmitting ? 'Creating...' : <><Plus className="mr-2 h-4 w-4" /> Create Page</>}
+          <Button type="button" onClick={handleCreateView} disabled={!title.trim() || !sourceCollection || isSubmitting}>
+            {isSubmitting ? 'Creating...' : <><Plus className="mr-2 h-4 w-4" /> Create View Page</>}
           </Button>
         </DialogFooter>
       </DialogContent>

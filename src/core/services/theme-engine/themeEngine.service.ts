@@ -1,21 +1,21 @@
-// src/lib/themeEngine.ts
+// src/core/services/theme-engine/themeEngine.service.ts
 import Handlebars from 'handlebars';
-import { PageResolutionResult, PageType } from '@/core/services/pageResolver.service';
-import { LocalSiteData, LayoutInfo, ViewInfo, Manifest } from '@/types';
+import { 
+    LocalSiteData, 
+    PageResolutionResult, 
+    PageType 
+} from '@/types'; // FIX: Import all necessary types from the central types file.
 import {
     getJsonAsset,
-    getLayoutManifest,
     getAvailableLayouts,
     getAvailableViews,
     ThemeManifest, 
-    LayoutManifest, 
     ViewManifest,
     getAssetContent,
     AssetFile,
 } from '@/core/services/configHelpers.service';
 import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
-import { getRelativePath } from '@/core/services/relativePaths.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 
 // --- Type Definitions ---
@@ -28,11 +28,12 @@ export interface RenderOptions {
 // --- Helper Registration ---
 
 /**
- * Discovers and registers all core Handlebars helpers from the theme-helpers directory.
+ * Discovers and registers all core Handlebars helpers.
  * @param {LocalSiteData} siteData - The full site data, passed to any helper that needs it.
  */
 function registerCoreHelpers(siteData: LocalSiteData) {
     // A flag to prevent re-registering in the same session, improving performance.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
     for (const helperFactory of coreHelpers) {
@@ -41,36 +42,39 @@ function registerCoreHelpers(siteData: LocalSiteData) {
             Handlebars.registerHelper(helperName, helperMap[helperName]);
         }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Handlebars as any)._helpersRegistered = true;
 }
 
 /**
  * Pre-compiles and caches all available layout and view templates by registering them as Handlebars partials.
- * This is crucial because it allows helpers like `render_view` and `render_layout_for_item` to synchronously
- * access templates during a render operation using dynamic partial syntax `{{> (lookup . 'my_variable') }}`.
+ * This is crucial for performance and allows helpers to synchronously access templates during rendering.
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
     // Clear old partials to ensure a clean state for each render.
     for (const partial in Handlebars.partials) {
-        Handlebars.unregisterPartial(partial);
+        if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
+            Handlebars.unregisterPartial(partial);
+        }
     }
 
     const { manifest } = siteData;
     const allLayouts = await getAvailableLayouts(siteData); 
-    const allViews = getAvailableViews(siteData.manifest); // This one is still sync, which is fine.
+    const allViews = getAvailableViews(); // FIX: Call without arguments.
 
     const assetPromises: Promise<void>[] = [];
 
-     // Pre-cache all layout templates
-    for (const layoutManifest of allLayouts) { // Loop over the full manifest objects
+    // Pre-cache all layout templates
+    for (const layoutManifest of allLayouts) {
         const promise = (async () => {
             if (layoutManifest?.files) {
                 for (const file of layoutManifest.files) {
-                    if (file.type === 'collection-item' || file.type === 'page') {
+                    // FIX: Check against the correct, updated layout types.
+                    if (['page', 'view', 'item'].includes(file.type)) {
                         const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.name, file.path);
                         if (templateSource) {
-                           // Use the layout's name (its ID) as the partial key
+                           // Use the layout's unique name as the partial key
                            Handlebars.registerPartial(layoutManifest.name, templateSource);
                         }
                     }
@@ -139,7 +143,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
-  const baseUrl = options.isExport ? '' : (typeof window !== 'undefined' ? window.location.origin : '');
+  const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
   let styleOverrides = '';
   if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) {
@@ -176,5 +180,6 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       year: new Date().getFullYear(),
       headContext: headContext,
       body: new Handlebars.SafeString(bodyHtml),
+      ...resolution // Pass the entire resolution object to the base template context
   });
 }

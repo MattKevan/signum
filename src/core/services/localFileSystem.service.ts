@@ -54,8 +54,6 @@ export async function getSiteContentFiles(siteId: string): Promise<ParsedMarkdow
     return contentFiles ?? [];
 }
 
-// --- START OF NEW FUNCTIONS TO FIX THE ERRORS ---
-
 /**
  * Fetches the custom layout files for a single site by its ID.
  * @param {string} siteId The unique identifier for the site.
@@ -75,9 +73,6 @@ export async function getSiteThemeFiles(siteId: string): Promise<RawFile[]> {
     const themeFiles = await siteThemeFilesStore.getItem<RawFile[]>(siteId);
     return themeFiles ?? [];
 }
-
-// --- END OF NEW FUNCTIONS ---
-
 
 export async function saveSite(siteData: LocalSiteData): Promise<void> {
   await Promise.all([

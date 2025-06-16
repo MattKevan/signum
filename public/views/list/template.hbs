@@ -1,16 +1,14 @@
 {{! /public/views/list/template.hbs }}
-{{!-- This template receives `items` (the queried data) and `config` (the view's settings) --}}
+{{!-- 
+  This template is now simpler. It only receives `items` and `itemLayoutId`.
+  It is no longer responsible for rendering the pager.
+--}}
 
 <div class="view-list">
   {{#if items}}
     <div class="item-container">
       {{#each items}}
-        {{!-- 
-          This is the powerful part. We call our custom helper, passing `this`
-          (the current item in the loop) as the context, and telling it
-          which layout to use by looking up the `item_layout` from the view's config.
-        --}}
-        {{{render_layout_for_item this layout=../config.item_layout}}}
+        {{{render_layout_for_item this layout=../itemLayoutId}}}
       {{/each}}
     </div>
   {{else}}

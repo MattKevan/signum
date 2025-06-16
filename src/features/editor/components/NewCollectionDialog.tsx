@@ -15,22 +15,19 @@ import {
 import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { slugify } from '@/lib/utils';
 import { toast } from 'sonner';
-import { type LayoutInfo } from '@/types'; // FIXED: Import the correct LayoutInfo type
 
 interface NewCollectionDialogProps {
   children: ReactNode;
   existingSlugs: string[];
-  onSubmit: (name: string, slug: string, layoutPath: string) => Promise<void>;
+  onSubmit: (name: string, slug: string) => Promise<void>;
 }
 
 export default function NewCollectionDialog({ children, existingSlugs, onSubmit }: NewCollectionDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  const [selectedLayout, setSelectedLayout] = useState(''); // This will now store the layout *path*
 
   useEffect(() => {
     if (name) {
@@ -47,23 +44,19 @@ export default function NewCollectionDialog({ children, existingSlugs, onSubmit 
       toast.error("Collection name cannot be empty.");
       return;
     }
-    if (!selectedLayout) {
-        toast.error("You must select a layout for the collection.");
-        return;
-    }
+
     if (existingSlugs.includes(slug)) {
       toast.error(`A collection or page with the folder name "${slug}" already exists.`);
       return;
     }
 
-    // FIXED: onSubmit now receives the layout path
-    await onSubmit(name, slug, selectedLayout);
+    await onSubmit(name, slug);
     
     // Reset state after submission
     setIsOpen(false);
     setName('');
     setSlug('');
-    setSelectedLayout('');
+
   };
 
   return (
@@ -98,7 +91,7 @@ export default function NewCollectionDialog({ children, existingSlugs, onSubmit 
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-            <Button type="submit" disabled={!name || !selectedLayout}>Create Collection</Button>
+            <Button type="submit" disabled={!name.trim()}>Create collection</Button>
           </DialogFooter>
         </form>
       </DialogContent>

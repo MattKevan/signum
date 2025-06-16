@@ -4,63 +4,12 @@ Excluded Directories: node_modules, ios, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
-File: css/prose.css
-/* public/css/prose.css */
-/* A small set of styles for raw HTML from the Markdown renderer */
-
-.prose h1, .prose h2, .prose h3 {
-  font-family: 'georgia', serif; /* Or your preferred heading font */
-  font-weight: bold;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-}
-
-.prose h1 { font-size: 2.5rem; }
-.prose h2 { font-size: 2rem; }
-.prose h3 { font-size: 1.5rem; }
-
-.prose p {
-  margin-bottom: 1em;
-}
-
-.prose a {
-  color: #0074D9; /* A nice blue for links */
-  text-decoration: none;
-}
-.prose a:hover {
-  text-decoration: underline;
-}
-
-.prose ul, .prose ol {
-  margin-left: 1.5em;
-  margin-bottom: 1em;
-}
-
-.prose ul { list-style-type: disc; }
-.prose ol { list-style-type: decimal; }
-
-.prose code {
-  background-color: #f3f3f3;
-  padding: 0.1em 0.3em;
-  border-radius: 4px;
-}
-
-.prose blockquote {
-  border-left: 4px solid #ddd;
-  padding-left: 1em;
-  margin-left: 0;
-  color: #555;
-  font-style: italic;
-}
-
-================================================================================
-
 File: layouts/page/layout.json
 {
   "name": "Standard Page",
   "version": "1.0.0",
   "description": "A clean, single-column layout for standard pages like 'About Us'.",
-  "layoutType": "content-page",
+  "layoutType": "page",
   "files": [
     { "path": "layout.json", "type": "manifest" },
     { "path": "page.hbs", "type": "template" }
@@ -99,43 +48,33 @@ File: layouts/page/page.hbs
 
 ================================================================================
 
-File: layouts/listing/layout.json
+File: layouts/post-card/layout.json
 {
-  "name": "Listing",
+  "name": "Post Teaser Card",
   "version": "1.0.0",
-  "type": "collection",
-  "description": "A flexible list for displaying collections.",
-  "partials": {
-    "item-teaser": "partials/item-teaser.hbs",
-    "item-full": "partials/item-full.hbs"
-  },
-  "layoutSchema": {
-    "title": "Listing settings",
+  "description": "A compact card for displaying an item in a list, showing a title and summary.",
+  "layoutType": "collection-item",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "template.hbs", "type": "template" }
+  ],
+  "schema": {
+    "title": "Post Card Options",
     "type": "object",
     "properties": {
-      "description": { "title": "Description", "type": "string", "ui:widget": "textarea" },
-      "display_style": { "title": "Display", "type": "string", "enum": ["teaser", "full_post"], "enumNames": ["Teaser", "Full Post"], "default": "teaser" },
-      "sort_by": { "title": "Sort by", "type": "string", "enum": ["date", "title"], "default": "date" },
-      "sort_order": { "title": "Sort order", "type": "string", "enum": ["descending", "ascending"], "default": "descending" }
+      "summary": {
+        "title": "Summary",
+        "description": "A short summary for the teaser card.",
+        "type": "string",
+        "ui:widget": "textarea"
+      }
     }
-  },
-  "pageSchema": {
-    "title": "Item Content",
-    "type": "object",
-    "properties": {
-      "summary": { "title": "Summary", "type": "string", "ui:widget": "textarea" }
-    }
-  },
-  "uiSchema": {
-    "ui:groups": [
-      { "title": "Display Options", "fields": ["display_style", "sort_by", "sort_order"] }
-    ]
   }
 }
 
 ================================================================================
 
-File: layouts/listing/page.hbs
+File: layouts/post-card/page.hbs
 {{! 
   This template renders the dedicated page for a single item within the collection.
   - `measure-wide`: Constrains the text width for optimal readability.
@@ -156,49 +95,10 @@ File: layouts/listing/page.hbs
 
 ================================================================================
 
-File: layouts/listing/listing.hbs
-{{! 
-  This template renders the main page for a collection.
-  - `pb4 mb4`: Provides bottom padding and margin to the header for spacing.
-  - `f1 fw7`: Styles the main title (large, bold).
-  - `f4 mid-gray`: Styles the description (slightly smaller, gray).
-  - The `each` loop iterates over the sorted items passed from the theme engine.
-  - An `if/else` block checks the `display_style` property (set by the user in the editor)
-    to decide whether to render the `item-full` or `item-teaser` partial for each item.
-}}
-<section>
-  <header class="pb4 mb4 bb b--black-10">
-    <h1 class="f1 fw7 mt0 mb2">{{collectionNode.title}}</h1>
-    {{#if collectionNode.description}}
-      <p class="f4 mid-gray mt0">{{collectionNode.description}}</p>
-    {{/if}}
-  </header>
-  
-  <div class="listing-items">
-    {{#each items}}
-      {{#if (eq ../collectionNode.display_style "full_post")}}
-        {{> item-full this}}
-      {{else}}
-        {{> item-teaser this}}
-      {{/if}}
-    {{else}}
-      <p class="i gray">No items have been added to this listing yet.</p>
-    {{/each}}
-  </div>
-</section>
-
-================================================================================
-
-File: layouts/listing/partials/item-teaser.hbs
-{{! 
-  This partial renders a "teaser" card for a collection item.
-  - The `<a>` tag wraps the entire block, making it a single clickable target.
-  - `link dim`: Removes default link styling and adds a hover effect.
-  - `db pa4 mb4`: Display block, large padding, and bottom margin for spacing.
-  - `ba b--black-10 br2`: Border all sides, light gray border color, and rounded corners.
-  - `shadow-hover`: A Tachyons convention for a hover effect (you'd define this simple class in a custom theme CSS file if desired).
-}}
-<a href="{{this.url}}" class="link dim db pa4 mb4 ba b--black-10 br2 shadow-hover bg-white black">
+File: layouts/post-card/template.hbs
+{{! /public/layouts/post-card/template.hbs }}
+{{!-- The context 'this' is a single content item (e.g., a blog post). --}}
+<a href="{{this.url}}" class="link dim db pa4 mb3 ba b--black-10 br2 shadow-hover bg-white black no-underline">
     <h3 class="f3 fw6 mv0">{{this.frontmatter.title}}</h3>
     <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
     
@@ -206,27 +106,6 @@ File: layouts/listing/partials/item-teaser.hbs
         <p class="lh-copy mid-gray mv0">{{this.frontmatter.summary}}</p>
     {{/if}}
 </a>
-
-================================================================================
-
-File: layouts/listing/partials/item-full.hbs
-{{! 
-  This partial renders the full content of an item within the listing page.
-  - `bb b--black-10`: Adds a bottom border to separate posts.
-  - `pb4 mb4`: Padding and margin for vertical spacing.
-  - The title is a link to its dedicated page.
-  - `lh-copy`: Improves readability of the rendered markdown content.
-}}
-<article class="pb4 mb4 bb b--black-10">
-    <header>
-        <h2 class="f2 fw7 mt0 mb2"><a href="{{this.url}}" class="link dim black">{{this.frontmatter.title}}</a></h2>
-        <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
-    </header>
-    
-    <div class="lh-copy">
-        {{{markdown this.content}}}
-    </div>
-</article>
 
 ================================================================================
 
@@ -248,12 +127,15 @@ File: views/list/view.json
       "source_collection": {
         "type": "string",
         "title": "Content Source",
-        "description": "Choose the collection to display items from."
+        "description": "Choose the collection to display items from.",
+        "ui:dataSource": "collections" 
       },
       "item_layout": {
         "type": "string",
         "title": "Item Display Layout",
-        "description": "Choose how each item in the list should look (e.g., a teaser card)."
+        "description": "Choose how each item in the list should look.",
+        "ui:dataSource": "layouts",       
+        "ui:layoutType": "collection-item"  
       },
       "sort_by": {
         "type": "string",
@@ -283,31 +165,23 @@ File: views/list/view.json
 
 File: views/list/template.hbs
 {{! /public/views/list/template.hbs }}
-{{!-- This template receives `viewItems` and the page's `frontmatter.view` config. --}}
+{{!-- This template receives `items` (the queried data) and `config` (the view's settings) --}}
 
 <div class="view-list">
-  {{#if viewItems}}
+  {{#if items}}
     <div class="item-container">
-      {{#each viewItems}}
+      {{#each items}}
         {{!-- 
-          This is the most powerful part. We use the built-in `lookup` helper
-          to dynamically get the name of the partial to render, which was chosen
-          by the user in the view configuration (e.g., "post-card").
-
-          For this to work, the themeEngine must register all 'collection-item'
-          layouts as global Handlebars partials.
+          This is the powerful part. We call our custom helper, passing `this`
+          (the current item in the loop) as the context, and telling it
+          which layout to use by looking up the `item_layout` from the view's config.
         --}}
-        {{> (lookup ../contentFile.frontmatter.view 'item_layout') this}}
+        {{{render_layout_for_item this layout=../config.item_layout}}}
       {{/each}}
     </div>
   {{else}}
     <p class="i gray">There are no items to display in this view.</p>
   {{/if}}
-
-  {{!-- Future extensibility: Pagination controls would be rendered here --}}
-  <div class="pagination">
-    {{!-- ... --}}
-  </div>
 </div>
 
 ================================================================================
@@ -369,13 +243,11 @@ File: themes/default/theme.json
 File: themes/default/base.hbs
 {{! themes/default/base.hbs }}
 <!DOCTYPE html>
-<html lang="en" class="scroll-smooth">
+<html lang="en">
 <head>
-    {{> head}}
+    {{> head headContext}}
 </head>
-
 <body class="sans-serif">
-    
     <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
         {{> header}}
         <main class="flex-auto mw7 center pa3 pa4-ns">
@@ -383,7 +255,6 @@ File: themes/default/base.hbs
         </main>
         {{> footer}}
     </div>
-
     <script src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
 </body>
 </html>

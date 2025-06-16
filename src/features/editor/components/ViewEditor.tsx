@@ -1,13 +1,15 @@
 // src/features/editor/components/ViewEditor.tsx
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { MarkdownFrontmatter, ViewConfig } from '@/types';
-import { getJsonAsset, ViewManifest } from '@/core/services/configHelpers.service';
+import { useEffect, useState, useCallback } from 'react';
+import { MarkdownFrontmatter, ViewConfig, StructureNode } from '@/types';
+import { getAvailableLayouts, LayoutManifest, getJsonAsset, ViewManifest } from '@/core/services/configHelpers.service';
 import { useAppStore } from '@/core/state/useAppStore';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { RJSFSchema } from '@rjsf/utils';
-import DataSourceSelectWidget from './DataSourceSelectWidget';
+import { Label } from '@/core/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 
 interface ViewEditorProps {
   siteId: string;
@@ -15,101 +17,147 @@ interface ViewEditorProps {
   onFrontmatterChange: (update: Partial<MarkdownFrontmatter>) => void;
 }
 
-const customWidgets = {
-    DataSourceSelect: DataSourceSelectWidget
-};
-
-
 export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }: ViewEditorProps) {
   const site = useAppStore(state => state.getSiteById(siteId));
-  const [viewSchema, setViewSchema] = useState<RJSFSchema | null>(null);
+
+  // --- State for UI & Data ---
+  const [collections, setCollections] = useState<StructureNode[]>([]);
+  const [itemLayouts, setItemLayouts] = useState<LayoutManifest[]>([]);
+  const [pageLayouts, setPageLayouts] = useState<LayoutManifest[]>([]);
+  const [customViewSchema, setCustomViewSchema] = useState<RJSFSchema | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const viewTemplateId = frontmatter.view?.template;
-
-  // This effect fetches the correct schema whenever the chosen view template changes.
+  // --- Data Fetching Effect ---
   useEffect(() => {
-    const fetchViewSchema = async () => {
-      if (!viewTemplateId || !site) {
-        setViewSchema(null);
-        setIsLoading(false);
-        return;
-      }
-
+    async function fetchData() {
+      if (!site) return;
       setIsLoading(true);
-      const viewManifest = await getJsonAsset<ViewManifest>(
-        site, 
-        'view', 
-        viewTemplateId, 
-        'view.json'
-      );
+
+      const viewTemplateId = frontmatter.view?.template;
       
-      setViewSchema(viewManifest?.schema || null);
-      setIsLoading(false);
-    };
+      // Fetch data for the hard-coded dropdowns
+      const allCollections = site.manifest.structure.filter(n => n.type === 'collection');
+      setCollections(allCollections);
 
-    fetchViewSchema();
-  }, [viewTemplateId, site]);
+      const allLayouts = await getAvailableLayouts(site);
+      setItemLayouts(allLayouts.filter(l => l.layoutType === 'item'));
+      setPageLayouts(allLayouts.filter(l => l.layoutType === 'page'));
 
-  // This callback is passed to the SchemaDrivenForm.
-  // It takes the form's new data and merges it into the frontmatter.view object.
-  const handleFormChange = useCallback((formData: any) => {
-    onFrontmatterChange({
-      view: {
-        ...(frontmatter.view || { template: '' }), // Preserve existing config
-        ...formData
+      // Fetch the schema for the view-specific custom fields
+      if (viewTemplateId) {
+          const viewManifest = await getJsonAsset<ViewManifest>(site, 'view', viewTemplateId, 'view.json');
+          setCustomViewSchema(viewManifest?.schema || null);
+      } else {
+          setCustomViewSchema(null);
       }
+      
+      setIsLoading(false);
+    }
+    fetchData();
+  }, [site, frontmatter.view?.template]);
+
+  // --- Event Handlers ---
+
+  /**
+   * Generic handler for the dedicated dropdowns.
+   */
+  const handleDedicatedFieldChange = useCallback((key: keyof ViewConfig, value: string) => {
+    onFrontmatterChange({
+      view: { ...(frontmatter.view!), [key]: value }
     });
   }, [frontmatter.view, onFrontmatterChange]);
 
-  const uiSchema = useMemo(() => {
-        const schema = viewSchema; // The schema fetched from view.json
-        if (!schema?.properties) return {};
+  /**
+   * Handler for the SchemaDrivenForm, merging its data with the existing view config.
+   */
+  const handleCustomFormChange = useCallback((formData: object) => {
+    onFrontmatterChange({
+      view: { ...(frontmatter.view!), ...formData }
+    });
+  }, [frontmatter.view, onFrontmatterChange]);
 
-        const newUiSchema: any = {};
-        for (const key in schema.properties) {
-            const prop = schema.properties[key];
-            if (typeof prop === 'object' && prop !== null && 'ui:dataSource' in prop) {
-                newUiSchema[key] = {
-                    "ui:widget": "DataSourceSelect"
-                };
-            }
-        }
-        return newUiSchema;
-    }, [viewSchema]);
-  
-  if (!viewTemplateId) {
-    return (
-        <div className="p-6 text-center border-2 border-dashed rounded-lg">
-            <h3 className="font-semibold">Select a View Template</h3>
-            <p className="text-sm text-muted-foreground">Please choose a view template from the sidebar to begin configuring your content list.</p>
-        </div>
-    );
-  }
+  const viewConfig = frontmatter.view;
+
+  // --- Render Logic ---
 
   if (isLoading) {
     return <div className="p-6">Loading view options...</div>;
   }
-
-  if (!viewSchema) {
-    return (
-        <div className="p-6 text-center text-destructive-foreground bg-destructive/20 border border-destructive rounded-lg">
-            <h3 className="font-semibold">Error</h3>
-            <p className="text-sm">Could not load the configuration schema for the "{viewTemplateId}" view.</p>
-        </div>
-    );
+  
+  if (!viewConfig) {
+      return (
+          <div className="p-6 text-center text-destructive-foreground bg-destructive/20 border border-destructive rounded-lg">
+              <h3 className="font-semibold">Error</h3>
+              <p className="text-sm">This page is not configured as a View Page.</p>
+          </div>
+      );
   }
 
   return (
-    <div className="p-6 border rounded-lg bg-muted/20">
-      <SchemaDrivenForm
-        schema={viewSchema!}
-                uiSchema={uiSchema}
-                widgets={customWidgets}
-                formData={frontmatter.view || {}}
-                onFormChange={handleFormChange}
-                formContext={{ site: site }}
-      />
+    <div className="p-6 border rounded-lg bg-muted/20 space-y-6">
+      
+      {/* --- Hard-coded, Universal View Fields --- */}
+      <div className="space-y-4">
+        <div className="space-y-2">
+            <Label htmlFor="source-collection">Content Source</Label>
+            <p className="text-xs text-muted-foreground">Choose the collection to display items from.</p>
+            <Select 
+            value={viewConfig.source_collection} 
+            onValueChange={(value) => handleDedicatedFieldChange('source_collection', value)}
+            >
+            <SelectTrigger id="source-collection">
+                <SelectValue placeholder="Select a collection..." />
+            </SelectTrigger>
+            <SelectContent>
+                {collections.map(c => <SelectItem key={c.slug} value={c.slug}>{c.title}</SelectItem>)}
+            </SelectContent>
+            </Select>
+        </div>
+
+        <div className="space-y-2">
+            <Label htmlFor="item-layout">Item Display Layout (in lists)</Label>
+            <p className="text-xs text-muted-foreground">Controls how each item looks in the list on this page.</p>
+            <Select 
+                value={viewConfig.item_layout}
+                onValueChange={(value) => handleDedicatedFieldChange('item_layout', value)}
+            >
+                <SelectTrigger id="item-layout"><SelectValue placeholder="Select an item layout..." /></SelectTrigger>
+                <SelectContent>
+                    {itemLayouts.map(l => <SelectItem key={l.name} value={l.name}>{l.name}</SelectItem>)}
+                </SelectContent>
+            </Select>
+        </div>
+        
+        <div className="space-y-2">
+            <Label htmlFor="item-page-layout">Item Full Page Layout</Label>
+            <p className="text-xs text-muted-foreground">Controls the layout when a user clicks through to view a single item.</p>
+            <Select 
+                value={viewConfig.item_page_layout}
+                onValueChange={(value) => handleDedicatedFieldChange('item_page_layout', value)}
+            >
+                <SelectTrigger id="item-page-layout"><SelectValue placeholder="Select a page layout..." /></SelectTrigger>
+                <SelectContent>
+                    {pageLayouts.map(l => <SelectItem key={l.name} value={l.name}>{l.name}</SelectItem>)}
+                </SelectContent>
+            </Select>
+        </div>
+      </div>
+
+      {/* --- Schema-Driven Custom Fields --- */}
+      {customViewSchema && (
+        <Accordion type='single' collapsible className="w-full" defaultValue='custom-options'>
+          <AccordionItem value="custom-options">
+              <AccordionTrigger>View-Specific Options</AccordionTrigger>
+              <AccordionContent className="pt-4">
+                <SchemaDrivenForm
+                    schema={customViewSchema}
+                    formData={viewConfig}
+                    onFormChange={handleCustomFormChange}
+                />
+              </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </div>
   );
 }

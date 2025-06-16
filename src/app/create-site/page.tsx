@@ -13,8 +13,7 @@ import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
-import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
+import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
@@ -36,13 +35,12 @@ export default function CreateSitePage() {
     const newSiteId = generateSiteId(siteTitle);
     const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
 
-    // FIXED: 'defaultFrontmatter' is never reassigned, so it should be a const.
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: 'Welcome to your new site!',
+        title: DEFAULT_HOMEPAGE_CONFIG.TITLE,
+        layout: homepageLayoutPath,
         date: new Date().toISOString().split('T')[0],
     };
 
-    // FIXED: Create a complete mock LocalSiteData object to satisfy the type system.
     const mockSiteData: LocalSiteData = { 
         siteId: 'mock-id', 
         contentFiles: [], 
@@ -63,13 +61,18 @@ export default function CreateSitePage() {
     
     const layoutManifest = await getLayoutManifest(mockSiteData, homepageLayoutPath);
     
-    if (layoutManifest?.pageSchema.properties) {
-        for (const [key, prop] of Object.entries(layoutManifest.pageSchema.properties)) {
-            if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
+    if (layoutManifest?.schema?.properties) {
+    for (const [key, prop] of Object.entries(layoutManifest.schema.properties)) {
+        // Check if the property in the schema has a 'default' value
+        if (typeof prop === 'object' && prop !== null && 'default' in prop) {
+            // And if we haven't already set this value in our frontmatter
+            if (defaultFrontmatter[key] === undefined) {
+                // Then apply the default value from the schema.
                 defaultFrontmatter[key] = prop.default as unknown;
             }
         }
     }
+}
 
     const defaultIndexFile: ParsedMarkdownFile = {
         slug: 'index',

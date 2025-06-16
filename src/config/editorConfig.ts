@@ -39,11 +39,11 @@ export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
  * The path is relative to '/public/layouts/'.
  * e.g., 'listing'
  */
-export const DEFAULT_COLLECTION_LAYOUT_PATH = 'listing';
+export const DEFAULT_VIEW_LAYOUT_PATH = 'listing';
 
 export const CORE_LAYOUTS: LayoutInfo[] = [
   { id: 'page', name: 'Page', type: 'page', path: 'page' },
-  { id: 'listing', name: 'Listing', type: 'collection', path: 'listing' },
+  { id: 'listing', name: 'Listing', type: 'view', path: 'listing' },
 ];
 
 export const CORE_THEMES: ThemeInfo[] = [
@@ -58,6 +58,21 @@ export const CORE_VIEWS: ViewInfo[] = [
     { id: 'list', name: 'Simple List View', path: 'list' },
     // Add other core views like 'grid' here as they are created.
 ];
+
+/**
+ * Default configuration for a new site's homepage (index.md).
+ * Centralizes the initial title and content.
+ */
+export const DEFAULT_HOMEPAGE_CONFIG = {
+  TITLE: 'Welcome to your new site!',
+  /**
+   * Generates the default markdown content for the homepage.
+   * @param {string} siteTitle - The title of the site to include in the welcome message.
+   * @returns {string} The formatted markdown string.
+   */
+  getContent: (siteTitle: string): string => 
+    `## Welcome to ${siteTitle}\n\nThis is your new site's homepage. You can start editing it now.`
+};
 
 /**
  * The universal base schema for all content frontmatter.

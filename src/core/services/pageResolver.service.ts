@@ -1,29 +1,19 @@
-// src/lib/pageResolver.ts
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ViewConfig } from '@/types';
+// src/core/services/pageResolver.service.ts
 
-export enum PageType {
-  SinglePage,
-  NotFound,
-}
-
-export type PageResolutionResult = {
-  type: PageType.SinglePage;
-  pageTitle: string;
-  contentFile: ParsedMarkdownFile;
-  layoutPath: string;
-  viewItems?: ParsedMarkdownFile[];
-} | {
-  type: PageType.NotFound;
-  errorMessage: string;
-};
+// FIX: Removed 'StructureNode' import, added 'PageResolutionResult' and 'PageType'.
+import { LocalSiteData, ParsedMarkdownFile, ViewConfig, PaginationData, PageResolutionResult, PageType } from '@/types';
+import { findNodeByPath } from './fileTree.service';
+import { getUrlForNode } from './urlUtils.service';
 
 /**
- * Executes a declarative query defined in a page's frontmatter.
- * This is a pure function that takes the config and the full site data,
- * and returns a processed array of content items.
+ * Executes a declarative query from a view's configuration.
+ * This pure function takes the config and site data, finds the source collection,
+ * and returns a fully sorted array of ALL matching content items.
+ * Pagination/limiting is handled by the main resolver.
+ * 
  * @param {ViewConfig} viewConfig - The configuration object from the page's frontmatter.
  * @param {LocalSiteData} siteData - The complete data for the site.
- * @returns {ParsedMarkdownFile[]} An array of content files that match the query.
+ * @returns {ParsedMarkdownFile[]} A sorted array of all content files that match the query.
  */
 function executeQuery(viewConfig: ViewConfig, siteData: LocalSiteData): ParsedMarkdownFile[] {
   if (!viewConfig.source_collection || !siteData.contentFiles) {
@@ -40,98 +30,113 @@ function executeQuery(viewConfig: ViewConfig, siteData: LocalSiteData): ParsedMa
   }
 
   const childPaths = new Set(collectionNode.children.map(child => child.path));
-  let items = siteData.contentFiles.filter(file => childPaths.has(file.path));
+  
+  // FIX: 'items' is never reassigned, so it can be 'const'.
+  const items = siteData.contentFiles.filter(file => childPaths.has(file.path));
 
+  // --- Sorting Logic ---
   const sortBy = viewConfig.sort_by || 'date';
   const sortOrder = viewConfig.sort_order || 'desc';
   const orderModifier = sortOrder === 'desc' ? -1 : 1;
 
-  // --- START OF FIX: ROBUST SORTING LOGIC ---
-  items.sort((a, b) => {
+  // Note: We use sort() which mutates the array in place. To be safer with const, we can create a copy.
+  return [...items].sort((a, b) => {
     const valA = a.frontmatter[sortBy];
     const valB = b.frontmatter[sortBy];
 
-    // Handle sorting by date (most common case)
     if (sortBy === 'date') {
         const dateA = valA ? new Date(valA as string).getTime() : 0;
         const dateB = valB ? new Date(valB as string).getTime() : 0;
-        if (isNaN(dateA) || isNaN(dateB)) return 0; // Don't sort invalid dates
+        if (isNaN(dateA) || isNaN(dateB)) return 0;
         return (dateA - dateB) * orderModifier;
     }
 
-    // Handle sorting by string (e.g., title)
     if (typeof valA === 'string' && typeof valB === 'string') {
         return valA.localeCompare(valB) * orderModifier;
     }
 
-    // Handle sorting by number
     if (typeof valA === 'number' && typeof valB === 'number') {
         return (valA - valB) * orderModifier;
     }
-
-    // Fallback: if types are mixed or unknown, don't sort them relative to each other.
     return 0;
   });
-  // --- END OF FIX ---
-
-  if (viewConfig.limit) {
-    items = items.slice(0, viewConfig.limit);
-  }
-
-  return items;
 }
 
 
 /**
  * Finds the correct page to render based on a URL slug path.
- * If the page has a 'view' block in its frontmatter, this function will also
- * execute the query and attach the results.
+ * If the page is a View Page, this function executes the query, handles pagination,
+ * and attaches the results to the final resolution object.
+ *
  * @param {LocalSiteData} siteData - The complete data for the site.
- * @param {string[]} slugArray - The URL segments.
- * @returns {PageResolutionResult} An object containing all data needed to render the page.
+ * @param {string[]} slugArray - The URL segments used for path matching.
+ * @param {number} [pageNumber=1] - The current page number for pagination, typically from a URL query param.
+ * @returns {PageResolutionResult} An object containing all data needed to render the page or a not-found error.
  */
-export function resolvePageContent(siteData: LocalSiteData, slugArray: string[]): PageResolutionResult {
-  // This helper should be implemented fully for recursive search
-  const findNodeBySlugPath = (nodes: StructureNode[], slugs: string[]): StructureNode | null => {
-    if (!slugs || slugs.length === 0) {
-      // Find the root index page
-      return nodes.find(node => node.slug === 'index' && node.type === 'page') || null;
+export function resolvePageContent(
+    siteData: LocalSiteData, 
+    slugArray: string[],
+    pageNumber: number = 1
+): PageResolutionResult {
+    const pathSuffix = slugArray.length > 0 ? slugArray.join('/') : 'index';
+    const potentialPagePath = `content/${pathSuffix}.md`;
+
+    const targetNode = findNodeByPath(siteData.manifest.structure, potentialPagePath);
+
+    if (!targetNode || targetNode.type !== 'page') {
+        return { 
+            type: PageType.NotFound, 
+            errorMessage: `No page found at the path /${slugArray.join('/')}. Collections themselves are not directly viewable.` 
+        };
+    }
+    
+    const contentFile = siteData.contentFiles?.find(f => f.path === targetNode.path);
+    if (!contentFile) {
+        return { 
+            type: PageType.NotFound, 
+            errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.` 
+        };
+    }
+
+    let viewItems: ParsedMarkdownFile[] | undefined = undefined;
+    let pagination: PaginationData | undefined = undefined;
+
+    if (contentFile.frontmatter.view) {
+        const viewConfig = contentFile.frontmatter.view;
+        const allItems = executeQuery(viewConfig, siteData);
+
+        if (viewConfig.show_pager && viewConfig.items_per_page && viewConfig.items_per_page > 0) {
+            const totalItems = allItems.length;
+            const itemsPerPage = viewConfig.items_per_page;
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            const currentPage = Math.max(1, Math.min(pageNumber, totalPages));
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            viewItems = allItems.slice(startIndex, startIndex + itemsPerPage);
+
+            const pageUrlSegment = getUrlForNode({ ...targetNode, type: 'page' }, false);
+            const baseUrl = `/${pageUrlSegment}`;
+
+            pagination = {
+                currentPage,
+                totalPages,
+                totalItems,
+                hasPrevPage: currentPage > 1,
+                hasNextPage: currentPage < totalPages,
+                prevPageUrl: currentPage > 1 ? `${baseUrl}?page=${currentPage - 1}` : undefined,
+                nextPageUrl: currentPage < totalPages ? `${baseUrl}?page=${currentPage + 1}` : undefined,
+            };
+        } else {
+            viewItems = allItems;
+        }
     }
   
-    let currentNodes = nodes;
-    let foundNode: StructureNode | null = null;
-  
-    for (const slug of slugs) {
-      foundNode = currentNodes.find(node => node.slug === slug) ?? null;
-      if (!foundNode) return null; // Path segment not found
-      currentNodes = foundNode.children || [];
-    }
-  
-    return foundNode;
-  };
-
-  const targetNode = findNodeBySlugPath(siteData.manifest.structure, slugArray);
-
-  if (!targetNode || targetNode.type !== 'page') {
-    return { type: PageType.NotFound, errorMessage: `Content page not found for path: /${slugArray.join('/')}` };
-  }
-
-  const contentFile = siteData.contentFiles?.find(f => f.path === targetNode.path);
-  if (!contentFile) {
-    return { type: PageType.NotFound, errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.` };
-  }
-
-  let viewItems: ParsedMarkdownFile[] | undefined = undefined;
-
-  if (contentFile.frontmatter.view) {
-    viewItems = executeQuery(contentFile.frontmatter.view, siteData);
-  }
-
-  return {
-    type: PageType.SinglePage,
-    pageTitle: contentFile.frontmatter.title,
-    contentFile: contentFile,
-    layoutPath: contentFile.frontmatter.layout,
-    viewItems: viewItems,
-  };
+    return {
+      type: PageType.SinglePage,
+      pageTitle: contentFile.frontmatter.title,
+      contentFile: contentFile,
+      layoutPath: contentFile.frontmatter.layout,
+      viewItems: viewItems,
+      pagination: pagination,
+    };
 }

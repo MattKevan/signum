@@ -5,6 +5,7 @@ import { produce } from 'immer';
 import { StructureNode } from '@/types';
 import { SiteSlice } from './siteSlice';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+import { toast } from 'sonner';
 
 export interface CollectionSlice {
     addNewCollection: (siteId: string, name: string, slug: string) => Promise<void>;
@@ -26,10 +27,10 @@ export const createCollectionSlice: StateCreator<SiteSlice & CollectionSlice, []
         };
         
         const newManifest = produce(site.manifest, draft => {
-            // Add to a dedicated 'collections' array or keep in structure for organization
             draft.structure.push(newCollectionNode);
         });
         
         await get().updateManifest(siteId, newManifest);
+        toast.success(`Collection "${name.trim()}" created.`);
     },
 });

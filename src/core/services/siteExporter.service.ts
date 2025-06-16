@@ -3,7 +3,8 @@ import JSZip from 'jszip';
 import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
-import { resolvePageContent, PageType } from './pageResolver.service';
+import { resolvePageContent } from './pageResolver.service';
+import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service'; 
@@ -61,6 +62,7 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
 /**
  * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
  * This function orchestrates HTML generation, source file packaging, asset bundling, and feed creation.
+ * It is now "pagination-aware" and will generate multiple HTML files for paginated views.
  *
  * @param {LocalSiteData} siteData - The complete, in-memory representation of the site.
  * @returns {Promise<Blob>} A promise that resolves to a Blob containing the ZIP archive.
@@ -72,56 +74,82 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
-        const slugArray = (node.type === 'collection') ? [node.slug] : node.path.replace(/^content\//, '').replace(/\.md$/, '').split('/').filter(Boolean);
-        const resolution = resolvePageContent(siteData, slugArray);
-        if (resolution.type === PageType.NotFound) continue;
-        
-        const outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' }, true);
-        
-        // Calculate the relative path depth for portable asset links (e.g., '../' or './').
-        const depth = (outputPath.match(/\//g) || []).length;
-        const relativePrefix = '../'.repeat(depth);
+        if (node.type !== 'page') continue; // Only pages can be rendered.
 
-        // Render the final HTML, passing the correct export options.
-        const finalHtml = await render(siteData, resolution, {
-            siteRootPath: '/',
-            isExport: true,
-            relativeAssetPath: relativePrefix
-        });
-        zip.file(outputPath, finalHtml);
+        // Resolve page content once to check for pagination
+        const initialResolution = resolvePageContent(siteData, node.slug.split('/'));
+
+        if (initialResolution.type === PageType.NotFound) continue;
+
+        const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
+
+        if (isPaginated) {
+            // --- Handle paginated views ---
+            const totalPages = initialResolution.pagination!.totalPages;
+            for (let i = 1; i <= totalPages; i++) {
+                const pageNumber = i;
+                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), pageNumber);
+                
+                if (resolutionForPage.type === PageType.NotFound) continue;
+
+                // Generate the correct file path for this specific page number
+                const outputPath = getUrlForNode(node, true, pageNumber);
+                const depth = (outputPath.match(/\//g) || []).length;
+                const relativePrefix = '../'.repeat(depth > 0 ? depth -1 : 0);
+
+                const finalHtml = await render(siteData, resolutionForPage, {
+                    siteRootPath: '/',
+                    isExport: true,
+                    relativeAssetPath: relativePrefix
+                });
+                zip.file(outputPath, finalHtml);
+            }
+        } else {
+            // --- Standard logic for non-paginated pages ---
+            const outputPath = getUrlForNode(node, true);
+            const depth = (outputPath.match(/\//g) || []).length;
+            const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
+
+            const finalHtml = await render(siteData, initialResolution, {
+                siteRootPath: '/',
+                isExport: true,
+                relativeAssetPath: relativePrefix
+            });
+            zip.file(outputPath, finalHtml);
+        }
     }
 
     // --- 2. Add _signum Source Content and Asset Files ---
     const signumFolder = zip.folder('_signum');
     if (signumFolder) {
-        // Add the main site manifest and all markdown content files.
         signumFolder.file('manifest.json', JSON.stringify(manifest, null, 2));
         (siteData.contentFiles ?? []).forEach(file => {
             signumFolder.file(file.path, stringifyToMarkdown(file.frontmatter, file.content));
         });
     }
 
-    // Bundle the active theme and all layouts used by the site.
     const activeThemePath = manifest.theme.name;
-    const uniqueLayoutPaths = [...new Set(allRenderableNodes.map(n => n.layout))];
+    const uniqueLayoutPaths = [...new Set(allRenderableNodes.map(n => n.layout).filter(Boolean))];
 
     await bundleAsset(zip, siteData, 'theme', activeThemePath);
     for (const layoutPath of uniqueLayoutPaths) {
-        await bundleAsset(zip, siteData, 'layout', layoutPath);
+        if (layoutPath !== 'none') {
+             await bundleAsset(zip, siteData, 'layout', layoutPath);
+        }
     }
     
-    // --- 3. Generate RSS Feed and Sitemap with Absolute URLs ---
+    // --- 3. Generate RSS Feed and Sitemap (these should only link to the first page of a list) ---
     const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     const contentFiles = siteData.contentFiles ?? [];
     const allPageNodes = allRenderableNodes.filter((n: StructureNode): n is StructureNode & { type: 'page' } => n.type === 'page');
     type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
 
-    // Create RSS items
-    const rssItems = allPageNodes.map((pNode): RssItemData | null => {
+    const rssItems = allPageNodes
+        .map((pNode): RssItemData | null => {
             const file = contentFiles.find(f => f.path === pNode.path);
             return file ? { node: pNode, file } : null;
         })
-        .filter((item): item is RssItemData => item !== null && !!item.file.frontmatter.date)
+        .filter((item): item is RssItemData => item !== null && !!item.file.frontmatter.date && !item.file.frontmatter.view) // Exclude view pages from RSS items
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
         .slice(0, 20)
         .map((item) => {
@@ -135,7 +163,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(manifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(manifest.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrl).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
     zip.file('rss.xml', rssFeed);
     
-    // Create Sitemap URLs
     const sitemapUrls = allPageNodes.map((node) => {
         const file = contentFiles.find(f => f.path === node.path);
         const relativeUrl = getUrlForNode(node, true);

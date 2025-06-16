@@ -1,0 +1,12 @@
+{{! /public/layouts/teaser/template.hbs }}
+{{!-- The context 'this' is a single content item. --}}
+<div class="mb3 pb3 bb b--black-10">
+    <a href="{{this.url}}" class="link black dim">
+        <h3 class="f4 fw6 mv0">{{this.frontmatter.title}}</h3>
+    </a>
+    <p class="f6 gray mt1 mb2">{{formatDate this.frontmatter.date}}</p>
+    
+    {{#if this.frontmatter.summary}}
+        <p class="lh-copy mid-gray mv0 f6">{{this.frontmatter.summary}}</p>
+    {{/if}}
+</div>

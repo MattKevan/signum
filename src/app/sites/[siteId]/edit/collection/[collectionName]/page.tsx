@@ -13,14 +13,11 @@ import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
-import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
-import type { StructureNode, MarkdownFrontmatter, LocalSiteData } from '@/types';
-import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
-import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
-type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
+import type { StructureNode, MarkdownFrontmatter } from '@/types';
+import { getAvailableLayouts, LayoutManifest } from '@/core/services/configHelpers.service';
+import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
 
 /**
  * A memoized sub-component that renders the right sidebar UI for editing collection settings.
@@ -29,22 +26,18 @@ type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' |
 const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar({
     collectionNodeData,
     availableLayouts,
-    layoutManifest,
     onLayoutChange,
     onPrimaryFieldsChange,
-    onFormChange,
 }: {
     collectionNodeData: StructureNode,
     availableLayouts: LayoutManifest[],
-    layoutManifest: LayoutManifest | null,
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
-    onFormChange: (data: Partial<StructureNode>) => void,
 }) {
-    const { title, description, ...otherFields } = collectionNodeData;
+    // Extract only the fields this component cares about for its own state
     const primaryFields = {
-        title: typeof title === 'string' ? title : '',
-        description: typeof description === 'string' ? description : '',
+        title: typeof collectionNodeData.title === 'string' ? collectionNodeData.title : '',
+        description: typeof collectionNodeData.description === 'string' ? collectionNodeData.description : '',
     };
 
     return (
@@ -60,9 +53,9 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
                 </div>
                 <div className="border-t pt-4 space-y-4">
                     <div>
-                        <Label htmlFor="layout-select">Default Item Layout</Label>
+                        <Label htmlFor="item-layout-select">Default Item Layout</Label>
                         <Select value={collectionNodeData.itemLayout} onValueChange={onLayoutChange}>
-                            <SelectTrigger id="layout-select" className="mt-1">
+                            <SelectTrigger id="item-layout-select" className="mt-1">
                                 <SelectValue placeholder="Select a layout..." />
                             </SelectTrigger>
                             <SelectContent>
@@ -71,14 +64,17 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
                                 ))}
                             </SelectContent>
                         </Select>
+                        <p className="text-sm text-muted-foreground pt-2">
+                          This layout will be the default for new items created in this collection.
+                        </p>
                     </div>
-                    {/* The collection itself no longer has a primary layout schema */}
-                    <p className="text-sm text-muted-foreground pt-4">This collection is an organizational folder. Its appearance is determined by the "Views" that display its content.</p>
+                    <p className="text-sm text-muted-foreground pt-4">This collection is an organizational folder. Its appearance on the site is determined by the &quot;View Pages&quot; that display its content.</p>
                 </div>
             </div>
         </div>
     );
 });
+CollectionSettingsSidebar.displayName = 'CollectionSettingsSidebar';
 
 
 /**
@@ -93,7 +89,12 @@ function EditCollectionPageInternal() {
     
     // --- Context and Store Hooks ---
     const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction } = useEditor();
-    const { setLeftSidebarContent, setRightSidebarContent } = useUIStore((state) => state.sidebar);
+    const { 
+        setLeftSidebarContent, 
+        setRightSidebarContent,
+        leftSidebarContent,
+        rightSidebarContent
+    } = useUIStore((state) => state.sidebar);
     
     const site = useAppStore(state => state.getSiteById(siteId));
     const updateManifest = useAppStore(state => state.updateManifest);
@@ -101,11 +102,13 @@ function EditCollectionPageInternal() {
     // --- Component State ---
     const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
-    const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
     const collectionPath = `content/${collectionName}`;
-    const originalCollectionNode = useMemo(() => site?.manifest.structure.find((node: StructureNode) => node.path === collectionPath), [site?.manifest, collectionPath]);
+    const originalCollectionNode = useMemo(() => 
+        site?.manifest.structure.find((node: StructureNode) => node.path === collectionPath && node.type === 'collection'), 
+        [site?.manifest, collectionPath]
+    );
     
     useEffect(() => {
         if (site && originalCollectionNode) {
@@ -120,11 +123,6 @@ function EditCollectionPageInternal() {
 
 
     // --- Handlers (Memoized for performance) ---
-    const handleFormChange = useCallback((data: Partial<StructureNode>) => {
-        setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
-        setHasUnsavedChanges(true);
-    }, [setHasUnsavedChanges]);
-
     const handlePrimaryFieldsChange = useCallback((data: Partial<MarkdownFrontmatter>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasUnsavedChanges(true);
@@ -162,22 +160,11 @@ function EditCollectionPageInternal() {
     // --- Effects for loading schemas and setting up sidebars ---
     useEffect(() => {
         if(site) {
-            // Asynchronously fetch layouts and filter them by the correct type.
-            getAvailableLayouts(site, 'collection-item').then(layouts => {
+            getAvailableLayouts(site, 'item').then(layouts => {
                 setAvailableLayouts(layouts);
             });
         }
     }, [site]);
-
-    useEffect(() => {
-        async function loadSchema() {
-            if (site && collectionNodeData?.itemLayout) {
-                const loadedManifest = await getLayoutManifest(site, collectionNodeData.itemLayout);
-                setLayoutManifest(loadedManifest);
-            }
-        }
-        loadSchema();
-    }, [collectionNodeData?.itemLayout, site]);
 
     useEffect(() => {
         setLeftSidebarContent(<LeftSidebar />);
@@ -186,10 +173,8 @@ function EditCollectionPageInternal() {
                 <CollectionSettingsSidebar
                     collectionNodeData={collectionNodeData}
                     availableLayouts={availableLayouts}
-                    layoutManifest={layoutManifest}
                     onLayoutChange={handleLayoutChange}
                     onPrimaryFieldsChange={handlePrimaryFieldsChange}
-                    onFormChange={handleFormChange}
                 />
             );
         } else {
@@ -199,7 +184,7 @@ function EditCollectionPageInternal() {
             setLeftSidebarContent(null);
             setRightSidebarContent(null);
         };
-    }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftSidebarContent, setRightSidebarContent]);
+    }, [collectionNodeData, availableLayouts, handleLayoutChange, handlePrimaryFieldsChange, setLeftSidebarContent, setRightSidebarContent]);
     
     
     if (!isDataReady || !collectionNodeData) {
@@ -207,36 +192,41 @@ function EditCollectionPageInternal() {
     }
 
     return (
-        <div className="h-full flex flex-col p-6">
-            <div className="flex shrink-0 items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold truncate pr-4">Managing: {originalCollectionNode?.title}</h1>
-                <Button asChild>
-                    <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> New Item
-                    </Link>
-                </Button>
+        <ThreeColumnLayout
+            leftSidebar={leftSidebarContent}
+            rightSidebar={rightSidebarContent}
+        >
+            <div className="h-full flex flex-col p-6">
+                <div className="flex shrink-0 items-center justify-between mb-4">
+                    <h1 className="text-3xl font-bold truncate pr-4">Managing: {originalCollectionNode?.title}</h1>
+                    <Button asChild>
+                        <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> New Item
+                        </Link>
+                    </Button>
+                </div>
+                <div className="flex-grow rounded-lg bg-background p-4 border overflow-y-auto">
+                    <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
+                    {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
+                        <ul className="space-y-2">
+                            {collectionNodeData.children.map((item: StructureNode) => {
+                                const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+                                return (
+                                    <li key={item.path}>
+                                        <Link href={`/sites/${siteId}/edit/content/${relativePath}`} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">
+                                            <FileText className="mr-3 h-4 w-4 text-muted-foreground" />
+                                            <span className="font-medium">{item.title || item.slug}</span>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    ) : (
+                        <p className="text-center text-muted-foreground py-8">No items have been added to this collection yet.</p>
+                    )}
+                </div>
             </div>
-            <div className="flex-grow rounded-lg bg-background p-4 border overflow-y-auto">
-                <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
-                {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
-                    <ul className="space-y-2">
-                        {collectionNodeData.children.map((item: StructureNode) => {
-                            const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
-                            return (
-                                <li key={item.path}>
-                                    <Link href={`/sites/${siteId}/edit/content/${relativePath}`} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">
-                                        <FileText className="mr-3 h-4 w-4 text-muted-foreground" />
-                                        <span className="font-medium">{item.title || item.slug}</span>
-                                    </Link>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                ) : (
-                    <p className="text-center text-muted-foreground py-8">No items have been added to this collection yet.</p>
-                )}
-            </div>
-        </div>
+        </ThreeColumnLayout>
     );
 }
 

@@ -1,60 +1,80 @@
 // src/types/index.ts
 
+/**
+ * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
+ * Can represent a standard page or a page that also acts as a collection container.
+ */
 export interface StructureNode {
-  type: 'page' | 'collection'; 
+  type: 'page' | 'collection'; // A page is a file, a collection is a virtual folder.
   title: string;
-  path: string;
+  path: string; // For pages, this is a file path. For collections, a directory path.
   slug: string;
   navOrder?: number;
   children?: StructureNode[];
-  layout: string; 
-  itemLayout?: string; 
+  layout: string; // Layout for the page itself, or 'none' for a collection.
+  itemLayout?: string; // Default layout for children within this collection.
   [key: string]: unknown;
 }
 
-// Represents the theme configuration saved in the manifest.
+/**
+ * Represents the theme configuration saved in the manifest, including
+ * the theme's name and any user-defined overrides.
+ */
 export interface ThemeConfig {
-  name: string; 
+  name: string;
   config: {
     [key: string]: string | boolean | number;
   };
 }
 
-// Represents metadata for a layout, used in UI selectors.
+/**
+ * Represents metadata for a layout asset, used for populating UI selectors.
+ */
 export interface LayoutInfo {
   id: string;
   name: string;
-  type: 'page' | 'collection'; 
-  path: string; 
+  // 'page' is for standard content pages.
+  // 'view' is for pages that list content.
+  // 'item' is for rendering a single item within a view list.
+  type: 'page' | 'view' | 'item';
+  path: string;
   description?: string;
 }
 
-// Represents metadata for a theme, used in UI selectors.
+/**
+ * Represents metadata for a theme asset, used for populating UI selectors.
+ */
 export interface ThemeInfo {
   id: string;
   name: string;
-  path: string; 
+  path: string;
 }
 
-// --- NEW: Defines the structure for a remote data source query ---
+/**
+ * Defines the structure for a remote data source query (future feature).
+ */
 export interface DataSourceConfig {
   url: string;
   format: 'json' | 'csv';
   array_path?: string; // e.g., "results.items" for nested JSON
 }
 
+/**
+ * Defines the configuration for a View, stored in a page's frontmatter.
+ * It specifies the view template and the data source for the content list.
+ */
 export interface ViewConfig {
   template: string; // The ID of the /views/ asset to use (e.g., "list")
-  item_layout: string; // The ID of the /layouts/ asset for each item
-  
-  // Data can come from an internal collection OR an external source
   source_collection?: string; // The slug of an internal collection
-  data_source?: DataSourceConfig; // The config for a remote data source
+  data_source?: DataSourceConfig;
+  item_layout: string; // The layout for items in the list (e.g., "teaser")
+  item_page_layout: string; // The layout for the full page of an item (e.g., "page")
 
   // Standard query parameters
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
-  limit?: number;
+  show_pager?: boolean;
+  items_per_page?: number;
   
   // Future extensibility for filtering
   filter?: {
@@ -65,7 +85,7 @@ export interface ViewConfig {
 }
 
 /**
- * Represents metadata for a view, used in UI selectors.
+ * Represents metadata for a view asset, used for populating UI selectors.
  */
 export interface ViewInfo {
   id: string;      // The directory name, e.g., "list"
@@ -73,15 +93,19 @@ export interface ViewInfo {
   path: string;    // The directory name, same as id
 }
 
-// Represents the fields within a content file's frontmatter.
+/**
+ * Represents the fields within a content file's YAML frontmatter.
+ */
 export interface MarkdownFrontmatter {
   title: string;
-  layout: string; // The layout for this specific page's content
-  view?: ViewConfig; // <-- The new, optional view configuration block
-  [key: string]: unknown; 
+  layout: string; // The layout for this specific page's content.
+  view?: ViewConfig; // Optional view configuration block.
+  [key: string]: unknown;
 }
 
-// A raw markdown file parsed from storage.
+/**
+ * Represents a raw markdown file that has been parsed from storage into its constituent parts.
+ */
 export interface ParsedMarkdownFile {
   slug: string;
   path: string;
@@ -89,82 +113,60 @@ export interface ParsedMarkdownFile {
   content: string;
 }
 
-// Represents a raw file (e.g., theme CSS) from storage.
+/**
+ * Represents a generic raw file (e.g., theme CSS, layout JSON) read from storage.
+ */
 export interface RawFile {
   path: string;
   content: string;
 }
 
-// Represents the complete data for a single site held in memory.
+/**
+ * Represents the data required for rendering pager controls.
+ */
+export interface PaginationData {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    hasPrevPage: boolean;
+    hasNextPage: boolean;
+    prevPageUrl?: string;
+    nextPageUrl?: string;
+}
+
+/**
+ * Represents the main `manifest.json` file for a single site. This is the
+ * top-level configuration and site map.
+ */
+export interface Manifest {
+  siteId: string;
+  generatorVersion: string;
+  title: string;
+  description: string;
+  author?: string;
+  baseUrl?: string;
+  theme: ThemeConfig;
+  structure: StructureNode[];
+  layouts?: LayoutInfo[];
+  themes?: ThemeInfo[];
+}
+
+/**
+ * Represents the complete data for a single site when held in the application's memory.
+ */
 export interface LocalSiteData {
   siteId: string;
   manifest: Manifest;
-  contentFiles?: ParsedMarkdownFile[]; 
+  contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
-  // Future: Add viewFiles?: RawFile[]
+  // Future: viewFiles?: RawFile[]
 }
 
-// Represents the main site manifest.
-export interface Manifest {
-  siteId: string;
-  generatorVersion: string;
-  title: string;
-  description: string;
-  author?: string;
-  baseUrl?: string;
-  theme: ThemeConfig;
-  structure: StructureNode[];
-  layouts?: LayoutInfo[];
-  themes?: ThemeInfo[]; 
-}
-
-// Represents the theme configuration.
-export interface ThemeConfig {
-  name: string;
-  config: {
-    [key: string]: string | boolean | number;
-  };
-}
-
-export interface LayoutInfo {
-  id: string;
-  name: string;
-  type: 'page' | 'collection';
-  path: string; 
-  description?: string;
-}
-
-// A similar structure for custom themes
-export interface ThemeInfo {
-  id: string;
-  name: string;
-  path: string; 
-}
-
-export interface Manifest {
-  siteId: string;
-  generatorVersion: string;
-  title: string;
-  description: string;
-  author?: string;
-  baseUrl?: string;
-  theme: ThemeConfig;
-  structure: StructureNode[];
-  layouts?: LayoutInfo[];
-  themes?: ThemeInfo[]; 
-}
-
-// A raw markdown file parsed from storage.
-export interface ParsedMarkdownFile {
-  slug: string;
-  path: string;
-  frontmatter: MarkdownFrontmatter;
-  content: string;
-}
-
-// Represents a link used for rendering navigation menus.
-// This is a derived type, not part of the core manifest data.
+/**
+ * Represents a link used for rendering navigation menus.
+ * This is a derived type, not part of the core manifest data.
+ */
 export interface NavLinkItem {
   href: string;
   label: string;
@@ -172,28 +174,26 @@ export interface NavLinkItem {
   children?: NavLinkItem[];
 }
 
-export interface RawFile {
-  path: string;    // e.g., "layouts/custom/my-grid/layout.json" or "themes/custom/my-theme/theme.css"
-  content: string; // The raw text content of the file
+/**
+ * An enum to clearly distinguish the outcome of a page resolution attempt.
+ */
+export enum PageType {
+  SinglePage,
+  NotFound,
 }
 
-
-export interface LocalSiteData {
-  siteId: string;
-  manifest: Manifest;
-  contentFiles?: ParsedMarkdownFile[];
-  layoutFiles?: RawFile[];
-  themeFiles?: RawFile[];
-}
-
-// The state and actions for the Zustand store.
-export interface AppState {
-  sites: LocalSiteData[];
-  addSite: (site: LocalSiteData) => Promise<void>;
-  updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
-  addNewCollection: (siteId: string, name: string, slug: string, layout: string) => Promise<void>;
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string) => Promise<boolean>;
-  deleteSiteAndState: (siteId:string) => Promise<void>;
-  deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
-  getSiteById: (siteId: string) => LocalSiteData | undefined;
-}
+/**
+ * Represents the complete, resolved data package for a single page render.
+ * This object is the output of the pageResolver and the input for the themeEngine.
+ */
+export type PageResolutionResult = {
+  type: PageType.SinglePage;
+  pageTitle: string;
+  contentFile: ParsedMarkdownFile;
+  layoutPath: string;
+  viewItems?: ParsedMarkdownFile[];
+  pagination?: PaginationData;
+} | {
+  type: PageType.NotFound;
+  errorMessage: string;
+};

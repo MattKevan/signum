@@ -20,7 +20,8 @@ export type AssetFileType =
   | 'base'              // A theme's main HTML shell
   | 'template'          // A generic template (used by Views)
   | 'page'              // A layout template for a standard content page
-  | 'collection-item'   // A layout template for an item within a list
+  | 'item'   // A layout template for an item within a list
+  | 'view'
   | 'partial' 
   | 'stylesheet' 
   | 'script' 
@@ -48,7 +49,7 @@ export interface ThemeManifest extends BaseAssetManifest {
 
 /** The structure of a layout.json file. */
 export interface LayoutManifest extends BaseAssetManifest {
-  layoutType: 'content-page' | 'collection-item';
+  layoutType: 'page' | 'view' | 'item';
   schema?: RJSFSchema; // Optional schema for a layout's own settings.
   uiSchema?: StrictUiSchema;
 }
@@ -192,7 +193,7 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
       return {
           name: layoutPath,
           version: '1.0.0',
-          layoutType: 'content-page',
+          layoutType: 'page',
           files: [],
           schema: baseSchemaData.schema,
           uiSchema: baseSchemaData.uiSchema, // Assign to the correct property
@@ -217,18 +218,17 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
 /**
  * Gets a list of all available views (core and eventually custom).
  * For now, it returns a hardcoded list of core views from /public/views/.
- * @param {Manifest | undefined} manifest - The site's manifest (for future custom views).
  * @returns {ViewInfo[]} A list of views for use in UI selectors.
  */
-export function getAvailableViews(manifest?: Manifest): ViewInfo[] {
-  // In the future, this could be expanded to scan for custom views.
+// FIX: The unused '_manifest' parameter has been completely removed from the function signature.
+export function getAvailableViews(): ViewInfo[] {
+  // In the future, this could be expanded to scan for custom views in a manifest.
+  // The manifest would be passed back in as a parameter at that time.
   const coreViews: ViewInfo[] = [
-    { id: 'list', name: 'Simple List', path: 'list' },
-    // Add other views like 'grid' here as they are created.
+    { id: 'list', name: 'Simple List View', path: 'list' },
   ];
   return coreViews;
 }
-
 /**
  * Gets a list of the full manifest objects for all available layouts,
  * optionally filtered by a specific layout type.
