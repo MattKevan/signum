@@ -1,0 +1,22 @@
+{
+  "name": "Post Teaser Card",
+  "version": "1.0.0",
+  "description": "A compact card for displaying an item in a list, showing a title and summary.",
+  "layoutType": "collection-item",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "template.hbs", "type": "template" }
+  ],
+  "schema": {
+    "title": "Post Card Options",
+    "type": "object",
+    "properties": {
+      "summary": {
+        "title": "Summary",
+        "description": "A short summary for the teaser card.",
+        "type": "string",
+        "ui:widget": "textarea"
+      }
+    }
+  }
+}

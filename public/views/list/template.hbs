@@ -1,27 +1,19 @@
 {{! /public/views/list/template.hbs }}
-{{!-- This template receives `viewItems` and the page's `frontmatter.view` config. --}}
+{{!-- This template receives `items` (the queried data) and `config` (the view's settings) --}}
 
 <div class="view-list">
-  {{#if viewItems}}
+  {{#if items}}
     <div class="item-container">
-      {{#each viewItems}}
+      {{#each items}}
         {{!-- 
-          This is the most powerful part. We use the built-in `lookup` helper
-          to dynamically get the name of the partial to render, which was chosen
-          by the user in the view configuration (e.g., "post-card").
-
-          For this to work, the themeEngine must register all 'collection-item'
-          layouts as global Handlebars partials.
+          This is the powerful part. We call our custom helper, passing `this`
+          (the current item in the loop) as the context, and telling it
+          which layout to use by looking up the `item_layout` from the view's config.
         --}}
-        {{> (lookup ../contentFile.frontmatter.view 'item_layout') this}}
+        {{{render_layout_for_item this layout=../config.item_layout}}}
       {{/each}}
     </div>
   {{else}}
     <p class="i gray">There are no items to display in this view.</p>
   {{/if}}
-
-  {{!-- Future extensibility: Pagination controls would be rendered here --}}
-  <div class="pagination">
-    {{!-- ... --}}
-  </div>
 </div>

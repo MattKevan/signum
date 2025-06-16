@@ -2,7 +2,7 @@
 
 import Form from '@rjsf/shadcn';
 import validator from '@rjsf/validator-ajv8';
-import { RJSFSchema, UiSchema, FieldTemplateProps, ObjectFieldTemplateProps } from '@rjsf/utils';
+import { RJSFSchema, UiSchema, FieldTemplateProps, ObjectFieldTemplateProps, RegistryWidgetsType } from '@rjsf/utils';
 import { Label } from '@/core/components/ui/label';
 
 
@@ -18,7 +18,13 @@ interface SchemaDrivenFormProps {
   onFormChange: (data: object) => void;
   /** Set to true to enable live validation as the user types. Defaults to false. */
   liveValidate?: boolean;
+  // --- FIX: Use the specific RegistryWidgetsType for the widgets prop ---
+  /** An object mapping widget names to custom React components. */
+  widgets?: RegistryWidgetsType;
+  /** An object that will be passed down to all custom widgets and templates. */
+  formContext?: any;
 }
+
 
 
 // --- Custom Field Template (for better layout and labels) ---
@@ -86,7 +92,9 @@ export default function SchemaDrivenForm({
   uiSchema, 
   formData, 
   onFormChange, 
-  liveValidate = false 
+  liveValidate = false,
+  widgets, // Destructure the correctly typed prop
+  formContext // Destructure the formContext prop
 }: SchemaDrivenFormProps) {
 
   const safeFormData = formData || {};
@@ -100,6 +108,8 @@ export default function SchemaDrivenForm({
       onChange={(e) => onFormChange(e.formData)}
       liveValidate={liveValidate}
       showErrorList={false}
+      widgets={widgets}
+      formContext={formContext}
       
       templates={{
         FieldTemplate: CustomFieldTemplate,

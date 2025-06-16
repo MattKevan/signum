@@ -7,12 +7,18 @@ import { getJsonAsset, ViewManifest } from '@/core/services/configHelpers.servic
 import { useAppStore } from '@/core/state/useAppStore';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { RJSFSchema } from '@rjsf/utils';
+import DataSourceSelectWidget from './DataSourceSelectWidget';
 
 interface ViewEditorProps {
   siteId: string;
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (update: Partial<MarkdownFrontmatter>) => void;
 }
+
+const customWidgets = {
+    DataSourceSelect: DataSourceSelectWidget
+};
+
 
 export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }: ViewEditorProps) {
   const site = useAppStore(state => state.getSiteById(siteId));
@@ -55,6 +61,22 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
       }
     });
   }, [frontmatter.view, onFrontmatterChange]);
+
+  const uiSchema = useMemo(() => {
+        const schema = viewSchema; // The schema fetched from view.json
+        if (!schema?.properties) return {};
+
+        const newUiSchema: any = {};
+        for (const key in schema.properties) {
+            const prop = schema.properties[key];
+            if (typeof prop === 'object' && prop !== null && 'ui:dataSource' in prop) {
+                newUiSchema[key] = {
+                    "ui:widget": "DataSourceSelect"
+                };
+            }
+        }
+        return newUiSchema;
+    }, [viewSchema]);
   
   if (!viewTemplateId) {
     return (
@@ -81,9 +103,12 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
   return (
     <div className="p-6 border rounded-lg bg-muted/20">
       <SchemaDrivenForm
-        schema={viewSchema}
-        formData={frontmatter.view || {}}
-        onFormChange={handleFormChange}
+        schema={viewSchema!}
+                uiSchema={uiSchema}
+                widgets={customWidgets}
+                formData={frontmatter.view || {}}
+                onFormChange={handleFormChange}
+                formContext={{ site: site }}
       />
     </div>
   );

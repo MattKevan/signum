@@ -15,12 +15,15 @@
       "source_collection": {
         "type": "string",
         "title": "Content Source",
-        "description": "Choose the collection to display items from."
+        "description": "Choose the collection to display items from.",
+        "ui:dataSource": "collections" 
       },
       "item_layout": {
         "type": "string",
         "title": "Item Display Layout",
-        "description": "Choose how each item in the list should look (e.g., a teaser card)."
+        "description": "Choose how each item in the list should look.",
+        "ui:dataSource": "layouts",       
+        "ui:layoutType": "collection-item"  
       },
       "sort_by": {
         "type": "string",

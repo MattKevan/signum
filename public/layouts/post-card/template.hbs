@@ -1,0 +1,10 @@
+{{! /public/layouts/post-card/template.hbs }}
+{{!-- The context 'this' is a single content item (e.g., a blog post). --}}
+<a href="{{this.url}}" class="link dim db pa4 mb3 ba b--black-10 br2 shadow-hover bg-white black no-underline">
+    <h3 class="f3 fw6 mv0">{{this.frontmatter.title}}</h3>
+    <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
+    
+    {{#if this.frontmatter.summary}}
+        <p class="lh-copy mid-gray mv0">{{this.frontmatter.summary}}</p>
+    {{/if}}
+</a>
