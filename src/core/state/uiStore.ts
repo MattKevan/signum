@@ -1,6 +1,7 @@
 // src/core/state/uiStore.ts
 
 import { create, StateCreator } from 'zustand';
+import { ReactNode } from 'react';
 
 // --- Helper for screen size ---
 const isDesktopView = () => typeof window !== 'undefined' && window.innerWidth >= 1024;
@@ -13,6 +14,8 @@ interface SidebarState {
   isRightOpen: boolean;
   isLeftAvailable: boolean;
   isRightAvailable: boolean;
+  leftSidebarContent: ReactNode | null;
+  rightSidebarContent: ReactNode | null;
 }
 
 // Defines the actions available in the sidebar slice
@@ -22,6 +25,8 @@ interface SidebarActions {
   setLeftAvailable: (available: boolean) => void;
   setRightAvailable: (available: boolean) => void;
   setRightOpen: (isOpen: boolean) => void;
+  setLeftSidebarContent: (content: ReactNode | null) => void;
+  setRightSidebarContent: (content: ReactNode | null) => void;
 }
 
 // Defines the shape of the data in the screen slice
@@ -49,6 +54,8 @@ const createSidebarSlice: StateCreator<UIState, [], [], { sidebar: SidebarState 
     isRightOpen: isDesktopView(),
     isLeftAvailable: false,
     isRightAvailable: false,
+    leftSidebarContent: null,
+    rightSidebarContent: null,
     toggleLeftSidebar: () => set(state => ({ 
         sidebar: { 
             ...state.sidebar, 
@@ -67,6 +74,8 @@ const createSidebarSlice: StateCreator<UIState, [], [], { sidebar: SidebarState 
     setLeftAvailable: (available) => set(state => ({ sidebar: { ...state.sidebar, isLeftAvailable: available }})),
     setRightAvailable: (available) => set(state => ({ sidebar: { ...state.sidebar, isRightAvailable: available }})),
     setRightOpen: (isOpen) => set(state => ({ sidebar: { ...state.sidebar, isRightOpen: isOpen }})),
+    setLeftSidebarContent: (content) => set(state => ({ sidebar: { ...state.sidebar, leftSidebarContent: content }})),
+    setRightSidebarContent: (content) => set(state => ({ sidebar: { ...state.sidebar, rightSidebarContent: content }})),
 
   }
 });

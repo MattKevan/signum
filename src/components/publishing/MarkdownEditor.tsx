@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Label } from '@/components/ui/label';
+import { Label } from '@/core/components/ui/label';
 
 interface MarkdownEditorProps {
   initialValue: string;

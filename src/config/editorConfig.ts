@@ -1,5 +1,5 @@
 // src/config/editorConfig.ts
-import type { ThemeInfo, LayoutInfo } from '@/types';
+import type { ThemeInfo, LayoutInfo, ViewInfo } from '@/types';
 import { RJSFSchema, UiSchema } from '@rjsf/utils'; 
 
 /**
@@ -50,6 +50,14 @@ export const CORE_THEMES: ThemeInfo[] = [
   { id: 'default', name: 'Default Theme', path: 'default' },
 ];
 
+/**
+ * A list of the core, built-in views that ship with Signum.
+ * The `id` and `path` must match the directory name in `/public/views/`.
+ */
+export const CORE_VIEWS: ViewInfo[] = [
+    { id: 'list', name: 'Simple List View', path: 'list' },
+    // Add other core views like 'grid' here as they are created.
+];
 
 /**
  * The universal base schema for all content frontmatter.

@@ -11,11 +11,11 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogClose,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+} from "@/core/components/ui/dialog";
+import { Button } from "@/core/components/ui/button";
+import { Input } from "@/core/components/ui/input";
+import { Label } from "@/core/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { slugify } from '@/lib/utils';
 import { toast } from 'sonner';
 import { type LayoutInfo } from '@/types'; // FIXED: Import the correct LayoutInfo type
@@ -23,11 +23,10 @@ import { type LayoutInfo } from '@/types'; // FIXED: Import the correct LayoutIn
 interface NewCollectionDialogProps {
   children: ReactNode;
   existingSlugs: string[];
-  availableLayouts: LayoutInfo[]; // FIXED: Use the correct type
   onSubmit: (name: string, slug: string, layoutPath: string) => Promise<void>;
 }
 
-export default function NewCollectionDialog({ children, existingSlugs, availableLayouts, onSubmit }: NewCollectionDialogProps) {
+export default function NewCollectionDialog({ children, existingSlugs, onSubmit }: NewCollectionDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
@@ -41,13 +40,6 @@ export default function NewCollectionDialog({ children, existingSlugs, available
     }
   }, [name]);
   
-  // Set a default layout when the dialog opens
-  useEffect(() => {
-    if (isOpen && availableLayouts.length > 0) {
-      // FIXED: Set the default value to the layout's unique path
-      setSelectedLayout(availableLayouts[0].path);
-    }
-  }, [isOpen, availableLayouts]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,20 +94,7 @@ export default function NewCollectionDialog({ children, existingSlugs, available
               <Label htmlFor="slug">Folder Name (URL)</Label>
               <Input id="slug" value={slug} readOnly className="bg-muted" />
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="layout-select">Layout</Label>
-               <Select value={selectedLayout} onValueChange={setSelectedLayout}>
-                    <SelectTrigger id="layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
-                    <SelectContent>
-                        {availableLayouts.map(layout => (
-                            // FIXED: The key and value should be the unique path
-                            <SelectItem key={layout.path} value={layout.path}>
-                                {layout.name}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
+            
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>

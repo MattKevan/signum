@@ -3,9 +3,8 @@
 import Form from '@rjsf/shadcn';
 import validator from '@rjsf/validator-ajv8';
 import { RJSFSchema, UiSchema, FieldTemplateProps, ObjectFieldTemplateProps } from '@rjsf/utils';
-import { Label } from '../ui/label';
-// REMOVED: Unused 'Button' import
-// import { Button } from '../ui/button'; 
+import { Label } from '@/core/components/ui/label';
+
 
 // --- Props Definition ---
 interface SchemaDrivenFormProps {

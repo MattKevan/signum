@@ -3,28 +3,28 @@
 
 import { useParams, useRouter } from 'next/navigation';
 import React, { useMemo, useState, useEffect, useCallback } from 'react';
-import { useEditor } from '@/features/editor/contexts/EditorContext';
+import { EditorProvider, useEditor } from '@/features/editor/contexts/EditorContext';
 import { useAutosave } from '@/core/hooks/useAutosave';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Button } from '@/core/components/ui/button';
+import { Label } from '@/core/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
-import type { StructureNode, LayoutInfo, MarkdownFrontmatter, LocalSiteData } from '@/types';
-import { getAvailableLayouts, getLayoutManifest, type LayoutManifest } from '@/core/services/configHelpers.service';
+import type { StructureNode, MarkdownFrontmatter, LocalSiteData } from '@/types';
+import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
 /**
- * A sub-component that renders the right sidebar UI for editing collection settings.
- * It is memoized to prevent re-renders unless its specific props change.
+ * A memoized sub-component that renders the right sidebar UI for editing collection settings.
+ * This prevents it from re-rendering unnecessarily when the main page content changes.
  */
 const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar({
     collectionNodeData,
@@ -35,7 +35,7 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
     onFormChange,
 }: {
     collectionNodeData: StructureNode,
-    availableLayouts: LayoutInfo[],
+    availableLayouts: LayoutManifest[],
     layoutManifest: LayoutManifest | null,
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
@@ -60,28 +60,20 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
                 </div>
                 <div className="border-t pt-4 space-y-4">
                     <div>
-                        <Label htmlFor="layout-select">Collection Layout</Label>
-                        <Select value={collectionNodeData.layout} onValueChange={onLayoutChange}>
+                        <Label htmlFor="layout-select">Default Item Layout</Label>
+                        <Select value={collectionNodeData.itemLayout} onValueChange={onLayoutChange}>
                             <SelectTrigger id="layout-select" className="mt-1">
                                 <SelectValue placeholder="Select a layout..." />
                             </SelectTrigger>
                             <SelectContent>
                                 {availableLayouts.map(layout => (
-                                    <SelectItem key={layout.path} value={layout.path}>{layout.name}</SelectItem>
+                                    <SelectItem key={layout.name} value={layout.name}>{layout.name}</SelectItem>
                                 ))}
                             </SelectContent>
                         </Select>
                     </div>
-                    {layoutManifest?.layoutSchema ? (
-                        <GroupedFrontmatterForm
-                            schema={layoutManifest.layoutSchema}
-                            uiSchema={layoutManifest.uiSchema}
-                            formData={otherFields}
-                            onFormChange={onFormChange}
-                        />
-                    ) : (
-                        <p className="text-sm text-muted-foreground pt-4">This layout has no additional settings.</p>
-                    )}
+                    {/* The collection itself no longer has a primary layout schema */}
+                    <p className="text-sm text-muted-foreground pt-4">This collection is an organizational folder. Its appearance is determined by the "Views" that display its content.</p>
                 </div>
             </div>
         </div>
@@ -90,21 +82,19 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
 
 
 /**
- * The main page component for editing a collection's settings and viewing its items.
- * It relies on the parent `SiteLoaderLayout` to command the loading of site data
- * and reacts to that data becoming available in the `useAppStore`.
+ * The internal implementation of the collection editor page.
+ * It assumes it is rendered within an EditorProvider.
  */
-export default function EditCollectionPage() {
+function EditCollectionPageInternal() {
     const params = useParams();
     const router = useRouter();
     const siteId = params.siteId as string;
     const collectionName = params.collectionName as string;
     
     // --- Context and Store Hooks ---
-    const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction, setLeftSidebar, setRightSidebar } = useEditor();
-    const { setLeftAvailable, setRightAvailable } = useUIStore((state) => state.sidebar);
+    const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction } = useEditor();
+    const { setLeftSidebarContent, setRightSidebarContent } = useUIStore((state) => state.sidebar);
     
-    // Subscribe to the site data. This component will re-render when the data is loaded by the parent layout.
     const site = useAppStore(state => state.getSiteById(siteId));
     const updateManifest = useAppStore(state => state.updateManifest);
 
@@ -112,45 +102,21 @@ export default function EditCollectionPage() {
     const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
     const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
-    const [availableLayouts, setAvailableLayouts] = useState<LayoutInfo[]>([]);
+    const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
     const collectionPath = `content/${collectionName}`;
-
-    const originalCollectionNode = useMemo(() => {
-        if (!site?.manifest) return undefined;
-        return site.manifest.structure.find((node: StructureNode) => node.path === collectionPath);
-    }, [site?.manifest, collectionPath]);
+    const originalCollectionNode = useMemo(() => site?.manifest.structure.find((node: StructureNode) => node.path === collectionPath), [site?.manifest, collectionPath]);
     
-    /**
-     * This is the main data orchestrator effect. It *reacts* to the `site` data from the store.
-     * It does NOT command data loading.
-     */
     useEffect(() => {
-        // Guard 1: Wait for the site manifest to be loaded by the parent layout.
-        if (!site?.manifest) {
-            console.log(`[EditCollectionPage] Waiting for site manifest for ${siteId}...`);
-            return;
-        }
-
-        // Guard 2: Wait for the site content to be loaded by the parent layout.
-        if (!site.contentFiles) {
-            console.log(`[EditCollectionPage] Waiting for site content files for ${siteId}...`);
-            // The UI will show a loading indicator because isDataReady is false.
-            return;
-        }
-
-        // --- Data is now guaranteed to be loaded ---
-        console.log(`[EditCollectionPage] All required site data is loaded for ${siteId}.`);
-        if (originalCollectionNode) {
+        if (site && originalCollectionNode) {
             setCollectionNodeData(originalCollectionNode);
             setHasUnsavedChanges(false);
-            setIsDataReady(true); // Data is ready, we can now render the full UI.
-        } else {
-            // If content is loaded but we still can't find the node, it's a 404.
+            setIsDataReady(true);
+        } else if (site && !isDataReady && !originalCollectionNode) {
             toast.error(`Collection "${collectionName}" not found.`);
             router.push(`/sites/${siteId}/edit`);
         }
-    }, [site, originalCollectionNode, collectionName, siteId, router, setHasUnsavedChanges]);
+    }, [site, originalCollectionNode, collectionName, siteId, router, setHasUnsavedChanges, isDataReady]);
 
 
     // --- Handlers (Memoized for performance) ---
@@ -165,7 +131,7 @@ export default function EditCollectionPage() {
     }, [setHasUnsavedChanges]);
 
     const handleLayoutChange = useCallback((newLayoutPath: string) => {
-        setCollectionNodeData(prev => prev ? { ...prev, layout: newLayoutPath, itemLayout: DEFAULT_PAGE_LAYOUT_PATH } : null);
+        setCollectionNodeData(prev => prev ? { ...prev, itemLayout: newLayoutPath } : null);
         setHasUnsavedChanges(true);
     }, [setHasUnsavedChanges]);
 
@@ -179,7 +145,6 @@ export default function EditCollectionPage() {
         const newManifest = { ...site.manifest, structure: newStructure };
         
         await updateManifest(siteId, newManifest);
-        //toast.success(`Collection "${collectionNodeData.title}" updated successfully!`);
     }, [site?.manifest, collectionNodeData, collectionPath, siteId, updateManifest]);
 
     // --- Effect for registering save action and autosave ---
@@ -196,29 +161,28 @@ export default function EditCollectionPage() {
     
     // --- Effects for loading schemas and setting up sidebars ---
     useEffect(() => {
-        if(site?.manifest) {
-            const allLayouts = getAvailableLayouts(site.manifest);
-            setAvailableLayouts(allLayouts.filter((l: LayoutInfo) => l.type === 'collection'));
+        if(site) {
+            // Asynchronously fetch layouts and filter them by the correct type.
+            getAvailableLayouts(site, 'collection-item').then(layouts => {
+                setAvailableLayouts(layouts);
+            });
         }
-    }, [site?.manifest]);
+    }, [site]);
 
     useEffect(() => {
         async function loadSchema() {
-            if (site?.manifest && site.layoutFiles && site.themeFiles && collectionNodeData?.layout) {
-                const siteForAssets: StableSiteDataForSidebar = { manifest: site.manifest, layoutFiles: site.layoutFiles, themeFiles: site.themeFiles };
-                const loadedManifest = await getLayoutManifest(siteForAssets, collectionNodeData.layout);
+            if (site && collectionNodeData?.itemLayout) {
+                const loadedManifest = await getLayoutManifest(site, collectionNodeData.itemLayout);
                 setLayoutManifest(loadedManifest);
             }
         }
         loadSchema();
-    }, [collectionNodeData?.layout, site?.manifest, site?.layoutFiles, site?.themeFiles]);
+    }, [collectionNodeData?.itemLayout, site]);
 
     useEffect(() => {
-        setLeftAvailable(true);
-        setLeftSidebar(<LeftSidebar />);
+        setLeftSidebarContent(<LeftSidebar />);
         if (collectionNodeData) {
-            setRightAvailable(true);
-            setRightSidebar(
+            setRightSidebarContent(
                 <CollectionSettingsSidebar
                     collectionNodeData={collectionNodeData}
                     availableLayouts={availableLayouts}
@@ -229,29 +193,23 @@ export default function EditCollectionPage() {
                 />
             );
         } else {
-            setRightAvailable(false);
-            setRightSidebar(null);
+            setRightSidebarContent(null);
         }
         return () => {
-            setLeftAvailable(false);
-            setRightAvailable(false);
-            setLeftSidebar(null);
-            setRightSidebar(null);
+            setLeftSidebarContent(null);
+            setRightSidebarContent(null);
         };
-    }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftAvailable, setRightAvailable, setLeftSidebar, setRightSidebar]);
+    }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftSidebarContent, setRightSidebarContent]);
     
     
-    // --- RENDER GUARD ---
-    // This is the crucial fix. We show a loading state until isDataReady is true.
     if (!isDataReady || !collectionNodeData) {
         return <div className="p-6 flex justify-center items-center h-full"><p>Loading Collection...</p></div>;
     }
 
-    // --- Main Component Render ---
     return (
         <div className="h-full flex flex-col p-6">
             <div className="flex shrink-0 items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold truncate pr-4">Editing: {originalCollectionNode?.title}</h1>
+                <h1 className="text-3xl font-bold truncate pr-4">Managing: {originalCollectionNode?.title}</h1>
                 <Button asChild>
                     <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
                         <PlusCircle className="mr-2 h-4 w-4" /> New Item
@@ -279,5 +237,17 @@ export default function EditCollectionPage() {
                 )}
             </div>
         </div>
+    );
+}
+
+/**
+ * Final exported page component that wraps the internal implementation
+ * with the necessary EditorProvider context.
+ */
+export default function EditCollectionPage() {
+    return (
+        <EditorProvider>
+            <EditCollectionPageInternal />
+        </EditorProvider>
     );
 }

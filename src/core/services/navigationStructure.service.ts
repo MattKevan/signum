@@ -1,8 +1,8 @@
 // src/lib/navigationUtils.ts
 import { LocalSiteData, NavLinkItem, StructureNode } from '@/types';
-import { getUrlForNode } from '../core/services/urlUtils.service';
-import { getRelativePath } from '../core/services/pathUtils.service';
-import { RenderOptions } from '../core/services/theme-engine/themeEngine.service'; // <-- IMPORT RENDER OPTIONS
+import { getUrlForNode } from '@/core/services/urlUtils.service';
+import { getRelativePath } from '@/core/services/relativePaths.service';
+import { RenderOptions } from '@/core/services/theme-engine/themeEngine.service'; 
 
 /**
  * Recursively builds a navigation link structure with context-aware paths.

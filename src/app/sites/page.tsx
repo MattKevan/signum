@@ -3,9 +3,9 @@
 
 import Link from 'next/link';
 import { useAppStore } from '@/core/state/useAppStore';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/core/components/ui/button';
 import { PlusCircle, Edit3, Eye, Trash2, FilePlus2, Leaf } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { toast } from "sonner";
 
 export default function HomePageDashboard() {

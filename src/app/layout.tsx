@@ -4,8 +4,8 @@
 import { useEffect, useState, Suspense } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import './globals.css'; 
-import { Toaster } from "@/core/ui/sonner"; 
-import { ThemeProvider } from "@/components/core/ThemeProvider";
+import { Toaster } from "@/core/components/ui/sonner"; 
+import { ThemeProvider } from "@/core/components/ThemeProvider";
 import { useInitialiseUIStore } from '@/core/hooks/useInitialiseUIStore';
 
 function AppLoadingIndicator() {

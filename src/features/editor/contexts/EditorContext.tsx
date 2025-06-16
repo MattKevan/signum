@@ -20,7 +20,7 @@ interface EditorContextType {
 export const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 interface EditorProviderProps {
-  children: (slots: { leftSidebar: ReactNode; rightSidebar: ReactNode }) => ReactNode;
+  children: ReactNode; 
 }
 
 export function EditorProvider({ children }: EditorProviderProps) {
@@ -65,7 +65,7 @@ export function EditorProvider({ children }: EditorProviderProps) {
 
   return (
     <EditorContext.Provider value={contextValue}>
-      {children({ leftSidebar: leftSidebarContent, rightSidebar: rightSidebarContent })}
+      {children}
     </EditorContext.Provider>
   );
 }

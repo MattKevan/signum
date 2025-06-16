@@ -4,12 +4,12 @@
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import AppearanceSettingsForm from '@/features/site-settings/components/AppearanceSettingsForm';
-import { Button } from '@/core/ui/button';
+import { Button } from '@/core/components/ui/button';
 import { Manifest, ThemeConfig, ThemeInfo } from '@/types';
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
-import { Label } from '@/core/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/ui/select';
+import { Label } from '@/core/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { getAvailableThemes } from '@/core/services/configHelpers.service';
 
 export default function AppearanceSettingsPage() {

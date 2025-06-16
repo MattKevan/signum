@@ -3,9 +3,8 @@
 
 import { useEffect, useState } from 'react';
 import { RJSFSchema } from '@rjsf/utils';
-// --- FIX: We now need the type for the theme manifest ---
 import { getJsonAsset, type ThemeManifest } from '@/core/services/configHelpers.service';
-import SchemaDrivenForm from './SchemaDrivenForm';
+import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { ThemeConfig, LocalSiteData } from '@/types';
 
 interface AppearanceSettingsFormProps {

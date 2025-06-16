@@ -5,14 +5,14 @@ import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode, ThemeInfo } from '@/types';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/core/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
 import { getLayoutManifest } from '@/core/services/configHelpers.service';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { Label } from '@/core/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
+import { Input } from '@/core/components/ui/input';
+import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 export default function CreateSitePage() {

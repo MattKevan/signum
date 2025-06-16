@@ -1,8 +1,8 @@
 // src/app/page.tsx
 'use client';
 
-import { Button } from '@/core/ui/button';
-import { Link } from '@/core/ui/link';
+import { Button } from '@/core/components/ui/button';
+import { Link } from '@/core/components/ui/link';
 import { ShieldCheck, Feather, Zap, Archive, Leaf } from 'lucide-react';
 
 export default function MarketingHomePage() {

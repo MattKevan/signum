@@ -1,9 +1,9 @@
 // src/components/publishing/PrimaryContentFields.tsx
 'use client';
 
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
+import { Input } from '@/core/components/ui/input';
+import { Textarea } from '@/core/components/ui/textarea';
+import { Label } from '@/core/components/ui/label';
 import { MarkdownFrontmatter } from '@/types';
 
 // FIXED: The interface is now much stricter and safer.

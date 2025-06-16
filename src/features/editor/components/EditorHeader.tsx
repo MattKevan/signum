@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
-import { Button } from '@/core/ui/button';
+import { Button } from '@/core/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/core/services/siteExporter.service';
 import { EditorContext, useEditor } from '@/features/editor/contexts/EditorContext'; 

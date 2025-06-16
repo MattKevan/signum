@@ -1,7 +1,7 @@
 // src/core/services/configHelpers.service.ts
 
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
-import { CORE_LAYOUTS, CORE_THEMES, BASE_SCHEMA } from '@/config/editorConfig';
+import { CORE_LAYOUTS, CORE_THEMES, BASE_SCHEMA, CORE_VIEWS } from '@/config/editorConfig';
 import {
     LocalSiteData,
     Manifest,
@@ -68,6 +68,7 @@ const fileContentCache = new Map<string, Promise<string | null>>();
 
 const isCoreTheme = (path: string) => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
 const isCoreLayout = (path: string) => CORE_LAYOUTS.some((l: LayoutInfo) => l.path === path);
+const isCoreView = (path: string) => CORE_VIEWS.some((v: ViewInfo) => v.path === path);
 
 /**
  * Provides a base schema for all content, ensuring common fields like
@@ -89,30 +90,35 @@ function getBaseSchema(): { schema: RJSFSchema, uiSchema: UiSchema } {
  * @returns {Promise<string | null>} The raw file content or null if not found.
  */
 export async function getAssetContent(siteData: SiteDataForAssets, assetType: 'theme' | 'layout' | 'view', path: string, fileName: string): Promise<string | null> {
-    const isCore = assetType === 'theme' ? isCoreTheme(path) : isCoreLayout(path);
+ let isCore = false;
+    if (assetType === 'theme') {
+        isCore = isCoreTheme(path);
+    } else if (assetType === 'layout') {
+        isCore = isCoreLayout(path);
+    } else if (assetType === 'view') {
+        isCore = isCoreView(path);
+    }    
+    
     const sourcePath = `/${assetType}s/${path}/${fileName}`;
 
     if (isCore) {
+      // This part is correct. It fetches from /public/...
       if (fileContentCache.has(sourcePath)) {
         return fileContentCache.get(sourcePath)!;
       }
       const promise = fetch(sourcePath)
-        .then(res => {
-          if (!res.ok) return null;
-          // Avoid trying to parse the main HTML page as an asset
-          const contentType = res.headers.get('content-type');
-          if (contentType && contentType.includes('text/html')) return null;
-          return res.text();
-        })
+        .then(res => res.ok ? res.text() : null)
         .catch(() => null);
       fileContentCache.set(sourcePath, promise);
       return promise;
     } else {
-      // Logic for fetching custom, user-provided assets would go here
-      // For now, we assume all custom assets are part of the main siteData object.
+      // This is for custom assets stored in siteData.
+      // We need to check for a new `viewFiles` array here in the future.
       const fileStore: RawFile[] | undefined = 
           assetType === 'theme' ? siteData.themeFiles 
-          : siteData.layoutFiles; // Future: add `viewFiles`
+          : assetType === 'layout' ? siteData.layoutFiles
+          : undefined; // <-- Future: siteData.viewFiles
+      
       const fullPath = `${assetType}s/${path}/${fileName}`;
       return fileStore?.find(f => f.path === fullPath)?.content ?? null;
     }
@@ -153,22 +159,7 @@ function mergeSchemas(base: RJSFSchema, specific?: RJSFSchema): RJSFSchema {
     };
 }
 
-
 // --- Public API ---
-
-/**
- * Gets a list of all available layouts (core and custom).
- * @param {Manifest | undefined} manifest - The site's manifest.
- * @returns {LayoutInfo[]} A list of layouts for use in UI selectors.
- */
-export function getAvailableLayouts(manifest?: Manifest): LayoutInfo[] {
-  const available = [...CORE_LAYOUTS];
-  if (manifest?.layouts) {
-    const customLayouts = manifest.layouts.filter(cl => !available.some(coreL => coreL.path === cl.path));
-    available.push(...customLayouts);
-  }
-  return available;
-}
 
 /**
  * Gets a list of all available themes (core and custom).
@@ -236,4 +227,34 @@ export function getAvailableViews(manifest?: Manifest): ViewInfo[] {
     // Add other views like 'grid' here as they are created.
   ];
   return coreViews;
+}
+
+/**
+ * Gets a list of the full manifest objects for all available layouts,
+ * optionally filtered by a specific layout type.
+ * @param {SiteDataForAssets} siteData - Lean site data needed to fetch custom layouts.
+ * @param {LayoutManifest['layoutType']} [type] - Optional type to filter by.
+ * @returns {Promise<LayoutManifest[]>} A promise that resolves to a list of full layout manifests.
+ */
+export async function getAvailableLayouts(
+  siteData: SiteDataForAssets, 
+  type?: LayoutManifest['layoutType']
+): Promise<LayoutManifest[]> {
+  const coreLayoutIds = CORE_LAYOUTS.map(l => l.id);
+  const customLayoutIds = siteData.manifest.layouts?.map(l => l.id) || [];
+  const allLayoutIds = [...new Set([...coreLayoutIds, ...customLayoutIds])];
+
+  const manifestPromises = allLayoutIds.map(layoutId => 
+    getLayoutManifest(siteData, layoutId)
+  );
+
+  const allManifests = (await Promise.all(manifestPromises))
+    .filter((m): m is LayoutManifest => m !== null);
+
+  // If a type filter was provided, apply it now.
+  if (type) {
+    return allManifests.filter(m => m.layoutType === type);
+  }
+
+  return allManifests;
 }

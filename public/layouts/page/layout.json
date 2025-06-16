@@ -1,12 +1,21 @@
 {
-  "name": "Page",
+  "name": "Standard Page",
   "version": "1.0.0",
-  "type": "page",
-  "description": "A clean, single-column layout for standard pages.",
-
-  "pageSchema": {
-    "title": "Page content",
+  "description": "A clean, single-column layout for standard pages like 'About Us'.",
+  "layoutType": "content-page",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "page.hbs", "type": "template" }
+  ],
+  "schema": {
+    "title": "Page Options",
     "type": "object",
-    "properties": {}
+    "properties": {
+      "show_updated_date": {
+        "type": "boolean",
+        "title": "Show Last Updated Date",
+        "default": false
+      }
+    }
   }
 }

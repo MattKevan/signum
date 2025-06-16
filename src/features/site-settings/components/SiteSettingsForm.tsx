@@ -1,9 +1,9 @@
 // src/components/publishing/SiteSettingsForm.tsx
 'use client';
 
-import { Label } from '@/core/ui/label';
-import { Input } from '@/core/ui/input';
-import { Textarea } from '@/core/ui/textarea';
+import { Label } from '@/core/components/ui/label';
+import { Input } from '@/core/components/ui/input';
+import { Textarea } from '@/core/components/ui/textarea';
 
 interface SiteSettingsFormProps {
   formData: {

@@ -6,6 +6,7 @@ import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { getParentPath, findNodeByPath, findAndRemoveNode, updatePathsRecursively } from '@/core/services/fileTree.service';
 import { toast } from 'sonner';
 import { SiteSlice } from '@/core/state/slices/siteSlice';
+import { stringifyToMarkdown } from '@/lib/markdownParser';
 
 export interface ContentSlice {
   /**
@@ -36,9 +37,29 @@ export interface ContentSlice {
    * @returns {Promise<void>}
    */
   moveNode: (siteId: string, draggedNodePath: string, targetNodePath: string | null) => Promise<void>;
+  updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
 }
 
 export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], ContentSlice> = (set, get) => ({
+
+    updateContentFileOnly: async (siteId, savedFile) => {
+    // This action ONLY updates the file content in storage and in the store.
+    // It does NOT touch the manifest, making it fast for autosave.
+    await localSiteFs.saveContentFile(siteId, savedFile.path, stringifyToMarkdown(savedFile.frontmatter, savedFile.content));
+    
+    set(produce((draft: SiteSlice) => {
+        const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+        if (siteToUpdate?.contentFiles) {
+            const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === savedFile.path);
+            if (fileIndex !== -1) {
+                siteToUpdate.contentFiles[fileIndex] = savedFile;
+            } else {
+                siteToUpdate.contentFiles.push(savedFile);
+            }
+        }
+    }));
+  },
+
   addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent, layoutId) => {
     const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
     const site = get().getSiteById(siteId);

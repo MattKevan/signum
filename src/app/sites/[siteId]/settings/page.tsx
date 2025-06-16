@@ -4,7 +4,7 @@
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm';
-import { Button } from '@/core/ui/button';
+import { Button } from '@/core/components/ui/button';
 import { Manifest } from '@/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";

@@ -7,7 +7,7 @@ import { useAppStore } from '@/core/state/useAppStore';
 import { resolvePageContent, PageType } from '@/core/services/pageResolver.service';
 import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.service';
 import { AlertTriangle, Edit } from 'lucide-react';
-import { Button } from '@/core/ui/button';
+import { Button } from '@/core/components/ui/button';
 import Link from 'next/link';
 
 /**

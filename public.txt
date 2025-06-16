@@ -57,50 +57,44 @@ File: css/prose.css
 
 File: layouts/page/layout.json
 {
-  "name": "Page",
+  "name": "Standard Page",
   "version": "1.0.0",
-  "type": "page",
-  "description": "A clean, single-column layout for standard pages.",
-
-  "pageSchema": {
-    "title": "Page content",
+  "description": "A clean, single-column layout for standard pages like 'About Us'.",
+  "layoutType": "content-page",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "page.hbs", "type": "template" }
+  ],
+  "schema": {
+    "title": "Page Options",
     "type": "object",
-    "properties": {}
+    "properties": {
+      "show_updated_date": {
+        "type": "boolean",
+        "title": "Show Last Updated Date",
+        "default": false
+      }
+    }
   }
 }
 
 ================================================================================
 
 File: layouts/page/page.hbs
-{{! public/layouts/page/page.hbs }}
-{{!--
-  This is the default template for all standard pages, styled with Tachyons.
-  - `lh-copy`: Sets a comfortable line-height for body text for readability.
-  - `measure`: Constrains the width of the text block to an optimal reading length.
---}}
+{{! /public/layouts/page/page.hbs }}
 <article class="lh-copy measure">
-    {{!--
-      - `f1`: Large font size for the main heading.
-      - `fw8`: Extra-bold font weight.
-      - `mt0 mb3`: Margin top 0, margin bottom level 3.
-    --}}
+    {{!-- Render the page's own content --}}
     <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
-    
-    {{#if contentFile.frontmatter.description}}
-        {{!-- `f4` for a larger lead paragraph, `mid-gray` for a lighter color --}}
-        <p class="f4 mid-gray mt0 mb4">{{contentFile.frontmatter.description}}</p>
-    {{/if}}
-
-    {{!-- `bt` (border-top), `b--black-10` (light gray border), `mv4` (vertical margin) --}}
-    <hr class="bt b--black-10 mv4" />
-
-    {{!-- 
-      The `markdown` helper renders the main content.
-      The typography inside this block (for p, h2, ul, etc.) should be handled
-      by a base set of styles. Tachyons does NOT style raw HTML tags by default,
-      unlike Tailwind's `@tailwindcss/typography` plugin (`prose` class).
-    --}}
     {{{markdown contentFile.content}}}
+    
+    {{!-- 
+      If the page resolver found view items, it means this page is a View Page.
+      Call the `render_view` helper to render the list section.
+    --}}
+    {{#if viewItems}}
+        <hr class="bt b--black-10 mv4" />
+        {{{render_view contentFile.frontmatter.view viewItems}}}
+    {{/if}}
 </article>
 
 ================================================================================
@@ -233,6 +227,88 @@ File: layouts/listing/partials/item-full.hbs
         {{{markdown this.content}}}
     </div>
 </article>
+
+================================================================================
+
+File: views/list/view.json
+{
+  "name": "Simple List View",
+  "version": "1.0.0",
+  "description": "Displays content from a collection in a standard, sorted list. Ideal for blogs.",
+  "icon": "list-ordered",
+  "files": [
+    { "path": "view.json", "type": "manifest" },
+    { "path": "template.hbs", "type": "template", "name": "List Container" }
+  ],
+  "schema": {
+    "title": "List View Configuration",
+    "description": "Configure how this list of content should be displayed.",
+    "type": "object",
+    "properties": {
+      "source_collection": {
+        "type": "string",
+        "title": "Content Source",
+        "description": "Choose the collection to display items from."
+      },
+      "item_layout": {
+        "type": "string",
+        "title": "Item Display Layout",
+        "description": "Choose how each item in the list should look (e.g., a teaser card)."
+      },
+      "sort_by": {
+        "type": "string",
+        "title": "Sort items by",
+        "enum": ["date", "title"],
+        "enumNames": ["Publication Date", "Title"],
+        "default": "date"
+      },
+      "sort_order": {
+        "type": "string",
+        "title": "Sort order",
+        "enum": ["desc", "asc"],
+        "enumNames": ["Descending", "Ascending"],
+        "default": "desc"
+      },
+      "limit": {
+        "type": "number",
+        "title": "Maximum Number of Items",
+        "description": "Leave blank to show all items.",
+        "default": 10
+      }
+    }
+  }
+}
+
+================================================================================
+
+File: views/list/template.hbs
+{{! /public/views/list/template.hbs }}
+{{!-- This template receives `viewItems` and the page's `frontmatter.view` config. --}}
+
+<div class="view-list">
+  {{#if viewItems}}
+    <div class="item-container">
+      {{#each viewItems}}
+        {{!-- 
+          This is the most powerful part. We use the built-in `lookup` helper
+          to dynamically get the name of the partial to render, which was chosen
+          by the user in the view configuration (e.g., "post-card").
+
+          For this to work, the themeEngine must register all 'collection-item'
+          layouts as global Handlebars partials.
+        --}}
+        {{> (lookup ../contentFile.frontmatter.view 'item_layout') this}}
+      {{/each}}
+    </div>
+  {{else}}
+    <p class="i gray">There are no items to display in this view.</p>
+  {{/if}}
+
+  {{!-- Future extensibility: Pagination controls would be rendered here --}}
+  <div class="pagination">
+    {{!-- ... --}}
+  </div>
+</div>
 
 ================================================================================
 

@@ -2,170 +2,146 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams, usePathname, useRouter } from 'next/navigation';
+import { useParams, usePathname } from 'next/navigation';
 import { useMemo, useCallback, useEffect, useState } from 'react';
 
-// --- Store and Component Imports ---
 import { useAppStore } from '@/core/state/useAppStore';
 import { useUIStore } from '@/core/state/uiStore';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
-import NewCollectionDialog from '@/features/editor/components/NewCollectionDialog';
+import NewPageDialog from '@/features/editor/components/NewPageDialog';
+import CollectionList from '@/features/editor/components/CollectionList';
 
-// --- Type, Util, and Config Imports ---
-import type { StructureNode, LayoutInfo, ParsedMarkdownFile } from '@/types'; // Added ParsedMarkdownFile
-import { getAvailableLayouts } from '@/core/services/configHelpers.service';
-import { toast } from 'sonner';
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/core/components/ui/accordion";
+import type { StructureNode } from '@/types';
 import { cn } from '@/lib/utils';
-import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
+import { Home, FilePlus } from 'lucide-react';
+import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
 
-// --- Icon Imports ---
-import { Home, FilePlus, FolderPlus } from 'lucide-react';
 
-/**
- * Renders the primary left sidebar for the site editor.
- * It displays the site's file structure, handles navigation,
- * and provides actions for creating new pages and collections.
- */
 export default function LeftSidebar() {
   const params = useParams();
   const pathname = usePathname();
-  const router = useRouter();
   const siteId = params.siteId as string;
 
-  // --- State & Store Hooks ---
-  const [activePath, setActivePath] = useState<string | undefined>();
-  
+  // --- START OF FIX ---
+  // Select each piece of state individually. Zustand's default shallow
+  // comparison will prevent re-renders if these specific values haven't changed.
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
   const isDesktop = useUIStore((state) => state.screen.isDesktop);
-
-  // FIX: Changed `getById` to the correct `getSiteById`
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  const addNewCollection = useAppStore((state) => state.addNewCollection);
-  const updateManifest = useAppStore((state) => state.updateManifest);
+  // --- END OF FIX ---
   
-  // --- Memoized Values ---
-  const siteStructure = useMemo(() => site?.manifest.structure || [], [site?.manifest.structure]);
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const { updateManifest, moveNode } = useAppStore.getState();
+  
+  const pageStructure = useMemo(() => {
+    return site?.manifest.structure.filter((node: StructureNode) => node.type !== 'collection') || [];
+  }, [site?.manifest.structure]);
 
-  const availableCollectionLayouts = useMemo(() => {
-    if (!site?.manifest) return [];
-    return getAvailableLayouts(site.manifest).filter((l: LayoutInfo) => l.type === 'collection');
-  }, [site?.manifest]);
-
-  // FIX: Explicitly typed `c` as `StructureNode` to resolve implicit 'any' error.
-  const existingTopLevelSlugs = useMemo(() => site?.manifest.structure.map((c: StructureNode) => c.slug) || [], [site?.manifest.structure]);
-
-  // --- Effects ---
-  // Determines which file/collection is currently active based on the URL
+  const [activePath, setActivePath] = useState<string | undefined>();
   useEffect(() => {
-    // Guard to ensure contentFiles is loaded before proceeding.
-    if (!site || !site.contentFiles) {
-      return;
-    }
+    if (!site?.contentFiles) return;
 
     const pathSegments = pathname.split('/');
     let currentPath = '';
 
-    if (pathname.includes('/edit/collection/')) {
-        const slug = pathSegments[pathSegments.indexOf('collection') + 1];
-        currentPath = `content/${slug}`;
-    } else if (pathname.includes('/edit/content/')) {
+    if (pathname.includes('/edit/content/')) {
         const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
-        const pathWithExt = `content/${contentSlug}.md`;
-        
-        // FIX: Explicitly typed `f` as `ParsedMarkdownFile` to resolve implicit 'any' error.
-        currentPath = site.contentFiles.find((f: ParsedMarkdownFile) => f.path === pathWithExt)?.path || pathWithExt;
-    } else {
-        // Fallback for root edit pages that redirect
-        currentPath = 'content/index.md';
+        currentPath = `content/${contentSlug}.md`;
     }
     setActivePath(currentPath);
-    
-  }, [pathname, site, site?.contentFiles]);
+  }, [pathname, site?.contentFiles]);
 
-  // --- Handlers ---
-  const handleStructureChange = useCallback((reorderedNodes: StructureNode[]) => {
+  const handleStructureChange = useCallback((reorderedPages: StructureNode[]) => {
       if (!site) return;
-      const newManifest = { ...site.manifest, structure: reorderedNodes };
+      const collections = site.manifest.structure.filter(n => n.type === 'collection');
+      const newManifest = { ...site.manifest, structure: [...reorderedPages, ...collections] };
       updateManifest(siteId, newManifest);
   }, [site, siteId, updateManifest]);
-
-  const handleNavigateToNewFile = useCallback((parentPath: string = 'content') => {
-    const parentSlugPart = parentPath === 'content' ? '' : parentPath.replace(/^content\/?/, '');
-    const newFileRoute = `/sites/${siteId}/edit/content/${parentSlugPart ? parentSlugPart + '/' : ''}${NEW_FILE_SLUG_MARKER}`;
-    router.push(newFileRoute.replace(/\/\//g, '/'));
-    if (!isDesktop) toggleLeftSidebar();
-  }, [siteId, router, isDesktop, toggleLeftSidebar]);
   
-  const handleCreateNewCollection = useCallback(async (name: string, slug: string, layout: string) => {
-    if (!site) return;
-    await addNewCollection(siteId, name, slug, layout);
-    toast.success(`Collection "${name}" created!`);
-    router.push(`/sites/${siteId}/edit/collection/${slug}`);
-    if (!isDesktop) toggleLeftSidebar();
-  }, [site, siteId, addNewCollection, router, isDesktop, toggleLeftSidebar]);
+  const handleDragEndInSidebar = (event: DragEndEvent) => {
+    const { over, active } = event;
+    if (over && over.id === '__sidebar_root_droppable__') {
+      const draggedNodePath = active.id as string;
+      moveNode(siteId, draggedNodePath, null);
+    }
+  };
 
-  // Render a loading state or null if the site manifest hasn't even loaded yet.
-  if (!site) {
-    return null;
-  }
+  const onCreationComplete = () => {
+    if (!isDesktop) toggleLeftSidebar();
+  };
+
+  const { setNodeRef: setRootDroppableRef, isOver } = useDroppable({
+    id: '__sidebar_root_droppable__',
+  });
+
+  const unnestDropZoneStyle = isOver ? 'bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500 ring-inset' : '';
+
+  if (!site) return null;
 
   return (
     <>
-      {/* Mobile-only overlay to close the sidebar when clicking outside */}
       {!isDesktop && (
         <div
           onClick={toggleLeftSidebar}
-          className={cn(
-            'fixed inset-0 z-40 bg-black/60 transition-opacity',
-            isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
-          )}
-        ></div>
+          className={cn('fixed inset-0 z-40 bg-black/60 transition-opacity', isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0')}
+        />
       )}
+      
+      <DndContext onDragEnd={handleDragEndInSidebar}>
+        <div className="flex h-full flex-col">
+          <Accordion type="multiple" defaultValue={['pages', 'collections']} className="w-full flex-grow flex flex-col">
+            
+            <AccordionItem value="pages" className="border-b-0">
+              <div className="flex px-3 py-1 items-center justify-between">
+                  <AccordionTrigger className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b-0 p-0 hover:no-underline">
+                    Pages
+                  </AccordionTrigger>
+                  <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
+                      <Button variant="ghost" className='size-6 p-2 rounded-sm' title="New Page">
+                          <FilePlus className="h-4 w-4" />
+                      </Button>
+                  </NewPageDialog>
+              </div>
+              <AccordionContent ref={setRootDroppableRef} className={cn("px-2 py-2 transition-colors", unnestDropZoneStyle)}>
+                {pageStructure.length > 0 ? (
+                  <FileTree 
+                      nodes={pageStructure} 
+                      baseEditPath={`/sites/${siteId}/edit`}
+                      activePath={activePath}
+                      onStructureChange={handleStructureChange}
+                  />
+                ) : (
+                  <div className="px-2 py-4 text-xs text-center text-muted-foreground italic">
+                    <p>No pages created yet.</p>
+                    <p className="mt-2">Drag a nested page here to make it top-level.</p>
+                  </div>
+                )}
+              </AccordionContent>
+            </AccordionItem>
+            
+            <AccordionItem value="collections" className="border-t flex-grow flex flex-col min-h-0">
+              <AccordionContent className="flex-grow min-h-0 py-0">
+                  <CollectionList siteId={siteId} />
+              </AccordionContent>
+            </AccordionItem>
+          </Accordion>
 
-      {/* The main sidebar container */}
-      <div
-        className={cn(
-          'flex h-full flex-col'
-        )}
-      >
-        <div className="flex px-3 py-1 shrink-0 items-center justify-between border-b ">
-            <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Content</h4>
-            <div className="flex items-center gap-1">
-                <Button variant="ghost" className='size-6 p-2 rounded-sm' onClick={() => handleNavigateToNewFile('content')} title="New Page">
-                    <FilePlus className="h-4 w-4" />
-                </Button>
-                <NewCollectionDialog 
-                    existingSlugs={existingTopLevelSlugs} 
-                    availableLayouts={availableCollectionLayouts}
-                    onSubmit={handleCreateNewCollection}
-                >
-                    <Button variant="ghost"  className='size-6 p-2  rounded-sm' title="New Collection">
-                        <FolderPlus className="h-4 w-4" />
-                    </Button>
-                </NewCollectionDialog>
-            </div>
+          <div className="mt-auto shrink-0 border-t p-2">
+              <Button variant="ghost" asChild className="w-full justify-start gap-2">
+                  <Link href="/sites">
+                      <Home className="h-4 w-4" /> App Dashboard
+                  </Link>
+              </Button>
+          </div>
         </div>
-        
-        <div className="flex-grow overflow-y-auto px-2 py-4">
-            <FileTree 
-                nodes={siteStructure} 
-                baseEditPath={`/sites/${siteId}/edit`}
-                activePath={activePath}
-                onFileCreate={handleNavigateToNewFile} 
-                onStructureChange={handleStructureChange}
-            />
-        </div>
-
-        <div className="mt-auto shrink-0 border-t p-2">
-            <Button variant="ghost" asChild className="w-full justify-start gap-2">
-                <Link href="/sites">
-                    <Home className="h-4 w-4" /> App Dashboard
-                </Link>
-            </Button>
-        </div>
-      </div>
+      </DndContext>
     </>
   );
 }

@@ -57,22 +57,21 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
     }
 
     const { manifest } = siteData;
-    const allLayouts = getAvailableLayouts(manifest);
-    const allViews = getAvailableViews(manifest);
+    const allLayouts = await getAvailableLayouts(siteData); 
+    const allViews = getAvailableViews(siteData.manifest); // This one is still sync, which is fine.
 
     const assetPromises: Promise<void>[] = [];
 
-    // Pre-cache all layout templates
-    for (const layoutInfo of allLayouts) {
+     // Pre-cache all layout templates
+    for (const layoutManifest of allLayouts) { // Loop over the full manifest objects
         const promise = (async () => {
-            const layoutManifest = await getLayoutManifest(siteData, layoutInfo.id);
             if (layoutManifest?.files) {
                 for (const file of layoutManifest.files) {
                     if (file.type === 'collection-item' || file.type === 'page') {
-                        const templateSource = await getAssetContent(siteData, 'layout', layoutInfo.id, file.path);
+                        const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.name, file.path);
                         if (templateSource) {
-                           // Register the layout template as a partial, using its ID (directory name) as the key.
-                           Handlebars.registerPartial(layoutInfo.id, templateSource);
+                           // Use the layout's name (its ID) as the partial key
+                           Handlebars.registerPartial(layoutManifest.name, templateSource);
                         }
                     }
                 }
@@ -90,7 +89,6 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
                 if (templateFile) {
                     const templateSource = await getAssetContent(siteData, 'view', viewInfo.id, templateFile.path);
                     if (templateSource) {
-                        // Register the view template as a partial under its ID (e.g., 'list').
                         Handlebars.registerPartial(viewInfo.id, templateSource);
                     }
                 }
