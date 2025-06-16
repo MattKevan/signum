@@ -19,9 +19,6 @@ export type AssetFileType =
   | 'manifest' 
   | 'base'              // A theme's main HTML shell
   | 'template'          // A generic template (used by Views)
-  | 'page'              // A layout template for a standard content page
-  | 'item'   // A layout template for an item within a list
-  | 'view'
   | 'partial' 
   | 'stylesheet' 
   | 'script' 

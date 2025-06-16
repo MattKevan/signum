@@ -4,7 +4,7 @@ import {
     LocalSiteData, 
     PageResolutionResult, 
     PageType 
-} from '@/types'; // FIX: Import all necessary types from the central types file.
+} from '@/types';
 import {
     getJsonAsset,
     getAvailableLayouts,
@@ -26,13 +26,7 @@ export interface RenderOptions {
 }
 
 // --- Helper Registration ---
-
-/**
- * Discovers and registers all core Handlebars helpers.
- * @param {LocalSiteData} siteData - The full site data, passed to any helper that needs it.
- */
 function registerCoreHelpers(siteData: LocalSiteData) {
-    // A flag to prevent re-registering in the same session, improving performance.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
@@ -52,7 +46,6 @@ function registerCoreHelpers(siteData: LocalSiteData) {
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
-    // Clear old partials to ensure a clean state for each render.
     for (const partial in Handlebars.partials) {
         if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
             Handlebars.unregisterPartial(partial);
@@ -61,7 +54,7 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
 
     const { manifest } = siteData;
     const allLayouts = await getAvailableLayouts(siteData); 
-    const allViews = getAvailableViews(); // FIX: Call without arguments.
+    const allViews = getAvailableViews();
 
     const assetPromises: Promise<void>[] = [];
 
@@ -70,11 +63,11 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
         const promise = (async () => {
             if (layoutManifest?.files) {
                 for (const file of layoutManifest.files) {
-                    // FIX: Check against the correct, updated layout types.
-                    if (['page', 'view', 'item'].includes(file.type)) {
+                    // FIX: The type for a layout's main .hbs file is 'template'.
+                    // This was the source of the "not found" error.
+                    if (file.type === 'template') {
                         const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.name, file.path);
                         if (templateSource) {
-                           // Use the layout's unique name as the partial key
                            Handlebars.registerPartial(layoutManifest.name, templateSource);
                         }
                     }
@@ -128,12 +121,10 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   if (!siteData.contentFiles) {
     return 'Error: Site content has not been loaded. Cannot render page.';
   }
-  // Type guard to handle the NotFound case safely.
   if (resolution.type === PageType.NotFound) {
       return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
   }
 
-  // From here, TypeScript knows `resolution` is of type `SinglePage`.
   const { manifest } = siteData;
   const themePath = manifest.theme.name;
   const layoutPath = resolution.layoutPath;
@@ -180,6 +171,6 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       year: new Date().getFullYear(),
       headContext: headContext,
       body: new Handlebars.SafeString(bodyHtml),
-      ...resolution // Pass the entire resolution object to the base template context
+      ...resolution
   });
 }
