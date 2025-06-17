@@ -64,11 +64,10 @@ export default function NewPageDialog({ siteId, children, onComplete }: NewPageD
         date: new Date().toISOString().split('T')[0],
     };
 
-    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# ${title.trim()}\n\nStart writing your content here.\n`;
+    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\nStart writing your content here.\n`;
 
     try {
-      const success = await addOrUpdateContentFile(siteId, filePath, initialContent, frontmatter.layout);
-      if (success) {
+      const success = await addOrUpdateContentFile(siteId, filePath, initialContent);      if (success) {
         toast.success(`Page "${title}" created!`);
         handleOpenChange(false);
         onComplete?.();

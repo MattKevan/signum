@@ -1,6 +1,5 @@
 // src/lib/theme-helpers/index.ts
 // ... (other helper imports)
-import { renderViewHelper } from './renderView.helper';
 import { queryHelper } from './query.helper';
 import { comparisonHelpers } from './comparison.helper';
 import { renderLayoutForItemHelper } from './renderLayoutForItem.helper';
@@ -19,7 +18,6 @@ export const coreHelpers: SignumHelper[] = [
   formatDateHelper,
   comparisonHelpers,
   markdownHelper,
-  renderViewHelper, 
   renderLayoutForItemHelper, 
   pagerHelper,
   getUrlHelper,

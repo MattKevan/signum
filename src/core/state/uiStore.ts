@@ -32,6 +32,7 @@ interface SidebarActions {
 // Defines the shape of the data in the screen slice
 interface ScreenState {
   isDesktop: boolean;
+  isInitialized: boolean;
 }
 
 // Defines the actions available in the screen slice
@@ -84,22 +85,29 @@ const createSidebarSlice: StateCreator<UIState, [], [], { sidebar: SidebarState 
 const createScreenSlice: StateCreator<UIState, [], [], { screen: ScreenState & ScreenActions }> = (set, get) => ({
     screen: {
         isDesktop: isDesktopView(),
+        isInitialized: false, // Initialize the flag to false
         initializeScreenSize: () => {
+          // Add a guard clause to prevent running more than once
+          if (get().screen.isInitialized) return;
+
+          // Set the flag to true immediately to block re-entry
+          set(state => ({
+            screen: { ...state.screen, isInitialized: true }
+          }));
+
           if (typeof window === 'undefined') return;
 
           const handleResize = () => {
             const desktop = isDesktopView();
-            // Only update state if the view mode has actually changed
             if (desktop !== get().screen.isDesktop) {
-              set({ 
-                  screen: { ...get().screen, isDesktop: desktop }, 
-                  // When the breakpoint is crossed, reset sidebars to default for that size
+              set({
+                  screen: { ...get().screen, isDesktop: desktop },
                   sidebar: { ...get().sidebar, isLeftOpen: desktop, isRightOpen: desktop }
                 });
             }
           };
           window.addEventListener('resize', handleResize);
-          handleResize(); // Set initial state on mount
+          handleResize();
         },
     }
 });

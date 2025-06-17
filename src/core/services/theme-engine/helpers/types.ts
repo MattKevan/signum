@@ -7,6 +7,7 @@ import Handlebars from 'handlebars';
  * `this` refers to the current template context.
  * `args` are the arguments passed to the helper in the template.
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type SignumHelperFunction = (this: any, ...args: any[]) => string | Handlebars.SafeString | boolean;
 /**
  * Defines a "Helper Factory". It's a function that receives the full site data

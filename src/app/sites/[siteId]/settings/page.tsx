@@ -51,7 +51,7 @@ export default function SiteSettingsPage() {
     if (trimmedBaseUrl) {
       try {
         new URL(trimmedBaseUrl);
-      } catch (error) {
+      } catch {
         toast.error("The Base URL you entered is not a valid URL. Please include https://");
         return;
       }

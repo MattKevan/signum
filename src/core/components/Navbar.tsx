@@ -4,8 +4,8 @@
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation'; // Import useRouter
 import { Leaf, Home, Settings, Globe } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input'; // Import Input
+import { Button } from '@/core/components/ui/button';
+import { Input } from '@/core/components/ui/input'; // Import Input
 import React, { useState } from 'react';
 
 // ... (NavLink component remains the same) ...

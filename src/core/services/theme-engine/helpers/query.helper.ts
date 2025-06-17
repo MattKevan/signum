@@ -1,7 +1,7 @@
 // src/lib/theme-helpers/query.helper.ts
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
-import { ParsedMarkdownFile } from '@/types';
+import { PageResolutionResult } from '@/types';
 
 export const queryHelper: SignumHelper = (siteData) => ({
   /**
@@ -15,7 +15,7 @@ export const queryHelper: SignumHelper = (siteData) => ({
    *   {{#each posts}} ... {{/each}}
    * {{/query}}
    */
-  query: function(this: any, options: Handlebars.HelperOptions) {
+  query: function(this: PageResolutionResult, options: Handlebars.HelperOptions) {
     const config = options.hash;
 
     // 1. Validate that a source collection was provided.
@@ -27,7 +27,7 @@ export const queryHelper: SignumHelper = (siteData) => ({
 
     // 2. Find the source collection node in the site's structure.
     const collectionNode = siteData.manifest.structure.find(
-        n => n.type === 'collection' && n.slug === sourceCollectionSlug
+        n => n.slug === sourceCollectionSlug
     );
     if (!collectionNode || !collectionNode.children) {
       console.warn(`Query could not find collection with slug: "${sourceCollectionSlug}"`);

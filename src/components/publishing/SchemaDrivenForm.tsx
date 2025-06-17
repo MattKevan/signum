@@ -2,27 +2,26 @@
 
 import Form from '@rjsf/shadcn';
 import validator from '@rjsf/validator-ajv8';
-import { RJSFSchema, UiSchema, FieldTemplateProps, ObjectFieldTemplateProps, RegistryWidgetsType } from '@rjsf/utils';
+import { 
+  RJSFSchema, 
+  UiSchema, 
+  FieldTemplateProps, 
+  ObjectFieldTemplateProps, 
+  RegistryWidgetsType,
+  FormContextType
+ } from '@rjsf/utils';
 import { Label } from '@/core/components/ui/label';
 
 
 // --- Props Definition ---
-interface SchemaDrivenFormProps {
-  /** The JSON Schema object that defines the form fields, types, and validation. */
+interface SchemaDrivenFormProps<T = unknown> {
   schema: RJSFSchema;
-  /** The UI Schema object for customizing widget types and field appearances. */
   uiSchema?: UiSchema;
-  /** The current data/state of the form. */
   formData: object;
-  /** Callback function that is triggered every time the form data changes. */
   onFormChange: (data: object) => void;
-  /** Set to true to enable live validation as the user types. Defaults to false. */
   liveValidate?: boolean;
-  // --- FIX: Use the specific RegistryWidgetsType for the widgets prop ---
-  /** An object mapping widget names to custom React components. */
-  widgets?: RegistryWidgetsType;
-  /** An object that will be passed down to all custom widgets and templates. */
-  formContext?: any;
+  widgets?: RegistryWidgetsType<T>;
+  formContext?: FormContextType & T; // <-- Use the official type and our generic
 }
 
 
@@ -87,15 +86,15 @@ function HideSubmitButton() {
  * A reusable component that dynamically generates a form from a given JSON Schema.
  * It uses react-jsonschema-form with a shadcn/ui theme for a consistent look and feel.
  */
-export default function SchemaDrivenForm({ 
+export default function SchemaDrivenForm<T>({ 
   schema, 
   uiSchema, 
   formData, 
   onFormChange, 
   liveValidate = false,
-  widgets, // Destructure the correctly typed prop
-  formContext // Destructure the formContext prop
-}: SchemaDrivenFormProps) {
+  widgets,
+  formContext 
+}: SchemaDrivenFormProps<T>) {
 
   const safeFormData = formData || {};
 

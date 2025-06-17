@@ -6,26 +6,23 @@ import { getAvailableLayouts } from '@/core/services/configHelpers.service';
 import { WidgetProps } from '@rjsf/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import { Label } from '@/core/components/ui/label';
-// --- FIX: Import types from their correct source files ---
 import type { LocalSiteData, StructureNode } from '@/types';
 import type { LayoutManifest } from '@/core/services/configHelpers.service';
 
-// Define a consistent shape for the dropdown options
 interface SelectOption {
   label: string;
   value: string;
 }
 
-// The widget's props now correctly type the `formContext` which will contain the site data
 interface DataSourceSelectWidgetProps extends WidgetProps {
-    formContext?: { // The context is now optional
-        site?: LocalSiteData; // The site within the context is also optional
+    formContext?: {
+        site?: LocalSiteData;
     };
 }
 
 const DataSourceSelectWidget = ({ id, label, options, value, onChange, required, formContext }: DataSourceSelectWidgetProps) => {
   const { uiSchema } = options;
-    const site = formContext?.site;
+  const site = formContext?.site;
 
   const dataSource = uiSchema?.['ui:dataSource'] as string;
   const layoutTypeFilter = uiSchema?.['ui:layoutType'] as string | undefined;
@@ -34,9 +31,9 @@ const DataSourceSelectWidget = ({ id, label, options, value, onChange, required,
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // This effect fetches the dynamic options for the dropdown.
     const fetchItems = async () => {
-      if (!site) {
+      // Add a more robust guard clause
+      if (!site || !site.manifest || !site.contentFiles) {
         setItems([]);
         setIsLoading(false);
         return;
@@ -48,20 +45,25 @@ const DataSourceSelectWidget = ({ id, label, options, value, onChange, required,
       try {
         switch (dataSource) {
           case 'collections':
-            // --- FIX: Explicitly type 'n' as StructureNode ---
+            // 1. Find all content files that ARE collection pages.
+            const collectionFilePaths = new Set(
+              site.contentFiles
+                .filter(f => !!f.frontmatter.collection)
+                .map(f => f.path)
+            );
+            // 2. Filter the structure nodes to only include those whose paths are in our set.
             fetchedItems = site.manifest.structure
-              .filter((n: StructureNode) => n.type === 'collection')
+              .filter((n: StructureNode) => collectionFilePaths.has(n.path))
               .map((c: StructureNode) => ({ label: c.title, value: c.slug }));
             break;
-          
+
           case 'layouts':
             const allLayouts: LayoutManifest[] = await getAvailableLayouts(site);
             fetchedItems = allLayouts
               .filter(l => !layoutTypeFilter || l.layoutType === layoutTypeFilter)
-              // --- FIX: Use `l.name` as the unique ID, not `l.id` ---
-              .map(l => ({ label: l.name, value: l.name })); 
+              .map(l => ({ label: l.name, value: l.id })); // Use id for value
             break;
-            
+
           default:
             fetchedItems = [];
         }
@@ -78,13 +80,9 @@ const DataSourceSelectWidget = ({ id, label, options, value, onChange, required,
   }, [site, dataSource, layoutTypeFilter]);
 
   const placeholder = useMemo(() => {
-    if (isLoading) {
-        return `Loading ${dataSource || 'options'}...`;
-    }
-    if (dataSource) {
-        return `Select a ${dataSource.replace(/s$/, '')}...`;
-    }
-    return 'Select an option...'; // Generic fallback
+    if (isLoading) return `Loading ${dataSource || 'options'}...`;
+    if (dataSource) return `Select a ${dataSource.replace(/s$/, '')}...`;
+    return 'Select an option...';
   }, [isLoading, dataSource]);
 
   return (
