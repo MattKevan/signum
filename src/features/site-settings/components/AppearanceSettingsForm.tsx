@@ -74,7 +74,7 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme ("{themePath}") does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme &quot;{themePath}&quot; does not provide any customizable appearance settings.</p>
       </div>
     );
   }

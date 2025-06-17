@@ -41,11 +41,12 @@ function registerCoreHelpers(siteData: LocalSiteData) {
 }
 
 /**
- * Pre-compiles and caches all available layout and view templates by registering them as Handlebars partials.
+ * Pre-compiles and caches all available layout templates and theme partials.
  * This is crucial for performance and allows helpers to synchronously access templates during rendering.
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
+    // Clear all existing partials to ensure a clean state
     for (const partial in Handlebars.partials) {
         if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
             Handlebars.unregisterPartial(partial);
@@ -53,60 +54,40 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
     }
 
     const { manifest } = siteData;
-    const allLayouts = await getAvailableLayouts(siteData); 
-    const allViews = getAvailableViews();
 
-    const assetPromises: Promise<void>[] = [];
+    // 1. Get ALL layouts of ALL types (page, view, item). This is our single source of truth.
+    const allLayouts = await getAvailableLayouts(siteData);
 
-    // Pre-cache all layout templates
-    for (const layoutManifest of allLayouts) {
-        const promise = (async () => {
-            if (layoutManifest?.files) {
-                for (const file of layoutManifest.files) {
-                    // FIX: The type for a layout's main .hbs file is 'template'.
-                    // This was the source of the "not found" error.
-                    if (file.type === 'template') {
-                        const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.name, file.path);
-                        if (templateSource) {
-                           Handlebars.registerPartial(layoutManifest.name, templateSource);
-                        }
-                    }
-                }
-            }
-        })();
-        assetPromises.push(promise);
-    }
-    
-    // Pre-cache all view templates
-    for (const viewInfo of allViews) {
-         const promise = (async () => {
-            const viewManifest = await getJsonAsset<ViewManifest>(siteData, 'view', viewInfo.id, 'view.json');
-            if (viewManifest?.files) {
-                const templateFile = viewManifest.files.find((f: AssetFile) => f.type === 'template');
-                if (templateFile) {
-                    const templateSource = await getAssetContent(siteData, 'view', viewInfo.id, templateFile.path);
-                    if (templateSource) {
-                        Handlebars.registerPartial(viewInfo.id, templateSource);
-                    }
-                }
-            }
-        })();
-        assetPromises.push(promise);
-    }
+    // 2. Loop through every layout and register its main template as a partial using its ID.
+    const layoutPromises = allLayouts.map(async (layoutManifest) => {
+        if (!layoutManifest?.files) return;
 
-    // Pre-cache all partials from the main theme
-    const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', manifest.theme.name, 'theme.json');
-    if (themeManifest?.files) {
-        const themePartials = themeManifest.files.filter((file: AssetFile) => file.type === 'partial');
-        for (const partial of themePartials) {
-            if (partial.name) {
-                const templateSource = await getAssetContent(siteData, 'theme', manifest.theme.name, partial.path);
-                if (templateSource) Handlebars.registerPartial(partial.name, templateSource);
+        // Find the main template file for this layout (the one with type: 'template').
+        const templateFile = layoutManifest.files.find((f: AssetFile) => f.type === 'template');
+        if (templateFile) {
+            // Use the layout's unique ID to fetch its content.
+            const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.id, templateFile.path);
+            if (templateSource) {
+                // Register the partial using the layout's ID. This is the critical step.
+                // e.g., Handlebars.registerPartial('page', ...), Handlebars.registerPartial('listing', ...)
+                Handlebars.registerPartial(layoutManifest.id, templateSource);
             }
         }
-    }
-    
-    await Promise.all(assetPromises);
+    });
+
+    // 3. Register the theme's global partials (header, footer, head, etc.).
+    const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', manifest.theme.name, 'theme.json');
+    const themePartialPromises = (themeManifest?.files || [])
+        .filter((file: AssetFile) => file.type === 'partial' && file.name)
+        .map(async (partial) => {
+            const templateSource = await getAssetContent(siteData, 'theme', manifest.theme.name, partial.path);
+            if (templateSource) {
+                Handlebars.registerPartial(partial.name!, templateSource);
+            }
+        });
+
+    // 4. Wait for all templates and partials to be cached before proceeding.
+    await Promise.all([...layoutPromises, ...themePartialPromises]);
 }
 
 
@@ -145,8 +126,18 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   }
 
   // 3. Render Main Content Body
-  const layoutTemplate = Handlebars.partials[layoutPath];
-  const bodyHtml = layoutTemplate ? layoutTemplate(resolution) : `Error: Layout template '${layoutPath}' not found.`;
+ const layoutTemplateSource = Handlebars.partials[layoutPath]; // Get the raw template STRING
+
+  if (!layoutTemplateSource) {
+      // Provide a more descriptive error if the template isn't found
+      return `<h1>Rendering Error</h1><p>The layout template with ID '<strong>${layoutPath}</strong>' could not be found in the cache. Please check that the layout exists and its manifest is correct.</p>`;
+  }
+
+  // --- THIS IS THE FIX ---
+  // Compile the template source into a usable function before executing it.
+  const layoutTemplate = Handlebars.compile(layoutTemplateSource);
+  const bodyHtml = layoutTemplate(resolution);
+  // --- END OF FIX ---
   
   // 4. Render Final Document
   const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');

@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: node_modules, ios, public
+Excluded Directories: node_modules, public, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -48,23 +48,23 @@ File: layouts/page/page.hbs
 
 ================================================================================
 
-File: layouts/post-card/layout.json
+File: layouts/teaser/layout.json
 {
-  "name": "Post Teaser Card",
+  "name": "Teaser Card",
   "version": "1.0.0",
-  "description": "A compact card for displaying an item in a list, showing a title and summary.",
-  "layoutType": "collection-item",
+  "description": "A simple card layout for list items, showing a title and summary.",
+  "layoutType": "item",
   "files": [
     { "path": "layout.json", "type": "manifest" },
     { "path": "template.hbs", "type": "template" }
   ],
   "schema": {
-    "title": "Post Card Options",
+    "title": "Teaser Card Options",
     "type": "object",
     "properties": {
       "summary": {
         "title": "Summary",
-        "description": "A short summary for the teaser card.",
+        "description": "A short summary for the teaser card, shown in lists.",
         "type": "string",
         "ui:widget": "textarea"
       }
@@ -74,38 +74,85 @@ File: layouts/post-card/layout.json
 
 ================================================================================
 
-File: layouts/post-card/page.hbs
-{{! 
-  This template renders the dedicated page for a single item within the collection.
-  - `measure-wide`: Constrains the text width for optimal readability.
-  - `lh-copy`: Sets a comfortable line height for body text.
-  - `f1 fw8`: Makes the title large and extra-bold.
-  - `f6 gray ttu`: Styles the date (small, gray, and text-transform: uppercase).
-  - The `markdown` helper will render the body content. Its typography (p, h2, etc.)
-    should be handled by a base stylesheet, like the one in the default theme.
-}}
-<article class="measure-wide center lh-copy">
-    <header>
-        <h1 class="f1 fw8 mv0">{{contentFile.frontmatter.title}}</h1>
-        <p class="f6 gray ttu tracked mt2 mb4">{{formatDate contentFile.frontmatter.date}}</p>
-    </header>
+File: layouts/teaser/template.hbs
+{{! /public/layouts/teaser/template.hbs }}
+{{!-- The context 'this' is a single content item. --}}
+<div class="mb3 pb3 bb b--black-10">
+    <a href="{{this.url}}" class="link black dim">
+        <h3 class="f4 fw6 mv0">{{this.frontmatter.title}}</h3>
+    </a>
+    <p class="f6 gray mt1 mb2">{{formatDate this.frontmatter.date}}</p>
     
-    {{{markdown contentFile.content}}}
-</article>
+    {{#if this.frontmatter.summary}}
+        <p class="lh-copy mid-gray mv0 f6">{{this.frontmatter.summary}}</p>
+    {{/if}}
+</div>
 
 ================================================================================
 
-File: layouts/post-card/template.hbs
-{{! /public/layouts/post-card/template.hbs }}
-{{!-- The context 'this' is a single content item (e.g., a blog post). --}}
-<a href="{{this.url}}" class="link dim db pa4 mb3 ba b--black-10 br2 shadow-hover bg-white black no-underline">
-    <h3 class="f3 fw6 mv0">{{this.frontmatter.title}}</h3>
-    <p class="f6 gray mt1 mb3">{{formatDate this.frontmatter.date}}</p>
-    
-    {{#if this.frontmatter.summary}}
-        <p class="lh-copy mid-gray mv0">{{this.frontmatter.summary}}</p>
+File: layouts/listing/layout.json
+{
+  "name": "Listing",
+  "version": "1.0.0",
+  "description": "A layout for pages that display lists of content, such as a blog index or project gallery.",
+  "layoutType": "view",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "listing.hbs", "type": "template" }
+  ],
+  "schema": {
+    "title": "Listing Page Options",
+    "type": "object",
+    "properties": {
+      "show_page_title": {
+        "type": "boolean",
+        "title": "Show Page Title",
+        "description": "Display the page's main title above the content list.",
+        "default": true
+      }
+    }
+  }
+}
+
+================================================================================
+
+File: layouts/listing/listing.hbs
+{{! /public/layouts/listing/listing.hbs }}
+{{!-- 
+  This layout is specifically for "View Pages". 
+  It receives the full page resolution context, including:
+  - contentFile: The .md file for this page itself (for title, intro content).
+  - viewItems: The array of items for the *current* page.
+  - pagination: The object with all pagination data (totalPages, currentPage, etc.).
+--}}
+<article class="w-100">
+    {{!-- 1. Render the page's own title from its .md file, if the user wants it. --}}
+    {{#if contentFile.frontmatter.show_page_title}}
+      <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
     {{/if}}
-</a>
+
+    {{!-- 2. Render any introductory content from the page's .md file. --}}
+    {{#if contentFile.content}}
+      <div class="lh-copy measure mb4">
+        {{{markdown contentFile.content}}}
+      </div>
+    {{/if}}
+    
+    {{!-- 
+      3. Render the list of items. 
+      The render_view helper is still used to select the correct view template (e.g., 'list' or 'grid').
+    --}}
+    {{#if viewItems}}
+        {{{render_view contentFile.frontmatter.view viewItems}}}
+    {{/if}}
+
+    {{!-- 
+      4. Render the pager. 
+      The pager helper gets the pagination object directly from this layout's context.
+      It will automatically render nothing if pagination is not needed.
+    --}}
+    {{{pager pagination}}}
+</article>
 
 ================================================================================
 
@@ -113,30 +160,16 @@ File: views/list/view.json
 {
   "name": "Simple List View",
   "version": "1.0.0",
-  "description": "Displays content from a collection in a standard, sorted list. Ideal for blogs.",
+  "description": "Displays content from a collection in a standard, sorted list.",
   "icon": "list-ordered",
   "files": [
     { "path": "view.json", "type": "manifest" },
-    { "path": "template.hbs", "type": "template", "name": "List Container" }
+    { "path": "template.hbs", "type": "template" }
   ],
   "schema": {
-    "title": "List View Configuration",
-    "description": "Configure how this list of content should be displayed.",
+    "title": "List-Specific Options",
     "type": "object",
     "properties": {
-      "source_collection": {
-        "type": "string",
-        "title": "Content Source",
-        "description": "Choose the collection to display items from.",
-        "ui:dataSource": "collections" 
-      },
-      "item_layout": {
-        "type": "string",
-        "title": "Item Display Layout",
-        "description": "Choose how each item in the list should look.",
-        "ui:dataSource": "layouts",       
-        "ui:layoutType": "collection-item"  
-      },
       "sort_by": {
         "type": "string",
         "title": "Sort items by",
@@ -151,10 +184,16 @@ File: views/list/view.json
         "enumNames": ["Descending", "Ascending"],
         "default": "desc"
       },
-      "limit": {
+      "show_pager": {
+        "type": "boolean",
+        "title": "Show Pagination Controls",
+        "description": "If enabled, the list will be split into multiple pages.",
+        "default": false
+      },
+      "items_per_page": {
         "type": "number",
-        "title": "Maximum Number of Items",
-        "description": "Leave blank to show all items.",
+        "title": "Items Per Page",
+        "description": "The number of items to show per page if pagination is enabled.",
         "default": 10
       }
     }
@@ -165,18 +204,16 @@ File: views/list/view.json
 
 File: views/list/template.hbs
 {{! /public/views/list/template.hbs }}
-{{!-- This template receives `items` (the queried data) and `config` (the view's settings) --}}
+{{!-- 
+  This template is now simpler. It only receives `items` and `itemLayoutId`.
+  It is no longer responsible for rendering the pager.
+--}}
 
 <div class="view-list">
   {{#if items}}
     <div class="item-container">
       {{#each items}}
-        {{!-- 
-          This is the powerful part. We call our custom helper, passing `this`
-          (the current item in the loop) as the context, and telling it
-          which layout to use by looking up the `item_layout` from the view's config.
-        --}}
-        {{{render_layout_for_item this layout=../config.item_layout}}}
+        {{{render_layout_for_item this layout=../itemLayoutId}}}
       {{/each}}
     </div>
   {{else}}

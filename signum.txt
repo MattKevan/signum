@@ -1,67 +1,87 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: ios, node_modules, public
+Excluded Directories: ios, public, node_modules
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
 File: types/index.ts
 // src/types/index.ts
 
+/**
+ * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
+ * Can represent a standard page or a page that also acts as a collection container.
+ */
 export interface StructureNode {
-  type: 'page' | 'collection'; 
+  type: 'page' | 'collection'; // A page is a file, a collection is a virtual folder.
   title: string;
-  path: string;
+  path: string; // For pages, this is a file path. For collections, a directory path.
   slug: string;
   navOrder?: number;
   children?: StructureNode[];
-  layout: string; 
-  itemLayout?: string; 
+  layout: string; // Layout for the page itself, or 'none' for a collection.
+  itemLayout?: string; // Default layout for children within this collection.
   [key: string]: unknown;
 }
 
-// Represents the theme configuration saved in the manifest.
+/**
+ * Represents the theme configuration saved in the manifest, including
+ * the theme's name and any user-defined overrides.
+ */
 export interface ThemeConfig {
-  name: string; 
+  name: string;
   config: {
     [key: string]: string | boolean | number;
   };
 }
 
-// Represents metadata for a layout, used in UI selectors.
+/**
+ * Represents metadata for a layout asset, used for populating UI selectors.
+ */
 export interface LayoutInfo {
   id: string;
   name: string;
-  type: 'page' | 'collection'; 
-  path: string; 
+  // 'page' is for standard content pages.
+  // 'view' is for pages that list content.
+  // 'item' is for rendering a single item within a view list.
+  type: 'page' | 'view' | 'item';
+  path: string;
   description?: string;
 }
 
-// Represents metadata for a theme, used in UI selectors.
+/**
+ * Represents metadata for a theme asset, used for populating UI selectors.
+ */
 export interface ThemeInfo {
   id: string;
   name: string;
-  path: string; 
+  path: string;
 }
 
-// --- NEW: Defines the structure for a remote data source query ---
+/**
+ * Defines the structure for a remote data source query (future feature).
+ */
 export interface DataSourceConfig {
   url: string;
   format: 'json' | 'csv';
   array_path?: string; // e.g., "results.items" for nested JSON
 }
 
+/**
+ * Defines the configuration for a View, stored in a page's frontmatter.
+ * It specifies the view template and the data source for the content list.
+ */
 export interface ViewConfig {
   template: string; // The ID of the /views/ asset to use (e.g., "list")
-  item_layout: string; // The ID of the /layouts/ asset for each item
-  
-  // Data can come from an internal collection OR an external source
   source_collection?: string; // The slug of an internal collection
-  data_source?: DataSourceConfig; // The config for a remote data source
+  data_source?: DataSourceConfig;
+  item_layout: string; // The layout for items in the list (e.g., "teaser")
+  item_page_layout: string; // The layout for the full page of an item (e.g., "page")
 
   // Standard query parameters
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
-  limit?: number;
+  show_pager?: boolean;
+  items_per_page?: number;
   
   // Future extensibility for filtering
   filter?: {
@@ -72,7 +92,7 @@ export interface ViewConfig {
 }
 
 /**
- * Represents metadata for a view, used in UI selectors.
+ * Represents metadata for a view asset, used for populating UI selectors.
  */
 export interface ViewInfo {
   id: string;      // The directory name, e.g., "list"
@@ -80,15 +100,19 @@ export interface ViewInfo {
   path: string;    // The directory name, same as id
 }
 
-// Represents the fields within a content file's frontmatter.
+/**
+ * Represents the fields within a content file's YAML frontmatter.
+ */
 export interface MarkdownFrontmatter {
   title: string;
-  layout: string; // The layout for this specific page's content
-  view?: ViewConfig; // <-- The new, optional view configuration block
-  [key: string]: unknown; 
+  layout: string; // The layout for this specific page's content.
+  view?: ViewConfig; // Optional view configuration block.
+  [key: string]: unknown;
 }
 
-// A raw markdown file parsed from storage.
+/**
+ * Represents a raw markdown file that has been parsed from storage into its constituent parts.
+ */
 export interface ParsedMarkdownFile {
   slug: string;
   path: string;
@@ -96,82 +120,60 @@ export interface ParsedMarkdownFile {
   content: string;
 }
 
-// Represents a raw file (e.g., theme CSS) from storage.
+/**
+ * Represents a generic raw file (e.g., theme CSS, layout JSON) read from storage.
+ */
 export interface RawFile {
   path: string;
   content: string;
 }
 
-// Represents the complete data for a single site held in memory.
+/**
+ * Represents the data required for rendering pager controls.
+ */
+export interface PaginationData {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    hasPrevPage: boolean;
+    hasNextPage: boolean;
+    prevPageUrl?: string;
+    nextPageUrl?: string;
+}
+
+/**
+ * Represents the main `manifest.json` file for a single site. This is the
+ * top-level configuration and site map.
+ */
+export interface Manifest {
+  siteId: string;
+  generatorVersion: string;
+  title: string;
+  description: string;
+  author?: string;
+  baseUrl?: string;
+  theme: ThemeConfig;
+  structure: StructureNode[];
+  layouts?: LayoutInfo[];
+  themes?: ThemeInfo[];
+}
+
+/**
+ * Represents the complete data for a single site when held in the application's memory.
+ */
 export interface LocalSiteData {
   siteId: string;
   manifest: Manifest;
-  contentFiles?: ParsedMarkdownFile[]; 
+  contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
-  // Future: Add viewFiles?: RawFile[]
+  // Future: viewFiles?: RawFile[]
 }
 
-// Represents the main site manifest.
-export interface Manifest {
-  siteId: string;
-  generatorVersion: string;
-  title: string;
-  description: string;
-  author?: string;
-  baseUrl?: string;
-  theme: ThemeConfig;
-  structure: StructureNode[];
-  layouts?: LayoutInfo[];
-  themes?: ThemeInfo[]; 
-}
-
-// Represents the theme configuration.
-export interface ThemeConfig {
-  name: string;
-  config: {
-    [key: string]: string | boolean | number;
-  };
-}
-
-export interface LayoutInfo {
-  id: string;
-  name: string;
-  type: 'page' | 'collection';
-  path: string; 
-  description?: string;
-}
-
-// A similar structure for custom themes
-export interface ThemeInfo {
-  id: string;
-  name: string;
-  path: string; 
-}
-
-export interface Manifest {
-  siteId: string;
-  generatorVersion: string;
-  title: string;
-  description: string;
-  author?: string;
-  baseUrl?: string;
-  theme: ThemeConfig;
-  structure: StructureNode[];
-  layouts?: LayoutInfo[];
-  themes?: ThemeInfo[]; 
-}
-
-// A raw markdown file parsed from storage.
-export interface ParsedMarkdownFile {
-  slug: string;
-  path: string;
-  frontmatter: MarkdownFrontmatter;
-  content: string;
-}
-
-// Represents a link used for rendering navigation menus.
-// This is a derived type, not part of the core manifest data.
+/**
+ * Represents a link used for rendering navigation menus.
+ * This is a derived type, not part of the core manifest data.
+ */
 export interface NavLinkItem {
   href: string;
   label: string;
@@ -179,31 +181,29 @@ export interface NavLinkItem {
   children?: NavLinkItem[];
 }
 
-export interface RawFile {
-  path: string;    // e.g., "layouts/custom/my-grid/layout.json" or "themes/custom/my-theme/theme.css"
-  content: string; // The raw text content of the file
+/**
+ * An enum to clearly distinguish the outcome of a page resolution attempt.
+ */
+export enum PageType {
+  SinglePage,
+  NotFound,
 }
 
-
-export interface LocalSiteData {
-  siteId: string;
-  manifest: Manifest;
-  contentFiles?: ParsedMarkdownFile[];
-  layoutFiles?: RawFile[];
-  themeFiles?: RawFile[];
-}
-
-// The state and actions for the Zustand store.
-export interface AppState {
-  sites: LocalSiteData[];
-  addSite: (site: LocalSiteData) => Promise<void>;
-  updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
-  addNewCollection: (siteId: string, name: string, slug: string, layout: string) => Promise<void>;
-  addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string, layoutId: string) => Promise<boolean>;
-  deleteSiteAndState: (siteId:string) => Promise<void>;
-  deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
-  getSiteById: (siteId: string) => LocalSiteData | undefined;
-}
+/**
+ * Represents the complete, resolved data package for a single page render.
+ * This object is the output of the pageResolver and the input for the themeEngine.
+ */
+export type PageResolutionResult = {
+  type: PageType.SinglePage;
+  pageTitle: string;
+  contentFile: ParsedMarkdownFile;
+  layoutPath: string;
+  viewItems?: ParsedMarkdownFile[];
+  pagination?: PaginationData;
+} | {
+  type: PageType.NotFound;
+  errorMessage: string;
+};
 
 ================================================================================
 
@@ -518,10 +518,10 @@ export const useAppStore = create<AppStore>()((...a) => ({
 ================================================================================
 
 File: core/state/slices/contentSlice.ts
-// src/stores/slices/contentSlice.ts
+// src/core/state/slices/contentSlice.ts
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
-import { ParsedMarkdownFile, StructureNode, LocalSiteData } from '@/types';
+import { ParsedMarkdownFile, StructureNode } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { getParentPath, findNodeByPath, findAndRemoveNode, updatePathsRecursively } from '@/core/services/fileTree.service';
 import { toast } from 'sonner';
@@ -531,6 +531,7 @@ import { stringifyToMarkdown } from '@/lib/markdownParser';
 export interface ContentSlice {
   /**
    * Creates a new content file or updates an existing one, and updates the manifest structure.
+   * This function recursively finds the correct parent node to ensure items are nested correctly.
    * @param siteId - The ID of the site.
    * @param filePath - The full path of the file to save (e.g., 'content/about.md').
    * @param rawMarkdownContent - The full string content of the file, including frontmatter.
@@ -557,6 +558,14 @@ export interface ContentSlice {
    * @returns {Promise<void>}
    */
   moveNode: (siteId: string, draggedNodePath: string, targetNodePath: string | null) => Promise<void>;
+
+  /**
+   * Updates only the content of a file in storage and state.
+   * Does not modify the manifest. Used for fast autosaving.
+   * @param siteId - The ID of the site.
+   * @param savedFile - The parsed markdown file object to save.
+   * @returns {Promise<void>}
+   */
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
 }
 
@@ -589,23 +598,57 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
 
     const newManifest = produce(site.manifest, draft => {
         let parentFound = false;
-        
-        const mapNode = (node: StructureNode): StructureNode => {
-            if (isNewFile && node.type === 'page' && node.path === getParentPath(filePath)) {
-                parentFound = true;
-                return { ...node, children: [...(node.children || []), { type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId }] };
-            }
-            if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
-                return { ...node, title: savedFile.frontmatter.title };
-            }
-            if (node.children) {
-                return { ...node, children: node.children.map(mapNode) };
-            }
-            return node;
-        };
-        draft.structure = draft.structure.map(mapNode);
+        const parentPath = getParentPath(filePath);
 
-        if (isNewFile && !parentFound && getParentPath(filePath) === 'content') {
+        // --- START OF FIX: RECURSIVE PARENT FINDER ---
+        /**
+         * Recursively traverses the structure to find the correct parent node
+         * and adds the new file as a child.
+         * @param nodes - The current array of nodes to search through.
+         * @returns A new array of nodes with the update applied.
+         */
+        const findAndUpdateParent = (nodes: StructureNode[]): StructureNode[] => {
+            return nodes.map(node => {
+                // Check if this node is the parent we're looking for.
+                // It can be a page or a collection.
+                if (isNewFile && node.path === parentPath) {
+                    parentFound = true;
+                    // Add the new file as a child to this node.
+                    return { 
+                        ...node, 
+                        children: [
+                            ...(node.children || []), 
+                            { 
+                                type: 'page', 
+                                title: savedFile.frontmatter.title, 
+                                path: filePath, 
+                                slug: savedFile.slug, 
+                                layout: layoutId 
+                            }
+                        ] 
+                    };
+                }
+
+                // If not the parent, check if it's the file being updated (for a title change).
+                if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
+                    return { ...node, title: savedFile.frontmatter.title };
+                }
+
+                // If this node has children, recurse into them.
+                if (node.children) {
+                    return { ...node, children: findAndUpdateParent(node.children) };
+                }
+
+                // Otherwise, return the node as is.
+                return node;
+            });
+        };
+
+        draft.structure = findAndUpdateParent(draft.structure);
+        // --- END OF FIX ---
+
+        // Handle creating a new top-level page (if parent is root 'content' folder)
+        if (isNewFile && !parentFound && parentPath === 'content') {
           draft.structure.push({ type: 'page', title: savedFile.frontmatter.title, path: filePath, slug: savedFile.slug, layout: layoutId, navOrder: draft.structure.length });
         }
     });
@@ -634,25 +677,26 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const site = get().getSiteById(siteId);
     if (!site) return;
 
+    // Use a recursive filter to remove the node from anywhere in the tree.
     const newManifest = produce(site.manifest, draft => {
         const filterStructure = (nodes: StructureNode[]): StructureNode[] => {
-            return nodes.filter(node => node.path !== filePath).map(node => {
-                if (node.children) {
-                    node.children = filterStructure(node.children);
-                }
-                return node;
-            });
+            return nodes
+                .filter(node => node.path !== filePath)
+                .map(node => {
+                    if (node.children) {
+                        node.children = filterStructure(node.children);
+                    }
+                    return node;
+                });
         };
         draft.structure = filterStructure(draft.structure);
     });
     
-    // Perform file system and manifest updates in parallel for efficiency.
     await Promise.all([
       localSiteFs.deleteContentFile(siteId, filePath),
       get().updateManifest(siteId, newManifest)
     ]);
     
-    // Update local state after operations are complete.
     set(produce((draft: SiteSlice) => {
         const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
         if (siteToUpdate?.contentFiles) {
@@ -665,30 +709,30 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const site = get().getSiteById(siteId);
     if (!site) {
       toast.error("Site data not found.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     const draggedNodeInfo = findNodeByPath(site.manifest.structure, draggedNodePath);
     if (!draggedNodeInfo || draggedNodeInfo.type !== 'page') {
       toast.error("Only pages can be moved.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     const targetNodeInfo = targetNodePath ? findNodeByPath(site.manifest.structure, targetNodePath) : null;
-    if (targetNodePath && (!targetNodeInfo || targetNodeInfo.type !== 'page')) {
-      toast.error("Pages can only be nested under other pages.");
-      return; // <-- FIX: Separate the toast call from the return.
+    if (targetNodePath && (!targetNodeInfo || (targetNodeInfo.type !== 'page' && targetNodeInfo.type !== 'collection'))) {
+      toast.error("Pages can only be nested under other pages or collections.");
+      return;
     }
 
     // 1. Remove the dragged node from the tree.
     const { found: draggedNode, tree: treeWithoutDraggedNode } = findAndRemoveNode([...site.manifest.structure], draggedNodePath);
     if (!draggedNode) {
       toast.error("An error occurred while moving the page.");
-      return; // <-- FIX: Separate the toast call from the return.
+      return;
     }
 
     // 2. Recursively update paths for the dragged node and its children.
-    const newParentPath = targetNodePath ? targetNodePath.replace(/\.md$/, '') : 'content';
+    const newParentPath = targetNodePath ? targetNodePath : 'content';
     const updatedNode = updatePathsRecursively(draggedNode, newParentPath);
 
     // 3. Collect all old and new paths for the file system move.
@@ -822,6 +866,7 @@ import { produce } from 'immer';
 import { StructureNode } from '@/types';
 import { SiteSlice } from './siteSlice';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+import { toast } from 'sonner';
 
 export interface CollectionSlice {
     addNewCollection: (siteId: string, name: string, slug: string) => Promise<void>;
@@ -843,11 +888,11 @@ export const createCollectionSlice: StateCreator<SiteSlice & CollectionSlice, []
         };
         
         const newManifest = produce(site.manifest, draft => {
-            // Add to a dedicated 'collections' array or keep in structure for organization
             draft.structure.push(newCollectionNode);
         });
         
         await get().updateManifest(siteId, newManifest);
+        toast.success(`Collection "${name.trim()}" created.`);
     },
 });
 
@@ -1947,8 +1992,6 @@ export type AssetFileType =
   | 'manifest' 
   | 'base'              // A theme's main HTML shell
   | 'template'          // A generic template (used by Views)
-  | 'page'              // A layout template for a standard content page
-  | 'collection-item'   // A layout template for an item within a list
   | 'partial' 
   | 'stylesheet' 
   | 'script' 
@@ -1976,7 +2019,7 @@ export interface ThemeManifest extends BaseAssetManifest {
 
 /** The structure of a layout.json file. */
 export interface LayoutManifest extends BaseAssetManifest {
-  layoutType: 'content-page' | 'collection-item';
+  layoutType: 'page' | 'view' | 'item';
   schema?: RJSFSchema; // Optional schema for a layout's own settings.
   uiSchema?: StrictUiSchema;
 }
@@ -2120,7 +2163,7 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
       return {
           name: layoutPath,
           version: '1.0.0',
-          layoutType: 'content-page',
+          layoutType: 'page',
           files: [],
           schema: baseSchemaData.schema,
           uiSchema: baseSchemaData.uiSchema, // Assign to the correct property
@@ -2145,18 +2188,17 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
 /**
  * Gets a list of all available views (core and eventually custom).
  * For now, it returns a hardcoded list of core views from /public/views/.
- * @param {Manifest | undefined} manifest - The site's manifest (for future custom views).
  * @returns {ViewInfo[]} A list of views for use in UI selectors.
  */
-export function getAvailableViews(manifest?: Manifest): ViewInfo[] {
-  // In the future, this could be expanded to scan for custom views.
+// FIX: The unused '_manifest' parameter has been completely removed from the function signature.
+export function getAvailableViews(): ViewInfo[] {
+  // In the future, this could be expanded to scan for custom views in a manifest.
+  // The manifest would be passed back in as a parameter at that time.
   const coreViews: ViewInfo[] = [
-    { id: 'list', name: 'Simple List', path: 'list' },
-    // Add other views like 'grid' here as they are created.
+    { id: 'list', name: 'Simple List View', path: 'list' },
   ];
   return coreViews;
 }
-
 /**
  * Gets a list of the full manifest objects for all available layouts,
  * optionally filtered by a specific layout type.
@@ -2195,7 +2237,8 @@ import JSZip from 'jszip';
 import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
-import { resolvePageContent, PageType } from './pageResolver.service';
+import { resolvePageContent } from './pageResolver.service';
+import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service'; 
@@ -2253,6 +2296,7 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
 /**
  * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
  * This function orchestrates HTML generation, source file packaging, asset bundling, and feed creation.
+ * It is now "pagination-aware" and will generate multiple HTML files for paginated views.
  *
  * @param {LocalSiteData} siteData - The complete, in-memory representation of the site.
  * @returns {Promise<Blob>} A promise that resolves to a Blob containing the ZIP archive.
@@ -2264,56 +2308,82 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
-        const slugArray = (node.type === 'collection') ? [node.slug] : node.path.replace(/^content\//, '').replace(/\.md$/, '').split('/').filter(Boolean);
-        const resolution = resolvePageContent(siteData, slugArray);
-        if (resolution.type === PageType.NotFound) continue;
-        
-        const outputPath = getUrlForNode({ ...node, type: node.type as 'page' | 'collection' }, true);
-        
-        // Calculate the relative path depth for portable asset links (e.g., '../' or './').
-        const depth = (outputPath.match(/\//g) || []).length;
-        const relativePrefix = '../'.repeat(depth);
+        if (node.type !== 'page') continue; // Only pages can be rendered.
 
-        // Render the final HTML, passing the correct export options.
-        const finalHtml = await render(siteData, resolution, {
-            siteRootPath: '/',
-            isExport: true,
-            relativeAssetPath: relativePrefix
-        });
-        zip.file(outputPath, finalHtml);
+        // Resolve page content once to check for pagination
+        const initialResolution = resolvePageContent(siteData, node.slug.split('/'));
+
+        if (initialResolution.type === PageType.NotFound) continue;
+
+        const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
+
+        if (isPaginated) {
+            // --- Handle paginated views ---
+            const totalPages = initialResolution.pagination!.totalPages;
+            for (let i = 1; i <= totalPages; i++) {
+                const pageNumber = i;
+                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), pageNumber);
+                
+                if (resolutionForPage.type === PageType.NotFound) continue;
+
+                // Generate the correct file path for this specific page number
+                const outputPath = getUrlForNode(node, true, pageNumber);
+                const depth = (outputPath.match(/\//g) || []).length;
+                const relativePrefix = '../'.repeat(depth > 0 ? depth -1 : 0);
+
+                const finalHtml = await render(siteData, resolutionForPage, {
+                    siteRootPath: '/',
+                    isExport: true,
+                    relativeAssetPath: relativePrefix
+                });
+                zip.file(outputPath, finalHtml);
+            }
+        } else {
+            // --- Standard logic for non-paginated pages ---
+            const outputPath = getUrlForNode(node, true);
+            const depth = (outputPath.match(/\//g) || []).length;
+            const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
+
+            const finalHtml = await render(siteData, initialResolution, {
+                siteRootPath: '/',
+                isExport: true,
+                relativeAssetPath: relativePrefix
+            });
+            zip.file(outputPath, finalHtml);
+        }
     }
 
     // --- 2. Add _signum Source Content and Asset Files ---
     const signumFolder = zip.folder('_signum');
     if (signumFolder) {
-        // Add the main site manifest and all markdown content files.
         signumFolder.file('manifest.json', JSON.stringify(manifest, null, 2));
         (siteData.contentFiles ?? []).forEach(file => {
             signumFolder.file(file.path, stringifyToMarkdown(file.frontmatter, file.content));
         });
     }
 
-    // Bundle the active theme and all layouts used by the site.
     const activeThemePath = manifest.theme.name;
-    const uniqueLayoutPaths = [...new Set(allRenderableNodes.map(n => n.layout))];
+    const uniqueLayoutPaths = [...new Set(allRenderableNodes.map(n => n.layout).filter(Boolean))];
 
     await bundleAsset(zip, siteData, 'theme', activeThemePath);
     for (const layoutPath of uniqueLayoutPaths) {
-        await bundleAsset(zip, siteData, 'layout', layoutPath);
+        if (layoutPath !== 'none') {
+             await bundleAsset(zip, siteData, 'layout', layoutPath);
+        }
     }
     
-    // --- 3. Generate RSS Feed and Sitemap with Absolute URLs ---
+    // --- 3. Generate RSS Feed and Sitemap (these should only link to the first page of a list) ---
     const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     const contentFiles = siteData.contentFiles ?? [];
     const allPageNodes = allRenderableNodes.filter((n: StructureNode): n is StructureNode & { type: 'page' } => n.type === 'page');
     type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
 
-    // Create RSS items
-    const rssItems = allPageNodes.map((pNode): RssItemData | null => {
+    const rssItems = allPageNodes
+        .map((pNode): RssItemData | null => {
             const file = contentFiles.find(f => f.path === pNode.path);
             return file ? { node: pNode, file } : null;
         })
-        .filter((item): item is RssItemData => item !== null && !!item.file.frontmatter.date)
+        .filter((item): item is RssItemData => item !== null && !!item.file.frontmatter.date && !item.file.frontmatter.view) // Exclude view pages from RSS items
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
         .slice(0, 20)
         .map((item) => {
@@ -2327,7 +2397,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(manifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(manifest.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrl).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
     zip.file('rss.xml', rssFeed);
     
-    // Create Sitemap URLs
     const sitemapUrls = allPageNodes.map((node) => {
         const file = contentFiles.find(f => f.path === node.path);
         const relativeUrl = getUrlForNode(node, true);
@@ -2346,33 +2415,47 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 ================================================================================
 
 File: core/services/urlUtils.service.ts
-// src/lib/urlUtils.ts
+// src/core/services/urlUtils.service.ts
 
 /**
- * Generates a URL for a given site node, correctly handling the 'index' case
- * and creating paths appropriate for either static export or live preview.
+ * Generates a URL for a given site node, correctly handling index cases,
+ * static export paths, and pagination routes.
  * 
  * @param node - An object representing a node in the site structure.
  * @param isExport - A boolean indicating if the URL is for a static export.
+ * @param pageNumber - Optional page number for generating paginated links.
  * @returns A string representing the URL segment or full filename.
  */
 export function getUrlForNode(
-  node: { slug: string, path: string, type: 'page' | 'collection' },
-  isExport: boolean
+  node: { slug: string, path:string, type: 'page' | 'collection' },
+  isExport: boolean,
+  pageNumber?: number
 ): string {
     const isRootIndex = node.slug === 'index' && node.type === 'page' && !node.path.includes('/');
 
     if (isExport) {
         // --- EXPORT PATHS ---
+        const baseName = node.path.replace(/^content\//, '').replace(/\.md$/, '');
+
+        if (pageNumber && pageNumber > 1) {
+            // For paginated routes, e.g., /blog/page/2.html
+            return `${baseName}/page/${pageNumber}/index.html`;
+        }
         if (isRootIndex) return 'index.html';
         if (node.type === 'collection') return `${node.slug}/index.html`;
-        // Generates "about.html" or "posts/my-post.html"
-        return `${node.path.replace(/^content\//, '').replace(/\.md$/, '')}.html`;
+        
+        // For a view page that is the first page of a paginated list
+        if (node.path.endsWith('.md')) {
+            return `${baseName}/index.html`;
+        }
+        return `${baseName}.html`;
     }
 
     // --- LIVE PREVIEW PATH SEGMENTS ---
-    if (isRootIndex) return ''; // The root path segment is empty
-    // Generates "about" or "posts/my-post", without leading slash
+    if (pageNumber && pageNumber > 1) {
+        return `${node.slug}/page/${pageNumber}`;
+    }
+    if (isRootIndex) return '';
     return node.path.replace(/^content\//, '').replace(/\.md$/, '').replace(/\/index$/, '');
 }
 
@@ -2487,8 +2570,6 @@ export async function getSiteContentFiles(siteId: string): Promise<ParsedMarkdow
     return contentFiles ?? [];
 }
 
-// --- START OF NEW FUNCTIONS TO FIX THE ERRORS ---
-
 /**
  * Fetches the custom layout files for a single site by its ID.
  * @param {string} siteId The unique identifier for the site.
@@ -2508,9 +2589,6 @@ export async function getSiteThemeFiles(siteId: string): Promise<RawFile[]> {
     const themeFiles = await siteThemeFilesStore.getItem<RawFile[]>(siteId);
     return themeFiles ?? [];
 }
-
-// --- END OF NEW FUNCTIONS ---
-
 
 export async function saveSite(siteData: LocalSiteData): Promise<void> {
   await Promise.all([
@@ -2647,32 +2725,22 @@ export function generateNavLinks(
 ================================================================================
 
 File: core/services/pageResolver.service.ts
-// src/lib/pageResolver.ts
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ViewConfig } from '@/types';
+// src/core/services/pageResolver.service.ts
 
-export enum PageType {
-  SinglePage,
-  NotFound,
-}
-
-export type PageResolutionResult = {
-  type: PageType.SinglePage;
-  pageTitle: string;
-  contentFile: ParsedMarkdownFile;
-  layoutPath: string;
-  viewItems?: ParsedMarkdownFile[];
-} | {
-  type: PageType.NotFound;
-  errorMessage: string;
-};
+// FIX: Removed 'StructureNode' import, added 'PageResolutionResult' and 'PageType'.
+import { LocalSiteData, ParsedMarkdownFile, ViewConfig, PaginationData, PageResolutionResult, PageType } from '@/types';
+import { findNodeByPath } from './fileTree.service';
+import { getUrlForNode } from './urlUtils.service';
 
 /**
- * Executes a declarative query defined in a page's frontmatter.
- * This is a pure function that takes the config and the full site data,
- * and returns a processed array of content items.
+ * Executes a declarative query from a view's configuration.
+ * This pure function takes the config and site data, finds the source collection,
+ * and returns a fully sorted array of ALL matching content items.
+ * Pagination/limiting is handled by the main resolver.
+ * 
  * @param {ViewConfig} viewConfig - The configuration object from the page's frontmatter.
  * @param {LocalSiteData} siteData - The complete data for the site.
- * @returns {ParsedMarkdownFile[]} An array of content files that match the query.
+ * @returns {ParsedMarkdownFile[]} A sorted array of all content files that match the query.
  */
 function executeQuery(viewConfig: ViewConfig, siteData: LocalSiteData): ParsedMarkdownFile[] {
   if (!viewConfig.source_collection || !siteData.contentFiles) {
@@ -2689,100 +2757,115 @@ function executeQuery(viewConfig: ViewConfig, siteData: LocalSiteData): ParsedMa
   }
 
   const childPaths = new Set(collectionNode.children.map(child => child.path));
-  let items = siteData.contentFiles.filter(file => childPaths.has(file.path));
+  
+  // FIX: 'items' is never reassigned, so it can be 'const'.
+  const items = siteData.contentFiles.filter(file => childPaths.has(file.path));
 
+  // --- Sorting Logic ---
   const sortBy = viewConfig.sort_by || 'date';
   const sortOrder = viewConfig.sort_order || 'desc';
   const orderModifier = sortOrder === 'desc' ? -1 : 1;
 
-  // --- START OF FIX: ROBUST SORTING LOGIC ---
-  items.sort((a, b) => {
+  // Note: We use sort() which mutates the array in place. To be safer with const, we can create a copy.
+  return [...items].sort((a, b) => {
     const valA = a.frontmatter[sortBy];
     const valB = b.frontmatter[sortBy];
 
-    // Handle sorting by date (most common case)
     if (sortBy === 'date') {
         const dateA = valA ? new Date(valA as string).getTime() : 0;
         const dateB = valB ? new Date(valB as string).getTime() : 0;
-        if (isNaN(dateA) || isNaN(dateB)) return 0; // Don't sort invalid dates
+        if (isNaN(dateA) || isNaN(dateB)) return 0;
         return (dateA - dateB) * orderModifier;
     }
 
-    // Handle sorting by string (e.g., title)
     if (typeof valA === 'string' && typeof valB === 'string') {
         return valA.localeCompare(valB) * orderModifier;
     }
 
-    // Handle sorting by number
     if (typeof valA === 'number' && typeof valB === 'number') {
         return (valA - valB) * orderModifier;
     }
-
-    // Fallback: if types are mixed or unknown, don't sort them relative to each other.
     return 0;
   });
-  // --- END OF FIX ---
-
-  if (viewConfig.limit) {
-    items = items.slice(0, viewConfig.limit);
-  }
-
-  return items;
 }
 
 
 /**
  * Finds the correct page to render based on a URL slug path.
- * If the page has a 'view' block in its frontmatter, this function will also
- * execute the query and attach the results.
+ * If the page is a View Page, this function executes the query, handles pagination,
+ * and attaches the results to the final resolution object.
+ *
  * @param {LocalSiteData} siteData - The complete data for the site.
- * @param {string[]} slugArray - The URL segments.
- * @returns {PageResolutionResult} An object containing all data needed to render the page.
+ * @param {string[]} slugArray - The URL segments used for path matching.
+ * @param {number} [pageNumber=1] - The current page number for pagination, typically from a URL query param.
+ * @returns {PageResolutionResult} An object containing all data needed to render the page or a not-found error.
  */
-export function resolvePageContent(siteData: LocalSiteData, slugArray: string[]): PageResolutionResult {
-  // This helper should be implemented fully for recursive search
-  const findNodeBySlugPath = (nodes: StructureNode[], slugs: string[]): StructureNode | null => {
-    if (!slugs || slugs.length === 0) {
-      // Find the root index page
-      return nodes.find(node => node.slug === 'index' && node.type === 'page') || null;
+export function resolvePageContent(
+    siteData: LocalSiteData, 
+    slugArray: string[],
+    pageNumber: number = 1
+): PageResolutionResult {
+    const pathSuffix = slugArray.length > 0 ? slugArray.join('/') : 'index';
+    const potentialPagePath = `content/${pathSuffix}.md`;
+
+    const targetNode = findNodeByPath(siteData.manifest.structure, potentialPagePath);
+
+    if (!targetNode || targetNode.type !== 'page') {
+        return { 
+            type: PageType.NotFound, 
+            errorMessage: `No page found at the path /${slugArray.join('/')}. Collections themselves are not directly viewable.` 
+        };
+    }
+    
+    const contentFile = siteData.contentFiles?.find(f => f.path === targetNode.path);
+    if (!contentFile) {
+        return { 
+            type: PageType.NotFound, 
+            errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.` 
+        };
+    }
+
+    let viewItems: ParsedMarkdownFile[] | undefined = undefined;
+    let pagination: PaginationData | undefined = undefined;
+
+    if (contentFile.frontmatter.view) {
+        const viewConfig = contentFile.frontmatter.view;
+        const allItems = executeQuery(viewConfig, siteData);
+
+        if (viewConfig.show_pager && viewConfig.items_per_page && viewConfig.items_per_page > 0) {
+            const totalItems = allItems.length;
+            const itemsPerPage = viewConfig.items_per_page;
+            const totalPages = Math.ceil(totalItems / itemsPerPage);
+            const currentPage = Math.max(1, Math.min(pageNumber, totalPages));
+
+            const startIndex = (currentPage - 1) * itemsPerPage;
+            viewItems = allItems.slice(startIndex, startIndex + itemsPerPage);
+
+            const pageUrlSegment = getUrlForNode({ ...targetNode, type: 'page' }, false);
+            const baseUrl = `/${pageUrlSegment}`;
+
+            pagination = {
+                currentPage,
+                totalPages,
+                totalItems,
+                hasPrevPage: currentPage > 1,
+                hasNextPage: currentPage < totalPages,
+                prevPageUrl: currentPage > 1 ? `${baseUrl}?page=${currentPage - 1}` : undefined,
+                nextPageUrl: currentPage < totalPages ? `${baseUrl}?page=${currentPage + 1}` : undefined,
+            };
+        } else {
+            viewItems = allItems;
+        }
     }
   
-    let currentNodes = nodes;
-    let foundNode: StructureNode | null = null;
-  
-    for (const slug of slugs) {
-      foundNode = currentNodes.find(node => node.slug === slug) ?? null;
-      if (!foundNode) return null; // Path segment not found
-      currentNodes = foundNode.children || [];
-    }
-  
-    return foundNode;
-  };
-
-  const targetNode = findNodeBySlugPath(siteData.manifest.structure, slugArray);
-
-  if (!targetNode || targetNode.type !== 'page') {
-    return { type: PageType.NotFound, errorMessage: `Content page not found for path: /${slugArray.join('/')}` };
-  }
-
-  const contentFile = siteData.contentFiles?.find(f => f.path === targetNode.path);
-  if (!contentFile) {
-    return { type: PageType.NotFound, errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.` };
-  }
-
-  let viewItems: ParsedMarkdownFile[] | undefined = undefined;
-
-  if (contentFile.frontmatter.view) {
-    viewItems = executeQuery(contentFile.frontmatter.view, siteData);
-  }
-
-  return {
-    type: PageType.SinglePage,
-    pageTitle: contentFile.frontmatter.title,
-    contentFile: contentFile,
-    layoutPath: contentFile.frontmatter.layout,
-    viewItems: viewItems,
-  };
+    return {
+      type: PageType.SinglePage,
+      pageTitle: contentFile.frontmatter.title,
+      contentFile: contentFile,
+      layoutPath: contentFile.frontmatter.layout,
+      viewItems: viewItems,
+      pagination: pagination,
+    };
 }
 
 ================================================================================
@@ -2919,24 +3002,24 @@ export function updatePathsRecursively(node: StructureNode, newParentPath: strin
 ================================================================================
 
 File: core/services/theme-engine/themeEngine.service.ts
-// src/lib/themeEngine.ts
+// src/core/services/theme-engine/themeEngine.service.ts
 import Handlebars from 'handlebars';
-import { PageResolutionResult, PageType } from '@/core/services/pageResolver.service';
-import { LocalSiteData, LayoutInfo, ViewInfo, Manifest } from '@/types';
+import { 
+    LocalSiteData, 
+    PageResolutionResult, 
+    PageType 
+} from '@/types';
 import {
     getJsonAsset,
-    getLayoutManifest,
     getAvailableLayouts,
     getAvailableViews,
     ThemeManifest, 
-    LayoutManifest, 
     ViewManifest,
     getAssetContent,
     AssetFile,
 } from '@/core/services/configHelpers.service';
 import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
-import { getRelativePath } from '@/core/services/relativePaths.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 
 // --- Type Definitions ---
@@ -2947,13 +3030,8 @@ export interface RenderOptions {
 }
 
 // --- Helper Registration ---
-
-/**
- * Discovers and registers all core Handlebars helpers from the theme-helpers directory.
- * @param {LocalSiteData} siteData - The full site data, passed to any helper that needs it.
- */
 function registerCoreHelpers(siteData: LocalSiteData) {
-    // A flag to prevent re-registering in the same session, improving performance.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
     for (const helperFactory of coreHelpers) {
@@ -2962,36 +3040,38 @@ function registerCoreHelpers(siteData: LocalSiteData) {
             Handlebars.registerHelper(helperName, helperMap[helperName]);
         }
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (Handlebars as any)._helpersRegistered = true;
 }
 
 /**
  * Pre-compiles and caches all available layout and view templates by registering them as Handlebars partials.
- * This is crucial because it allows helpers like `render_view` and `render_layout_for_item` to synchronously
- * access templates during a render operation using dynamic partial syntax `{{> (lookup . 'my_variable') }}`.
+ * This is crucial for performance and allows helpers to synchronously access templates during rendering.
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
-    // Clear old partials to ensure a clean state for each render.
     for (const partial in Handlebars.partials) {
-        Handlebars.unregisterPartial(partial);
+        if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
+            Handlebars.unregisterPartial(partial);
+        }
     }
 
     const { manifest } = siteData;
     const allLayouts = await getAvailableLayouts(siteData); 
-    const allViews = getAvailableViews(siteData.manifest); // This one is still sync, which is fine.
+    const allViews = getAvailableViews();
 
     const assetPromises: Promise<void>[] = [];
 
-     // Pre-cache all layout templates
-    for (const layoutManifest of allLayouts) { // Loop over the full manifest objects
+    // Pre-cache all layout templates
+    for (const layoutManifest of allLayouts) {
         const promise = (async () => {
             if (layoutManifest?.files) {
                 for (const file of layoutManifest.files) {
-                    if (file.type === 'collection-item' || file.type === 'page') {
+                    // FIX: The type for a layout's main .hbs file is 'template'.
+                    // This was the source of the "not found" error.
+                    if (file.type === 'template') {
                         const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.name, file.path);
                         if (templateSource) {
-                           // Use the layout's name (its ID) as the partial key
                            Handlebars.registerPartial(layoutManifest.name, templateSource);
                         }
                     }
@@ -3045,12 +3125,10 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   if (!siteData.contentFiles) {
     return 'Error: Site content has not been loaded. Cannot render page.';
   }
-  // Type guard to handle the NotFound case safely.
   if (resolution.type === PageType.NotFound) {
       return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
   }
 
-  // From here, TypeScript knows `resolution` is of type `SinglePage`.
   const { manifest } = siteData;
   const themePath = manifest.theme.name;
   const layoutPath = resolution.layoutPath;
@@ -3060,7 +3138,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
-  const baseUrl = options.isExport ? '' : (typeof window !== 'undefined' ? window.location.origin : '');
+  const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
   let styleOverrides = '';
   if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) {
@@ -3097,6 +3175,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       year: new Date().getFullYear(),
       headContext: headContext,
       body: new Handlebars.SafeString(bodyHtml),
+      ...resolution
   });
 }
 
@@ -3287,38 +3366,95 @@ export type SignumHelper = (siteData: LocalSiteData) => Record<string, SignumHel
 
 ================================================================================
 
-File: core/services/theme-engine/helpers/renderView.helper.ts
-// src/lib/theme-helpers/renderView.helper.ts
+File: core/services/theme-engine/helpers/pager.helper.ts
+// src/core/services/theme-engine/helpers/pager.helper.ts
+
 import Handlebars from 'handlebars';
-import { SignumHelper } from './types'; // <-- FIX: Correct import path
-import { ViewConfig, ParsedMarkdownFile } from '@/types'; // <-- FIX: Correct import path
+import { SignumHelper } from './types';
+import { PaginationData } from '@/types';
+
+/**
+ * Renders a complete pagination control component.
+ * It generates 'Previous' and 'Next' links and a 'Page X of Y' indicator.
+ * The links are disabled when not applicable (e.g., on the first or last page).
+ * 
+ * @param {PaginationData} pagination - The pagination data object from the page resolver.
+ * @returns {Handlebars.SafeString} The full HTML for the pager component.
+ *
+ * @example
+ * {{{pager pagination}}}
+ */
+export const pagerHelper: SignumHelper = () => ({
+  pager: function(pagination: PaginationData | undefined): Handlebars.SafeString {
+    if (!pagination || pagination.totalPages <= 1) {
+      return new Handlebars.SafeString('');
+    }
+
+    const prevLink = pagination.hasPrevPage
+      ? `<a href="${pagination.prevPageUrl}" class="link dim br-pill ph3 pv2 ba b--black-10 black">‹ Previous</a>`
+      : `<span class="br-pill ph3 pv2 ba b--black-10 moon-gray o-50">‹ Previous</span>`;
+
+    const nextLink = pagination.hasNextPage
+      ? `<a href="${pagination.nextPageUrl}" class="link dim br-pill ph3 pv2 ba b--black-10 black">Next ›</a>`
+      : `<span class="br-pill ph3 pv2 ba b--black-10 moon-gray o-50">Next ›</span>`;
+    
+    const pageIndicator = `<div class="f6 mid-gray">Page ${pagination.currentPage} of ${pagination.totalPages}</div>`;
+
+    const pagerHtml = `
+      <div class="flex items-center justify-between mt4 pt3 bt b--black-10">
+        <div>${prevLink}</div>
+        <div>${pageIndicator}</div>
+        <div>${nextLink}</div>
+      </div>
+    `;
+
+    return new Handlebars.SafeString(pagerHtml);
+  }
+});
+
+================================================================================
+
+File: core/services/theme-engine/helpers/renderView.helper.ts
+// src/core/services/theme-engine/helpers/renderView.helper.ts
+import Handlebars from 'handlebars';
+import { SignumHelper } from './types';
+import { ViewConfig, ParsedMarkdownFile } from '@/types';
+import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 export const renderViewHelper: SignumHelper = (siteData) => ({
   /**
    * Renders a view template with a given set of items.
    * This is called from a page layout to render the view section.
-   * @example {{{render_view contentFile.frontmatter.view viewItems}}}
+   * The pagination is handled by the parent layout, not this helper.
    */
   render_view: function(viewConfig: ViewConfig, viewItems: ParsedMarkdownFile[]) {
     if (!viewConfig || !viewConfig.template || !viewItems) {
-      return '';
+      return new Handlebars.SafeString('');
     }
     
-    // The themeEngine has pre-cached and registered the view template as a partial
-    // under its ID (e.g., 'list'). We can now look it up synchronously.
+    // Find the view template (e.g., 'list.hbs') which is pre-cached as a partial.
     const viewTemplate = Handlebars.partials[viewConfig.template];
 
     if (viewTemplate) {
-      // The context passed to the view template includes the items and the config.
+      const collectionSlug = viewConfig.source_collection;
+      const collectionNode = collectionSlug 
+        ? siteData.manifest.structure.find(n => n.type === 'collection' && n.slug === collectionSlug) 
+        : undefined;
+
+      // Get the authoritative layout for each item from the collection's settings.
+      const itemLayoutId = collectionNode?.itemLayout || DEFAULT_PAGE_LAYOUT_PATH;
+
+      // The context passed to the view template is now simpler.
       const context = {
         items: viewItems,
-        config: viewConfig
+        config: viewConfig,
+        itemLayoutId: itemLayoutId,
       };
       return new Handlebars.SafeString(viewTemplate(context));
     }
     
     console.warn(`[render_view] View template "${viewConfig.template}" not found.`);
-    return `<!-- View template "${viewConfig.template}" not found -->`;
+    return new Handlebars.SafeString(`<!-- View template "${viewConfig.template}" not found -->`);
   }
 });
 
@@ -4312,14 +4448,11 @@ import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
-import GroupedFrontmatterForm from '@/components/publishing/GroupedFrontmatterFields';
 import { toast } from 'sonner';
 import { FileText, PlusCircle } from 'lucide-react';
-import type { StructureNode, MarkdownFrontmatter, LocalSiteData } from '@/types';
-import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
-import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
-type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
+import type { StructureNode, MarkdownFrontmatter } from '@/types';
+import { getAvailableLayouts, LayoutManifest } from '@/core/services/configHelpers.service';
+import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
 
 /**
  * A memoized sub-component that renders the right sidebar UI for editing collection settings.
@@ -4328,22 +4461,18 @@ type StableSiteDataForSidebar = Pick<LocalSiteData, 'manifest' | 'layoutFiles' |
 const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar({
     collectionNodeData,
     availableLayouts,
-    layoutManifest,
     onLayoutChange,
     onPrimaryFieldsChange,
-    onFormChange,
 }: {
     collectionNodeData: StructureNode,
     availableLayouts: LayoutManifest[],
-    layoutManifest: LayoutManifest | null,
     onLayoutChange: (newLayoutPath: string) => void,
     onPrimaryFieldsChange: (data: Partial<MarkdownFrontmatter>) => void,
-    onFormChange: (data: Partial<StructureNode>) => void,
 }) {
-    const { title, description, ...otherFields } = collectionNodeData;
+    // Extract only the fields this component cares about for its own state
     const primaryFields = {
-        title: typeof title === 'string' ? title : '',
-        description: typeof description === 'string' ? description : '',
+        title: typeof collectionNodeData.title === 'string' ? collectionNodeData.title : '',
+        description: typeof collectionNodeData.description === 'string' ? collectionNodeData.description : '',
     };
 
     return (
@@ -4359,9 +4488,9 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
                 </div>
                 <div className="border-t pt-4 space-y-4">
                     <div>
-                        <Label htmlFor="layout-select">Default Item Layout</Label>
+                        <Label htmlFor="item-layout-select">Default Item Layout</Label>
                         <Select value={collectionNodeData.itemLayout} onValueChange={onLayoutChange}>
-                            <SelectTrigger id="layout-select" className="mt-1">
+                            <SelectTrigger id="item-layout-select" className="mt-1">
                                 <SelectValue placeholder="Select a layout..." />
                             </SelectTrigger>
                             <SelectContent>
@@ -4370,14 +4499,17 @@ const CollectionSettingsSidebar = React.memo(function CollectionSettingsSidebar(
                                 ))}
                             </SelectContent>
                         </Select>
+                        <p className="text-sm text-muted-foreground pt-2">
+                          This layout will be the default for new items created in this collection.
+                        </p>
                     </div>
-                    {/* The collection itself no longer has a primary layout schema */}
-                    <p className="text-sm text-muted-foreground pt-4">This collection is an organizational folder. Its appearance is determined by the "Views" that display its content.</p>
+                    <p className="text-sm text-muted-foreground pt-4">This collection is an organizational folder. Its appearance on the site is determined by the &quot;View Pages&quot; that display its content.</p>
                 </div>
             </div>
         </div>
     );
 });
+CollectionSettingsSidebar.displayName = 'CollectionSettingsSidebar';
 
 
 /**
@@ -4392,7 +4524,12 @@ function EditCollectionPageInternal() {
     
     // --- Context and Store Hooks ---
     const { hasUnsavedChanges, setHasUnsavedChanges, registerSaveAction } = useEditor();
-    const { setLeftSidebarContent, setRightSidebarContent } = useUIStore((state) => state.sidebar);
+    const { 
+        setLeftSidebarContent, 
+        setRightSidebarContent,
+        leftSidebarContent,
+        rightSidebarContent
+    } = useUIStore((state) => state.sidebar);
     
     const site = useAppStore(state => state.getSiteById(siteId));
     const updateManifest = useAppStore(state => state.updateManifest);
@@ -4400,11 +4537,13 @@ function EditCollectionPageInternal() {
     // --- Component State ---
     const [isDataReady, setIsDataReady] = useState(false);
     const [collectionNodeData, setCollectionNodeData] = useState<StructureNode | null>(null);
-    const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
     const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
     const collectionPath = `content/${collectionName}`;
-    const originalCollectionNode = useMemo(() => site?.manifest.structure.find((node: StructureNode) => node.path === collectionPath), [site?.manifest, collectionPath]);
+    const originalCollectionNode = useMemo(() => 
+        site?.manifest.structure.find((node: StructureNode) => node.path === collectionPath && node.type === 'collection'), 
+        [site?.manifest, collectionPath]
+    );
     
     useEffect(() => {
         if (site && originalCollectionNode) {
@@ -4419,11 +4558,6 @@ function EditCollectionPageInternal() {
 
 
     // --- Handlers (Memoized for performance) ---
-    const handleFormChange = useCallback((data: Partial<StructureNode>) => {
-        setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
-        setHasUnsavedChanges(true);
-    }, [setHasUnsavedChanges]);
-
     const handlePrimaryFieldsChange = useCallback((data: Partial<MarkdownFrontmatter>) => {
         setCollectionNodeData(prev => prev ? { ...prev, ...data } : null);
         setHasUnsavedChanges(true);
@@ -4461,22 +4595,11 @@ function EditCollectionPageInternal() {
     // --- Effects for loading schemas and setting up sidebars ---
     useEffect(() => {
         if(site) {
-            // Asynchronously fetch layouts and filter them by the correct type.
-            getAvailableLayouts(site, 'collection-item').then(layouts => {
+            getAvailableLayouts(site, 'item').then(layouts => {
                 setAvailableLayouts(layouts);
             });
         }
     }, [site]);
-
-    useEffect(() => {
-        async function loadSchema() {
-            if (site && collectionNodeData?.itemLayout) {
-                const loadedManifest = await getLayoutManifest(site, collectionNodeData.itemLayout);
-                setLayoutManifest(loadedManifest);
-            }
-        }
-        loadSchema();
-    }, [collectionNodeData?.itemLayout, site]);
 
     useEffect(() => {
         setLeftSidebarContent(<LeftSidebar />);
@@ -4485,10 +4608,8 @@ function EditCollectionPageInternal() {
                 <CollectionSettingsSidebar
                     collectionNodeData={collectionNodeData}
                     availableLayouts={availableLayouts}
-                    layoutManifest={layoutManifest}
                     onLayoutChange={handleLayoutChange}
                     onPrimaryFieldsChange={handlePrimaryFieldsChange}
-                    onFormChange={handleFormChange}
                 />
             );
         } else {
@@ -4498,7 +4619,7 @@ function EditCollectionPageInternal() {
             setLeftSidebarContent(null);
             setRightSidebarContent(null);
         };
-    }, [collectionNodeData, availableLayouts, layoutManifest, handleLayoutChange, handlePrimaryFieldsChange, handleFormChange, setLeftSidebarContent, setRightSidebarContent]);
+    }, [collectionNodeData, availableLayouts, handleLayoutChange, handlePrimaryFieldsChange, setLeftSidebarContent, setRightSidebarContent]);
     
     
     if (!isDataReady || !collectionNodeData) {
@@ -4506,36 +4627,41 @@ function EditCollectionPageInternal() {
     }
 
     return (
-        <div className="h-full flex flex-col p-6">
-            <div className="flex shrink-0 items-center justify-between mb-4">
-                <h1 className="text-3xl font-bold truncate pr-4">Managing: {originalCollectionNode?.title}</h1>
-                <Button asChild>
-                    <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
-                        <PlusCircle className="mr-2 h-4 w-4" /> New Item
-                    </Link>
-                </Button>
+        <ThreeColumnLayout
+            leftSidebar={leftSidebarContent}
+            rightSidebar={rightSidebarContent}
+        >
+            <div className="h-full flex flex-col p-6">
+                <div className="flex shrink-0 items-center justify-between mb-4">
+                    <h1 className="text-3xl font-bold truncate pr-4">Managing: {originalCollectionNode?.title}</h1>
+                    <Button asChild>
+                        <Link href={`/sites/${siteId}/edit/content/${collectionName}/_new`}>
+                            <PlusCircle className="mr-2 h-4 w-4" /> New Item
+                        </Link>
+                    </Button>
+                </div>
+                <div className="flex-grow rounded-lg bg-background p-4 border overflow-y-auto">
+                    <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
+                    {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
+                        <ul className="space-y-2">
+                            {collectionNodeData.children.map((item: StructureNode) => {
+                                const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+                                return (
+                                    <li key={item.path}>
+                                        <Link href={`/sites/${siteId}/edit/content/${relativePath}`} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">
+                                            <FileText className="mr-3 h-4 w-4 text-muted-foreground" />
+                                            <span className="font-medium">{item.title || item.slug}</span>
+                                        </Link>
+                                    </li>
+                                );
+                            })}
+                        </ul>
+                    ) : (
+                        <p className="text-center text-muted-foreground py-8">No items have been added to this collection yet.</p>
+                    )}
+                </div>
             </div>
-            <div className="flex-grow rounded-lg bg-background p-4 border overflow-y-auto">
-                <h2 className="text-lg font-semibold mb-3">Items in this Collection</h2>
-                {collectionNodeData.children && collectionNodeData.children.length > 0 ? (
-                    <ul className="space-y-2">
-                        {collectionNodeData.children.map((item: StructureNode) => {
-                            const relativePath = item.path.replace(/^content\//, '').replace(/\.md$/, '');
-                            return (
-                                <li key={item.path}>
-                                    <Link href={`/sites/${siteId}/edit/content/${relativePath}`} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">
-                                        <FileText className="mr-3 h-4 w-4 text-muted-foreground" />
-                                        <span className="font-medium">{item.title || item.slug}</span>
-                                    </Link>
-                                </li>
-                            );
-                        })}
-                    </ul>
-                ) : (
-                    <p className="text-center text-muted-foreground py-8">No items have been added to this collection yet.</p>
-                )}
-            </div>
-        </div>
+        </ThreeColumnLayout>
     );
 }
 
@@ -4626,7 +4752,6 @@ function EditContentPageInternal() {
           slug={slug}
           onSlugChange={(newSlug) => actions.setSlug(slugify(newSlug))}
           onDelete={actions.handleDelete}
-          onViewModeToggle={actions.handleViewModeToggle}
         />
       );
     } else {
@@ -4730,8 +4855,7 @@ import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
-import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
+import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
@@ -4753,13 +4877,12 @@ export default function CreateSitePage() {
     const newSiteId = generateSiteId(siteTitle);
     const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
 
-    // FIXED: 'defaultFrontmatter' is never reassigned, so it should be a const.
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: 'Welcome to your new site!',
+        title: DEFAULT_HOMEPAGE_CONFIG.TITLE,
+        layout: homepageLayoutPath,
         date: new Date().toISOString().split('T')[0],
     };
 
-    // FIXED: Create a complete mock LocalSiteData object to satisfy the type system.
     const mockSiteData: LocalSiteData = { 
         siteId: 'mock-id', 
         contentFiles: [], 
@@ -4780,13 +4903,18 @@ export default function CreateSitePage() {
     
     const layoutManifest = await getLayoutManifest(mockSiteData, homepageLayoutPath);
     
-    if (layoutManifest?.pageSchema.properties) {
-        for (const [key, prop] of Object.entries(layoutManifest.pageSchema.properties)) {
-            if (typeof prop === 'object' && prop !== null && 'default' in prop && defaultFrontmatter[key] === undefined) {
+    if (layoutManifest?.schema?.properties) {
+    for (const [key, prop] of Object.entries(layoutManifest.schema.properties)) {
+        // Check if the property in the schema has a 'default' value
+        if (typeof prop === 'object' && prop !== null && 'default' in prop) {
+            // And if we haven't already set this value in our frontmatter
+            if (defaultFrontmatter[key] === undefined) {
+                // Then apply the default value from the schema.
                 defaultFrontmatter[key] = prop.default as unknown;
             }
         }
     }
+}
 
     const defaultIndexFile: ParsedMarkdownFile = {
         slug: 'index',
@@ -4945,11 +5073,11 @@ export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
  * The path is relative to '/public/layouts/'.
  * e.g., 'listing'
  */
-export const DEFAULT_COLLECTION_LAYOUT_PATH = 'listing';
+export const DEFAULT_VIEW_LAYOUT_PATH = 'listing';
 
 export const CORE_LAYOUTS: LayoutInfo[] = [
   { id: 'page', name: 'Page', type: 'page', path: 'page' },
-  { id: 'listing', name: 'Listing', type: 'collection', path: 'listing' },
+  { id: 'listing', name: 'Listing', type: 'view', path: 'listing' },
 ];
 
 export const CORE_THEMES: ThemeInfo[] = [
@@ -4964,6 +5092,21 @@ export const CORE_VIEWS: ViewInfo[] = [
     { id: 'list', name: 'Simple List View', path: 'list' },
     // Add other core views like 'grid' here as they are created.
 ];
+
+/**
+ * Default configuration for a new site's homepage (index.md).
+ * Centralizes the initial title and content.
+ */
+export const DEFAULT_HOMEPAGE_CONFIG = {
+  TITLE: 'Welcome to your new site!',
+  /**
+   * Generates the default markdown content for the homepage.
+   * @param {string} siteTitle - The title of the site to include in the welcome message.
+   * @returns {string} The formatted markdown string.
+   */
+  getContent: (siteTitle: string): string => 
+    `## Welcome to ${siteTitle}\n\nThis is your new site's homepage. You can start editing it now.`
+};
 
 /**
  * The universal base schema for all content frontmatter.
@@ -5032,8 +5175,8 @@ File: features/viewer/components/SiteViewer.tsx
 import { useParams, usePathname } from 'next/navigation';
 import { useEffect, useState, useCallback } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
-import { resolvePageContent, PageType } from '@/core/services/pageResolver.service';
-import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.service';
+import { resolvePageContent } from '@/core/services/pageResolver.service';
+import { PageType } from '@/types';import { render as renderWithTheme } from '@/core/services/theme-engine/themeEngine.service';
 import { AlertTriangle, Edit } from 'lucide-react';
 import { Button } from '@/core/components/ui/button';
 import Link from 'next/link';
@@ -5306,7 +5449,7 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme ("{themePath}") does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme &quot;{themePath}&quot; does not provide any customizable appearance settings.</p>
       </div>
     );
   }
@@ -5530,13 +5673,15 @@ File: features/editor/components/ViewEditor.tsx
 // src/features/editor/components/ViewEditor.tsx
 'use client';
 
-import { useEffect, useState, useMemo, useCallback } from 'react';
-import { MarkdownFrontmatter, ViewConfig } from '@/types';
-import { getJsonAsset, ViewManifest } from '@/core/services/configHelpers.service';
+import { useEffect, useState, useCallback } from 'react';
+import { MarkdownFrontmatter, ViewConfig, StructureNode } from '@/types';
+import { getAvailableLayouts, LayoutManifest, getJsonAsset, ViewManifest } from '@/core/services/configHelpers.service';
 import { useAppStore } from '@/core/state/useAppStore';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { RJSFSchema } from '@rjsf/utils';
-import DataSourceSelectWidget from './DataSourceSelectWidget';
+import { Label } from '@/core/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 
 interface ViewEditorProps {
   siteId: string;
@@ -5544,101 +5689,147 @@ interface ViewEditorProps {
   onFrontmatterChange: (update: Partial<MarkdownFrontmatter>) => void;
 }
 
-const customWidgets = {
-    DataSourceSelect: DataSourceSelectWidget
-};
-
-
 export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }: ViewEditorProps) {
   const site = useAppStore(state => state.getSiteById(siteId));
-  const [viewSchema, setViewSchema] = useState<RJSFSchema | null>(null);
+
+  // --- State for UI & Data ---
+  const [collections, setCollections] = useState<StructureNode[]>([]);
+  const [itemLayouts, setItemLayouts] = useState<LayoutManifest[]>([]);
+  const [pageLayouts, setPageLayouts] = useState<LayoutManifest[]>([]);
+  const [customViewSchema, setCustomViewSchema] = useState<RJSFSchema | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const viewTemplateId = frontmatter.view?.template;
-
-  // This effect fetches the correct schema whenever the chosen view template changes.
+  // --- Data Fetching Effect ---
   useEffect(() => {
-    const fetchViewSchema = async () => {
-      if (!viewTemplateId || !site) {
-        setViewSchema(null);
-        setIsLoading(false);
-        return;
-      }
-
+    async function fetchData() {
+      if (!site) return;
       setIsLoading(true);
-      const viewManifest = await getJsonAsset<ViewManifest>(
-        site, 
-        'view', 
-        viewTemplateId, 
-        'view.json'
-      );
+
+      const viewTemplateId = frontmatter.view?.template;
       
-      setViewSchema(viewManifest?.schema || null);
-      setIsLoading(false);
-    };
+      // Fetch data for the hard-coded dropdowns
+      const allCollections = site.manifest.structure.filter(n => n.type === 'collection');
+      setCollections(allCollections);
 
-    fetchViewSchema();
-  }, [viewTemplateId, site]);
+      const allLayouts = await getAvailableLayouts(site);
+      setItemLayouts(allLayouts.filter(l => l.layoutType === 'item'));
+      setPageLayouts(allLayouts.filter(l => l.layoutType === 'page'));
 
-  // This callback is passed to the SchemaDrivenForm.
-  // It takes the form's new data and merges it into the frontmatter.view object.
-  const handleFormChange = useCallback((formData: any) => {
-    onFrontmatterChange({
-      view: {
-        ...(frontmatter.view || { template: '' }), // Preserve existing config
-        ...formData
+      // Fetch the schema for the view-specific custom fields
+      if (viewTemplateId) {
+          const viewManifest = await getJsonAsset<ViewManifest>(site, 'view', viewTemplateId, 'view.json');
+          setCustomViewSchema(viewManifest?.schema || null);
+      } else {
+          setCustomViewSchema(null);
       }
+      
+      setIsLoading(false);
+    }
+    fetchData();
+  }, [site, frontmatter.view?.template]);
+
+  // --- Event Handlers ---
+
+  /**
+   * Generic handler for the dedicated dropdowns.
+   */
+  const handleDedicatedFieldChange = useCallback((key: keyof ViewConfig, value: string) => {
+    onFrontmatterChange({
+      view: { ...(frontmatter.view!), [key]: value }
     });
   }, [frontmatter.view, onFrontmatterChange]);
 
-  const uiSchema = useMemo(() => {
-        const schema = viewSchema; // The schema fetched from view.json
-        if (!schema?.properties) return {};
+  /**
+   * Handler for the SchemaDrivenForm, merging its data with the existing view config.
+   */
+  const handleCustomFormChange = useCallback((formData: object) => {
+    onFrontmatterChange({
+      view: { ...(frontmatter.view!), ...formData }
+    });
+  }, [frontmatter.view, onFrontmatterChange]);
 
-        const newUiSchema: any = {};
-        for (const key in schema.properties) {
-            const prop = schema.properties[key];
-            if (typeof prop === 'object' && prop !== null && 'ui:dataSource' in prop) {
-                newUiSchema[key] = {
-                    "ui:widget": "DataSourceSelect"
-                };
-            }
-        }
-        return newUiSchema;
-    }, [viewSchema]);
-  
-  if (!viewTemplateId) {
-    return (
-        <div className="p-6 text-center border-2 border-dashed rounded-lg">
-            <h3 className="font-semibold">Select a View Template</h3>
-            <p className="text-sm text-muted-foreground">Please choose a view template from the sidebar to begin configuring your content list.</p>
-        </div>
-    );
-  }
+  const viewConfig = frontmatter.view;
+
+  // --- Render Logic ---
 
   if (isLoading) {
     return <div className="p-6">Loading view options...</div>;
   }
-
-  if (!viewSchema) {
-    return (
-        <div className="p-6 text-center text-destructive-foreground bg-destructive/20 border border-destructive rounded-lg">
-            <h3 className="font-semibold">Error</h3>
-            <p className="text-sm">Could not load the configuration schema for the "{viewTemplateId}" view.</p>
-        </div>
-    );
+  
+  if (!viewConfig) {
+      return (
+          <div className="p-6 text-center text-destructive-foreground bg-destructive/20 border border-destructive rounded-lg">
+              <h3 className="font-semibold">Error</h3>
+              <p className="text-sm">This page is not configured as a View Page.</p>
+          </div>
+      );
   }
 
   return (
-    <div className="p-6 border rounded-lg bg-muted/20">
-      <SchemaDrivenForm
-        schema={viewSchema!}
-                uiSchema={uiSchema}
-                widgets={customWidgets}
-                formData={frontmatter.view || {}}
-                onFormChange={handleFormChange}
-                formContext={{ site: site }}
-      />
+    <div className="p-6 border rounded-lg bg-muted/20 space-y-6">
+      
+      {/* --- Hard-coded, Universal View Fields --- */}
+      <div className="space-y-4">
+        <div className="space-y-2">
+            <Label htmlFor="source-collection">Content Source</Label>
+            <p className="text-xs text-muted-foreground">Choose the collection to display items from.</p>
+            <Select 
+            value={viewConfig.source_collection} 
+            onValueChange={(value) => handleDedicatedFieldChange('source_collection', value)}
+            >
+            <SelectTrigger id="source-collection">
+                <SelectValue placeholder="Select a collection..." />
+            </SelectTrigger>
+            <SelectContent>
+                {collections.map(c => <SelectItem key={c.slug} value={c.slug}>{c.title}</SelectItem>)}
+            </SelectContent>
+            </Select>
+        </div>
+
+        <div className="space-y-2">
+            <Label htmlFor="item-layout">Item Display Layout (in lists)</Label>
+            <p className="text-xs text-muted-foreground">Controls how each item looks in the list on this page.</p>
+            <Select 
+                value={viewConfig.item_layout}
+                onValueChange={(value) => handleDedicatedFieldChange('item_layout', value)}
+            >
+                <SelectTrigger id="item-layout"><SelectValue placeholder="Select an item layout..." /></SelectTrigger>
+                <SelectContent>
+                    {itemLayouts.map(l => <SelectItem key={l.name} value={l.name}>{l.name}</SelectItem>)}
+                </SelectContent>
+            </Select>
+        </div>
+        
+        <div className="space-y-2">
+            <Label htmlFor="item-page-layout">Item Full Page Layout</Label>
+            <p className="text-xs text-muted-foreground">Controls the layout when a user clicks through to view a single item.</p>
+            <Select 
+                value={viewConfig.item_page_layout}
+                onValueChange={(value) => handleDedicatedFieldChange('item_page_layout', value)}
+            >
+                <SelectTrigger id="item-page-layout"><SelectValue placeholder="Select a page layout..." /></SelectTrigger>
+                <SelectContent>
+                    {pageLayouts.map(l => <SelectItem key={l.name} value={l.name}>{l.name}</SelectItem>)}
+                </SelectContent>
+            </Select>
+        </div>
+      </div>
+
+      {/* --- Schema-Driven Custom Fields --- */}
+      {customViewSchema && (
+        <Accordion type='single' collapsible className="w-full" defaultValue='custom-options'>
+          <AccordionItem value="custom-options">
+              <AccordionTrigger>View-Specific Options</AccordionTrigger>
+              <AccordionContent className="pt-4">
+                <SchemaDrivenForm
+                    schema={customViewSchema}
+                    formData={viewConfig}
+                    onFormChange={handleCustomFormChange}
+                />
+              </AccordionContent>
+          </AccordionItem>
+        </Accordion>
+      )}
     </div>
   );
 }
@@ -5879,22 +6070,19 @@ import {
 import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { slugify } from '@/lib/utils';
 import { toast } from 'sonner';
-import { type LayoutInfo } from '@/types'; // FIXED: Import the correct LayoutInfo type
 
 interface NewCollectionDialogProps {
   children: ReactNode;
   existingSlugs: string[];
-  onSubmit: (name: string, slug: string, layoutPath: string) => Promise<void>;
+  onSubmit: (name: string, slug: string) => Promise<void>;
 }
 
 export default function NewCollectionDialog({ children, existingSlugs, onSubmit }: NewCollectionDialogProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  const [selectedLayout, setSelectedLayout] = useState(''); // This will now store the layout *path*
 
   useEffect(() => {
     if (name) {
@@ -5911,23 +6099,19 @@ export default function NewCollectionDialog({ children, existingSlugs, onSubmit 
       toast.error("Collection name cannot be empty.");
       return;
     }
-    if (!selectedLayout) {
-        toast.error("You must select a layout for the collection.");
-        return;
-    }
+
     if (existingSlugs.includes(slug)) {
       toast.error(`A collection or page with the folder name "${slug}" already exists.`);
       return;
     }
 
-    // FIXED: onSubmit now receives the layout path
-    await onSubmit(name, slug, selectedLayout);
+    await onSubmit(name, slug);
     
     // Reset state after submission
     setIsOpen(false);
     setName('');
     setSlug('');
-    setSelectedLayout('');
+
   };
 
   return (
@@ -5962,7 +6146,7 @@ export default function NewCollectionDialog({ children, existingSlugs, onSubmit 
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
-            <Button type="submit" disabled={!name || !selectedLayout}>Create Collection</Button>
+            <Button type="submit" disabled={!name.trim()}>Create collection</Button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -5973,7 +6157,7 @@ export default function NewCollectionDialog({ children, existingSlugs, onSubmit 
 ================================================================================
 
 File: features/editor/components/NewPageDialog.tsx
-// src/components/publishing/NewPageDialog.tsx
+// src/features/editor/components/NewPageDialog.tsx
 'use client';
 
 import { useState, type ReactNode } from 'react';
@@ -5981,174 +6165,102 @@ import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { slugify } from '@/lib/utils';
 import { toast } from 'sonner';
+import yaml from 'js-yaml';
 
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/core/components/ui/dialog";
+// --- UI & Type Imports ---
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/core/components/ui/dialog";
 import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
-import { FileText, Newspaper, Plus } from 'lucide-react';
-
-// Define the steps of our creation flow
-type PageCreationStep = 'choose_type' | 'configure_content' | 'configure_view';
+import { Plus } from 'lucide-react';
+import type { MarkdownFrontmatter } from '@/types';
+import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 interface NewPageDialogProps {
   siteId: string;
-  // The trigger element for the dialog
   children: ReactNode;
-  // A callback to close the sidebar on mobile after creation
-  onComplete?: () => void; 
+  onComplete?: () => void;
 }
 
 export default function NewPageDialog({ siteId, children, onComplete }: NewPageDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
-  const [step, setStep] = useState<PageCreationStep>('choose_type');
   const [title, setTitle] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // We will need the action to create a content file
+  const site = useAppStore((state) => state.getSiteById(siteId));
   const { addOrUpdateContentFile } = useAppStore.getState();
 
-  // Reset state whenever the dialog is closed
   const handleOpenChange = (open: boolean) => {
     setIsOpen(open);
     if (!open) {
       setTimeout(() => {
-        setStep('choose_type');
         setTitle('');
-      }, 200); // Delay reset to allow for closing animation
+        setIsSubmitting(false);
+      }, 200);
     }
   };
 
-  const handleCreateContentPage = async () => {
+  const handleCreatePage = async () => {
     if (!title.trim()) {
-        toast.error("Page title cannot be empty.");
-        return;
+      toast.error("Page title cannot be empty.");
+      return;
     }
-
+    setIsSubmitting(true);
     const slug = slugify(title);
     const filePath = `content/${slug}.md`;
+
+    const slugExists = site?.contentFiles?.some(f => f.slug === slug);
+    if (slugExists) {
+        toast.error(`A page with the slug "${slug}" already exists.`);
+        setIsSubmitting(false);
+        return;
+    }
     
-    // For now, we use a hardcoded default layout and simple content.
-    // This would be expanded in the full implementation of the 'Configure Content' step.
-    const defaultLayoutId = 'page'; 
-    const initialContent = `---\ntitle: "${title.trim()}"\nlayout: "${defaultLayoutId}"\n---\n\n# ${title.trim()}\n\nStart writing your content here.\n`;
-    
+    const frontmatter: MarkdownFrontmatter = {
+        title: title.trim(),
+        layout: DEFAULT_PAGE_LAYOUT_PATH,
+        date: new Date().toISOString().split('T')[0],
+    };
+
+    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# ${title.trim()}\n\nStart writing your content here.\n`;
+
     try {
-        const success = await addOrUpdateContentFile(siteId, filePath, initialContent, defaultLayoutId);
-        if (success) {
-            toast.success(`Page "${title}" created!`);
-            handleOpenChange(false);
-            onComplete?.();
-            // Redirect to the new page's editor
-            router.push(`/sites/${siteId}/edit/content/${slug}`);
-        } else {
-            throw new Error("Failed to update manifest or save file.");
-        }
+      const success = await addOrUpdateContentFile(siteId, filePath, initialContent, frontmatter.layout);
+      if (success) {
+        toast.success(`Page "${title}" created!`);
+        handleOpenChange(false);
+        onComplete?.();
+        router.push(`/sites/${siteId}/edit/content/${slug}`);
+      } else { throw new Error("Failed to update manifest or save file."); }
     } catch (error) {
-        toast.error(`Failed to create page: ${(error as Error).message}`);
+      toast.error(`Failed to create page: ${(error as Error).message}`);
+      setIsSubmitting(false);
     }
   };
-
-
-  const renderStep = () => {
-    switch (step) {
-      // Step 2A: Configure Content Page (Simplified for this implementation)
-      case 'configure_content':
-        return (
-            <>
-                <DialogHeader>
-                    <DialogTitle>Create New Content Page</DialogTitle>
-                    <DialogDescription>
-                        Give your new page a title. You can add content and change settings later.
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                    <div className="space-y-1">
-                        <Label htmlFor="title">Page Title</Label>
-                        <Input
-                            id="title"
-                            value={title}
-                            onChange={(e) => setTitle(e.target.value)}
-                            placeholder="e.g., About Us"
-                            autoComplete="off"
-                        />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={() => setStep('choose_type')}>Back</Button>
-                    <Button type="button" onClick={handleCreateContentPage} disabled={!title.trim()}>
-                        <Plus className="mr-2 h-4 w-4" /> Create Page
-                    </Button>
-                </DialogFooter>
-            </>
-        );
-
-      // Step 2B: Configure View Page (Placeholder for now)
-      case 'configure_view':
-         return (
-            <>
-                <DialogHeader>
-                    <DialogTitle>Create New View Page (Coming Soon)</DialogTitle>
-                    <DialogDescription>
-                        This feature is not yet implemented. Please go back to create a content page.
-                    </DialogDescription>
-                </DialogHeader>
-                <DialogFooter>
-                    <Button type="button" variant="ghost" onClick={() => setStep('choose_type')}>Back</Button>
-                </DialogFooter>
-            </>
-        );
-
-      // Step 1: Choose Page Type (Default)
-      case 'choose_type':
-      default:
-        return (
-            <>
-                <DialogHeader>
-                    <DialogTitle>Create a New Page</DialogTitle>
-                    <DialogDescription>
-                        What kind of page would you like to create?
-                    </DialogDescription>
-                </DialogHeader>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-                    <button
-                        onClick={() => setStep('configure_content')}
-                        className="flex flex-col items-center justify-center p-6 border rounded-lg text-center hover:bg-accent hover:text-accent-foreground transition-colors"
-                    >
-                        <FileText className="h-8 w-8 mb-2" />
-                        <span className="font-semibold">Content Page</span>
-                        <p className="text-xs text-muted-foreground mt-1">A standard page with written content, like an "About Us" page.</p>
-                    </button>
-                    <button
-                        onClick={() => setStep('configure_view')}
-                        className="flex flex-col items-center justify-center p-6 border rounded-lg text-center hover:bg-accent hover:text-accent-foreground transition-colors"
-                    >
-                        <Newspaper className="h-8 w-8 mb-2" />
-                        <span className="font-semibold">View Page</span>
-                         <p className="text-xs text-muted-foreground mt-1">A page that automatically lists content from a collection, like a blog.</p>
-                    </button>
-                </div>
-            </>
-        );
-    }
-  }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      <DialogTrigger asChild>
-        {children}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[500px]">
-        {renderStep()}
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create New Content Page</DialogTitle>
+          <DialogDescription>
+            Give your new page a title. You can add content and change settings later.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-1">
+            <Label htmlFor="title">Page Title</Label>
+            <Input id="title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., About Us" />
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button type="button" onClick={handleCreatePage} disabled={!title.trim() || isSubmitting}>
+            {isSubmitting ? 'Creating...' : <><Plus className="mr-2 h-4 w-4" /> Create Page</>}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   );
@@ -6437,94 +6549,6 @@ export default function FileTree({ nodes, baseEditPath, activePath, onStructureC
 
 ================================================================================
 
-File: features/editor/components/NewFolderDialog.tsx
-// src/components/publishing/NewFolderDialog.tsx
-'use client';
-
-import { useState, type ReactNode } from 'react';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogClose,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from 'sonner';
-
-interface NewFolderDialogProps {
-  children: ReactNode;
-  onSubmit: (folderName: string) => Promise<void>;
-}
-
-export default function NewFolderDialog({ children, onSubmit }: NewFolderDialogProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const [name, setName] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) {
-      toast.error("Folder name cannot be empty.");
-      return;
-    }
-    
-    try {
-        await onSubmit(name);
-        toast.success(`Folder "${name}" created!`);
-        setIsOpen(false);
-        setName('');
-    } catch (error) {
-        toast.error(`Failed to create folder: ${(error as Error).message}`);
-    }
-  };
-
-  return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        {children}
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
-        <form onSubmit={handleSubmit}>
-            <DialogHeader>
-            <DialogTitle>Create New Folder</DialogTitle>
-            <DialogDescription>
-                Create a folder to organize pages. An `index.md` file will be automatically created inside it.
-            </DialogDescription>
-            </DialogHeader>
-            <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="name" className="text-right">
-                Name
-                </Label>
-                <Input
-                id="name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                className="col-span-3"
-                placeholder="e.g., About Us"
-                autoComplete="off"
-                />
-            </div>
-            </div>
-            <DialogFooter>
-                <DialogClose asChild>
-                    <Button type="button" variant="outline">Cancel</Button>
-                </DialogClose>
-                <Button type="submit">Create Folder</Button>
-            </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-================================================================================
-
 File: features/editor/components/DataSourceSelectWidget.tsx
 // src/features/editor/components/DataSourceSelectWidget.tsx
 'use client';
@@ -6638,6 +6662,138 @@ export default DataSourceSelectWidget;
 
 ================================================================================
 
+File: features/editor/components/NewViewDialog.tsx
+// src/features/editor/components/NewViewDialog.tsx
+'use client';
+
+import { useState, useMemo, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAppStore } from '@/core/state/useAppStore';
+import { slugify } from '@/lib/utils';
+import { toast } from 'sonner';
+import yaml from 'js-yaml';
+
+// --- UI & Type Imports ---
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, DialogClose } from "@/core/components/ui/dialog";
+import { Button } from "@/core/components/ui/button";
+import { Input } from "@/core/components/ui/input";
+import { Label } from "@/core/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
+import { Plus } from 'lucide-react';
+import type { MarkdownFrontmatter, StructureNode } from '@/types';
+import { DEFAULT_VIEW_LAYOUT_PATH } from '@/config/editorConfig';
+
+interface NewViewDialogProps {
+  siteId: string;
+  children: ReactNode;
+  onComplete?: () => void;
+}
+
+export default function NewViewDialog({ siteId, children, onComplete }: NewViewDialogProps) {
+  const router = useRouter();
+  const [isOpen, setIsOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [sourceCollection, setSourceCollection] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const { addOrUpdateContentFile } = useAppStore.getState();
+
+  const availableCollections = useMemo(() => {
+    return site?.manifest.structure.filter((node: StructureNode) => node.type === 'collection') || [];
+  }, [site?.manifest.structure]);
+
+  const handleOpenChange = (open: boolean) => {
+    setIsOpen(open);
+    if (!open) {
+      setTimeout(() => {
+        setTitle('');
+        setSourceCollection('');
+        setIsSubmitting(false);
+      }, 200);
+    }
+  };
+
+  const handleCreateView = async () => {
+    if (!title.trim() || !sourceCollection) {
+      toast.error("Both a title and a source collection are required.");
+      return;
+    }
+    setIsSubmitting(true);
+    const slug = slugify(title);
+    const filePath = `content/${slug}.md`;
+
+    const slugExists = site?.contentFiles?.some(f => f.slug === slug);
+    if (slugExists) {
+        toast.error(`A page with the slug "${slug}" already exists.`);
+        setIsSubmitting(false);
+        return;
+    }
+
+    const frontmatter: MarkdownFrontmatter = {
+        title: title.trim(),
+        layout: DEFAULT_VIEW_LAYOUT_PATH,
+        date: new Date().toISOString().split('T')[0],
+        view: {
+            template: 'list',
+            source_collection: sourceCollection,
+        }
+    };
+
+    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# ${title.trim()}\n\nThis page lists content from the "${sourceCollection}" collection. You can add introductory text here.`;
+
+    try {
+      const success = await addOrUpdateContentFile(siteId, filePath, initialContent, frontmatter.layout);
+      if (success) {
+        toast.success(`View page "${title}" created!`);
+        handleOpenChange(false);
+        onComplete?.();
+        router.push(`/sites/${siteId}/edit/content/${slug}`);
+      } else { throw new Error("Failed to update manifest or save file."); }
+    } catch (error) {
+      toast.error(`Failed to create page: ${(error as Error).message}`);
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogContent className="sm:max-w-[425px]">
+        <DialogHeader>
+          <DialogTitle>Create New View Page</DialogTitle>
+          <DialogDescription>
+            This page will display a list of items from a collection.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-4 py-4">
+          <div className="space-y-1">
+            <Label htmlFor="view-title">Page Title</Label>
+            <Input id="view-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g., Blog" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="source-collection">Content Source</Label>
+            <Select value={sourceCollection} onValueChange={setSourceCollection}>
+              <SelectTrigger id="source-collection"><SelectValue placeholder="Select a collection..." /></SelectTrigger>
+              <SelectContent>
+                {availableCollections.map(c => <SelectItem key={c.slug} value={c.slug}>{c.title}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <DialogClose asChild><Button variant="outline">Cancel</Button></DialogClose>
+          <Button type="button" onClick={handleCreateView} disabled={!title.trim() || !sourceCollection || isSubmitting}>
+            {isSubmitting ? 'Creating...' : <><Plus className="mr-2 h-4 w-4" /> Create View Page</>}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+================================================================================
+
 File: features/editor/components/RightSidebar.tsx
 'use client';
 
@@ -6672,25 +6828,21 @@ export default function RightSidebar({ children }: RightSidebarProps) {
 ================================================================================
 
 File: features/editor/components/FrontmatterSidebar.tsx
-// src/features/editor/core/FrontmatterSidebar.tsx
+// src/features/editor/components/FrontmatterSidebar.tsx
 'use client';
 
-// --- FIX: Add missing React imports ---
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
-// --- FIX: Add missing type import ---
-import type { LocalSiteData, MarkdownFrontmatter, ViewConfig } from '@/types';
-import { getAvailableViews, getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
+import React, { useState, useEffect, useMemo } from 'react';
+import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
+import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
 import { RJSFSchema } from '@rjsf/utils';
 import { Label } from '@/core/components/ui/label';
 import { Input } from '@/core/components/ui/input';
 import { Button } from '@/core/components/ui/button';
-import { Switch } from "@/core/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
-
 
 interface FrontmatterSidebarProps {
   site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles' | 'contentFiles'>;
@@ -6700,33 +6852,38 @@ interface FrontmatterSidebarProps {
   slug: string;
   onSlugChange: (newSlug: string) => void;
   onDelete: () => Promise<void>;
-  onViewModeToggle: (isView: boolean) => void;
+  // The onViewModeToggle prop is no longer needed
 }
 
 export default function FrontmatterSidebar({
   site, frontmatter, onFrontmatterChange,
-  isNewFileMode, slug, onSlugChange, onDelete, onViewModeToggle
+  isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
   
   const [layoutSchema, setLayoutSchema] = useState<RJSFSchema | null>(null);
-
-  // Handle async loading of available layouts
   const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
-  // Memoize the available views (this function is still synchronous)
-  const availableViews = useMemo(() => getAvailableViews(site.manifest), [site.manifest]);
-  
-  // Use an effect to fetch the full layout manifests when the component mounts.
-  useEffect(() => {
-    async function fetchLayouts() {
-      const allLayouts = await getAvailableLayouts(site);
-      // Filter the full manifests by the required type.
-      const contentPageLayouts = allLayouts.filter(layout => layout.layoutType === 'content-page');
-      setAvailableLayouts(contentPageLayouts);
-    }
-    fetchLayouts();
-  }, [site]);
+  // Determine if the current page is a View Page based on its frontmatter.
+  // This is now the single source of truth for the page's type.
+  const isViewPage = useMemo(() => !!frontmatter.view, [frontmatter]);
 
+  // This effect fetches and filters available layouts based on the page's type.
+  useEffect(() => {
+    async function fetchAndFilterLayouts() {
+      if (!site) return;
+      
+      const allLayouts = await getAvailableLayouts(site);
+      
+      // --- FIX: Determine the required layoutType based on whether it's a view page. ---
+      const requiredLayoutType = isViewPage ? 'view' : 'page';
+      
+      // --- FIX: Filter using the updated layoutType enum. ---
+      const filtered = allLayouts.filter(layout => layout.layoutType === requiredLayoutType);
+      setAvailableLayouts(filtered);
+    }
+    fetchAndFilterLayouts();
+  }, [site, isViewPage]); // The dependencies are correct.
+  // This effect loads the schema for the selected layout.
   useEffect(() => {
     const loadSchema = async () => {
       if (!frontmatter.layout) return;
@@ -6735,81 +6892,13 @@ export default function FrontmatterSidebar({
     };
     loadSchema();
   }, [site, frontmatter.layout]);
-  
-  const isViewMode = !!frontmatter.view;
 
-  const handleViewModeToggle = (isView: boolean) => {
-    if (isView) {
-      onFrontmatterChange({
-        view: {
-          template: availableViews[0]?.id || 'list',
-          item_layout: '',
-          sort_by: 'date',
-          sort_order: 'desc',
-        }
-      });
-    } else {
-      const { view, ...rest } = frontmatter;
-      onFrontmatterChange(rest);
-    }
-  };
-
-  const handleViewConfigChange = (key: keyof ViewConfig, value: string | number) => {
-    onFrontmatterChange({
-        view: {
-          ...(frontmatter.view || { template: '', item_layout: '' }),
-          [key]: value
-        }
-    });
-  };
-  
-  
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
   };
   
-   return (
-    <div className="p-4 space-y-6">
-      {/* --- Page Display Mode Control --- */}
-      <div className="p-4 border rounded-lg space-y-4">
-          <div className="flex items-center justify-between">
-              <Label htmlFor="view-mode-toggle" className="font-semibold">
-                  Content Listing Page
-              </Label>
-              <Switch
-                  id="view-mode-toggle"
-                  checked={isViewMode}
-                  onCheckedChange={onViewModeToggle}
-              />
-          </div>
-          <p className="text-xs text-muted-foreground">
-            {isViewMode 
-              ? "This page will display a list of items from a collection." 
-              : "This page will display its own Markdown content."
-            }
-          </p>
-          {isViewMode && (
-              <div className="pt-4 border-t">
-                  <Label htmlFor="view-template-select">List Style (View)</Label>
-                  <Select 
-                    value={frontmatter.view?.template || ''} 
-                    onValueChange={(val) => handleViewConfigChange('template', val)}
-                  >
-                      <SelectTrigger id="view-template-select">
-                          <SelectValue placeholder="Select a display style..." />
-                      </SelectTrigger>
-                      <SelectContent>
-                          {availableViews.map(view => (
-                              <SelectItem key={view.id} value={view.id}>
-                                  {view.name}
-                              </SelectItem>
-                          ))}
-                      </SelectContent>
-                  </Select>
-              </div>
-          )}
-      </div>
-
+  return (
+    <div className="p-4 space-y-6 h-full flex flex-col">
       {/* --- Page Layout & Settings --- */}
       <Accordion type='single' collapsible className="w-full" defaultValue="item-1">
         <AccordionItem value="item-1">
@@ -6828,7 +6917,7 @@ export default function FrontmatterSidebar({
                     </SelectContent>
                 </Select>
                  <p className="text-xs text-muted-foreground mt-1">
-                  Controls the layout for this page's own title and markdown content.
+                  Controls the layout for this page&apos;s own title and content.
                 </p>
             </div>
             {layoutSchema && (
@@ -6844,7 +6933,7 @@ export default function FrontmatterSidebar({
         </AccordionItem>
       </Accordion>
 
-      {/* --- Advanced/Danger Zone --- */}
+      {/* --- Advanced/Danger Zone (in its own accordion) --- */}
       <Accordion type='single' collapsible className="w-full">
         <AccordionItem value="item-1">
           <AccordionTrigger>Advanced</AccordionTrigger>
@@ -6859,33 +6948,36 @@ export default function FrontmatterSidebar({
                     className={!isNewFileMode ? 'bg-muted/50' : ''}
                 />
               </div>
-              {!isNewFileMode && (
-                <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                        <Button variant="outline" className="w-full mt-6 text-destructive hover:text-destructive">
-                            <Trash2 className="h-4 w-4 mr-2" /> Delete This Page
-                        </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent> 
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            {/* --- FIX: Correctly close the JSX tag --- */}
-                            <AlertDialogDescription>
-                              This action will permanently delete the file for "{frontmatter?.title || 'this content'}". This cannot be undone.
-                            </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                            <AlertDialogCancel>Cancel</AlertDialogCancel>
-                            <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90">
-                                Yes, Delete Forever
-                            </AlertDialogAction>
-                        </AlertDialogFooter>
-                    </AlertDialogContent>
-                </AlertDialog>
-              )}
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+
+      {/* --- Delete Button (at the bottom) --- */}
+      {!isNewFileMode && (
+        <div className="mt-auto pt-6 border-t">
+          <AlertDialog>
+              <AlertDialogTrigger asChild>
+                  <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive">
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete This Page
+                  </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent> 
+                  <AlertDialogHeader>
+                      <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
+                      </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={onDelete} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">
+                          Yes, Delete Forever
+                      </AlertDialogAction>
+                  </AlertDialogFooter>
+              </AlertDialogContent>
+          </AlertDialog>
+        </div>
+      )}
     </div>
   );
 }
@@ -7152,7 +7244,6 @@ File: components/publishing/LeftSidebar.tsx
 // src/components/publishing/LeftSidebar.tsx
 'use client';
 
-import Link from 'next/link';
 import { useParams, usePathname } from 'next/navigation';
 import { useMemo, useCallback, useEffect, useState } from 'react';
 
@@ -7162,6 +7253,7 @@ import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CollectionList from '@/features/editor/components/CollectionList';
+import NewViewDialog from '@/features/editor/components/NewViewDialog';
 
 import {
   Accordion,
@@ -7171,8 +7263,9 @@ import {
 } from "@/core/components/ui/accordion";
 import type { StructureNode } from '@/types';
 import { cn } from '@/lib/utils';
-import { Home, FilePlus } from 'lucide-react';
+import { Home, FilePlus, Newspaper } from 'lucide-react';
 import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
+import { Link } from '@/core/components/ui/link';
 
 
 export default function LeftSidebar() {
@@ -7180,31 +7273,30 @@ export default function LeftSidebar() {
   const pathname = usePathname();
   const siteId = params.siteId as string;
 
-  // --- START OF FIX ---
-  // Select each piece of state individually. Zustand's default shallow
-  // comparison will prevent re-renders if these specific values haven't changed.
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
   const isDesktop = useUIStore((state) => state.screen.isDesktop);
-  // --- END OF FIX ---
   
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { updateManifest, moveNode } = useAppStore.getState();
   
   const pageStructure = useMemo(() => {
-    return site?.manifest.structure.filter((node: StructureNode) => node.type !== 'collection') || [];
+    // Only show top-level pages in the main file tree. Nested pages are handled by the FileTree component itself.
+    return site?.manifest.structure.filter((node: StructureNode) => node.type === 'page' && !node.path.includes('/', 'content/'.length)) || [];
   }, [site?.manifest.structure]);
 
   const [activePath, setActivePath] = useState<string | undefined>();
   useEffect(() => {
     if (!site?.contentFiles) return;
 
-    const pathSegments = pathname.split('/');
     let currentPath = '';
 
     if (pathname.includes('/edit/content/')) {
         const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
         currentPath = `content/${contentSlug}.md`;
+    } else if (pathname.includes('/edit/collection/')) {
+        const collectionSlug = pathname.substring(pathname.indexOf('/edit/collection/') + 17).replace(/\/$/, '');
+        currentPath = `content/${collectionSlug}`;
     }
     setActivePath(currentPath);
   }, [pathname, site?.contentFiles]);
@@ -7254,11 +7346,18 @@ export default function LeftSidebar() {
                   <AccordionTrigger className="text-xs font-semibold uppercase tracking-wider text-muted-foreground border-b-0 p-0 hover:no-underline">
                     Pages
                   </AccordionTrigger>
-                  <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                      <Button variant="ghost" className='size-6 p-2 rounded-sm' title="New Page">
-                          <FilePlus className="h-4 w-4" />
-                      </Button>
-                  </NewPageDialog>
+                  <div className="flex items-center gap-1">
+                      <NewViewDialog siteId={siteId} onComplete={onCreationComplete}>
+                          <Button variant="ghost" className='size-6 p-1 rounded-sm' title="New View Page">
+                              <Newspaper className="h-4 w-4" />
+                          </Button>
+                      </NewViewDialog>
+                      <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
+                          <Button variant="ghost" className='size-6 p-1 rounded-sm' title="New Content Page">
+                              <FilePlus className="h-4 w-4" />
+                          </Button>
+                      </NewPageDialog>
+                  </div>
               </div>
               <AccordionContent ref={setRootDroppableRef} className={cn("px-2 py-2 transition-colors", unnestDropZoneStyle)}>
                 {pageStructure.length > 0 ? (

@@ -4,6 +4,7 @@
 import { LocalSiteData, ParsedMarkdownFile, ViewConfig, PaginationData, PageResolutionResult, PageType } from '@/types';
 import { findNodeByPath } from './fileTree.service';
 import { getUrlForNode } from './urlUtils.service';
+import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 /**
  * Executes a declarative query from a view's configuration.
@@ -132,11 +133,11 @@ export function resolvePageContent(
     }
   
     return {
-      type: PageType.SinglePage,
-      pageTitle: contentFile.frontmatter.title,
-      contentFile: contentFile,
-      layoutPath: contentFile.frontmatter.layout,
-      viewItems: viewItems,
-      pagination: pagination,
+        type: PageType.SinglePage,
+        pageTitle: contentFile.frontmatter.title,
+        contentFile: contentFile,
+        layoutPath: contentFile.frontmatter.layout || DEFAULT_PAGE_LAYOUT_PATH,
+        viewItems: viewItems,
+        pagination: pagination,
     };
 }

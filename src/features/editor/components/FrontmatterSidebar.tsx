@@ -82,7 +82,7 @@ export default function FrontmatterSidebar({
                     </SelectTrigger>
                     <SelectContent>
                         {availableLayouts.map(layout => (
-                           <SelectItem key={layout.name} value={layout.name}>{layout.name}</SelectItem>
+                          <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
                         ))}
                     </SelectContent>
                 </Select>

@@ -46,6 +46,7 @@ export interface ThemeManifest extends BaseAssetManifest {
 
 /** The structure of a layout.json file. */
 export interface LayoutManifest extends BaseAssetManifest {
+  id: string;
   layoutType: 'page' | 'view' | 'item';
   schema?: RJSFSchema; // Optional schema for a layout's own settings.
   uiSchema?: StrictUiSchema;
@@ -186,8 +187,8 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
 
     if (!layoutManifest) {
       // Fallback for a missing layout.json. Create a default in-memory manifest.
-      // --- FIX: This object now correctly includes all required and optional properties of LayoutManifest ---
       return {
+          id: layoutPath,
           name: layoutPath,
           version: '1.0.0',
           layoutType: 'page',
@@ -209,7 +210,7 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
       delete layoutManifest.schema.properties.slug;
     }
 
-    return layoutManifest;
+    return { ...layoutManifest, id: layoutPath };
 }
 
 /**

@@ -70,7 +70,6 @@ function EditContentPageInternal() {
           slug={slug}
           onSlugChange={(newSlug) => actions.setSlug(slugify(newSlug))}
           onDelete={actions.handleDelete}
-          onViewModeToggle={actions.handleViewModeToggle}
         />
       );
     } else {
