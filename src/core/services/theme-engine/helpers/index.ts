@@ -9,7 +9,8 @@ import { strUtilHelper } from './strUtil.helper';
 import { formatDateHelper } from './formatDate.helper';
 import { pagerHelper } from './pager.helper';
 import { SignumHelper } from './types';
- 
+import { renderCollectionHelper } from './renderCollection.helper';
+
 export const coreHelpers: SignumHelper[] = [
   queryHelper,
   strUtilHelper,
@@ -18,5 +19,6 @@ export const coreHelpers: SignumHelper[] = [
   markdownHelper,
   renderViewHelper, 
   renderLayoutForItemHelper, 
-  pagerHelper
+  renderCollectionHelper,
+  pagerHelper,
 ];

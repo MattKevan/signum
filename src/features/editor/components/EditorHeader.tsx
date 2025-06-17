@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useContext } from 'react';
+import { useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useUIStore } from '@/core/state/uiStore';
@@ -8,34 +8,44 @@ import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/core/services/siteExporter.service';
-import { EditorContext, useEditor } from '@/features/editor/contexts/EditorContext'; 
+import { useEditor } from '@/features/editor/contexts/EditorContext'; 
 import { slugify } from '@/lib/utils';
 import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
 import Image from 'next/image';
 
 const SaveButton = () => {
-  // --- START OF FIX ---
-  // Directly get the context. If it's undefined, we are not in an EditorProvider.
-  const editorContext = useContext(EditorContext);
+  const editorContext = useEditor();
 
-  // If there's no context, this button has no purpose, so render nothing.
-  if (!editorContext) {
+   if (!editorContext) {
     return null;
   }
-  // --- END OF FIX ---
 
-  // Now that we know the context exists, we can safely call the hook.
-  const { saveState, triggerSave } = useEditor();
+  // --- FIX: Consume both raw state values ---
+  const { saveState, hasUnsavedChanges, triggerSave } = editorContext;
 
   const buttonContent = {
-    idle: { icon: <Save className="h-4 w-4" />, text: 'Save ' },
+    idle: { icon: <Save className="h-4 w-4" />, text: 'Save' },
     saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving' },
     saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
-    no_changes: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
   };
 
-  const current = buttonContent[saveState];
-  const isDisabled = saveState === 'saving' || saveState === 'saved' || saveState === 'no_changes';
+  // --- FIX: New logic to determine the display state ---
+  let displayState: 'idle' | 'saving' | 'saved';
+  let isDisabled = false;
+
+  if (saveState === 'saving') {
+    displayState = 'saving';
+    isDisabled = true;
+  } else if (hasUnsavedChanges) {
+    displayState = 'idle';
+    isDisabled = false;
+  } else {
+    // This covers 'saved' and 'no_changes'
+    displayState = 'saved';
+    isDisabled = true;
+  }
+
+  const current = buttonContent[displayState];
 
   return (
     <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>

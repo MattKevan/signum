@@ -1,127 +1,136 @@
 // src/app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 'use client';
 
-import { useParams } from 'next/navigation';
 import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
-import { useContentEditorState } from '@/features/editor/hooks/useContentEditorState';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
+import { slugify } from '@/lib/utils';
+import type { LocalSiteData } from '@/types';
 
 // --- Component Imports ---
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
 import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
-import ViewEditor from '@/features/editor/components/ViewEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
-import type { LocalSiteData } from '@/types';
-import { slugify } from '@/lib/utils';
+import CollectionItemList from '@/features/editor/components/CollectionItemList';
 
+// --- Modular Hooks ---
+import { usePageIdentifier } from '@/features/editor/hooks/usePageIdentifier';
+import { useFileContent } from '@/features/editor/hooks/useFileContent';
+import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 
 function EditContentPageInternal() {
-  const params = useParams();
-  const siteId = params.siteId as string;
-  const slugSegments = useMemo(() => (params.slug as string[]) || [], [params.slug]);
+  const editorRef = useRef<MarkdownEditorRef>(null);
 
-  const { 
-    status, 
+  // 1. Identify the page from the URL
+  const { siteId, isNewFileMode, filePath } = usePageIdentifier();
+
+  // 2. Manage the file's content state (this hook no longer provides hasUnsavedChanges)
+  const {
+    status,
     site,
-    isNewFileMode, 
-    frontmatter, 
-    bodyContent, 
-    slug, 
-    currentFilePath,
-    editorRef,
-    actions 
-  } = useContentEditorState(siteId, slugSegments);
+    frontmatter,
+    bodyContent,
+    slug,
+    setSlug,
+    handleFrontmatterChange,
+    onContentModified,
+  } = useFileContent(siteId, filePath, isNewFileMode);
 
-  // --- START OF FIX: Select each piece of state individually ---
-  const leftSidebarContent = useUIStore(state => state.sidebar.leftSidebarContent);
-  const rightSidebarContent = useUIStore(state => state.sidebar.rightSidebarContent);
-  const setLeftAvailable = useUIStore(state => state.sidebar.setLeftAvailable);
-  const setRightAvailable = useUIStore(state => state.sidebar.setRightAvailable);
-  const setLeftSidebarContent = useUIStore(state => state.sidebar.setLeftSidebarContent);
-  const setRightSidebarContent = useUIStore(state => state.sidebar.setRightSidebarContent);
-  // --- END OF FIX ---
 
-  // Effect 1: Manages the static layout of the left sidebar.
+  // 3. Manage file persistence. It now gets its state from the context, so we pass fewer props.
+  const { handleDelete } = useFilePersistence({
+    siteId,
+    filePath,
+    isNewFileMode,
+    frontmatter,
+    slug,
+    getEditorContent: () => editorRef.current?.getMarkdown() ?? '',
+  });
+
+  // 4. Manage UI state (sidebars)
+  const {
+    leftSidebarContent, rightSidebarContent,
+    setLeftAvailable, setRightAvailable,
+    setLeftSidebarContent, setRightSidebarContent
+  } = useUIStore(state => state.sidebar);
+
+  // Determine if the current page is a collection page
+  const isCollectionPage = useMemo(() => !!frontmatter?.collection, [frontmatter]);
+
+  // Effect to manage the Left Sidebar (File Tree)
   useEffect(() => {
     setLeftAvailable(true);
     setLeftSidebarContent(<LeftSidebar />);
-    
-    // Cleanup function
     return () => {
         setLeftAvailable(false);
         setLeftSidebarContent(null);
     }
-  }, [setLeftAvailable, setLeftSidebarContent]); // This effect now has stable dependencies.
+  }, [setLeftAvailable, setLeftSidebarContent]);
 
-
-  // Effect 2: Manages the dynamic content of the right sidebar.
+  // Effect to manage the Right Sidebar (Settings)
   useEffect(() => {
     if (status === 'ready' && frontmatter && site) {
       setRightAvailable(true);
       setRightSidebarContent(
         <FrontmatterSidebar
+          siteId={siteId}
           site={site as LocalSiteData}
           frontmatter={frontmatter}
-          onFrontmatterChange={actions.handleFrontmatterChange}
+          onFrontmatterChange={handleFrontmatterChange}
           isNewFileMode={isNewFileMode}
           slug={slug}
-          onSlugChange={(newSlug) => actions.setSlug(slugify(newSlug))}
-          onDelete={actions.handleDelete}
+          onSlugChange={(newSlug) => setSlug(slugify(newSlug))}
+          onDelete={handleDelete}
         />
       );
     } else {
       setRightAvailable(false);
       setRightSidebarContent(null);
     }
+    return () => { setRightAvailable(false); }
+  }, [status, site, frontmatter, isNewFileMode, slug, siteId, handleFrontmatterChange, handleDelete, setSlug, setRightAvailable, setRightSidebarContent]);
 
-    return () => {
-        setRightAvailable(false);
-    }
-  }, [
-    status, site, frontmatter, isNewFileMode, slug, actions,
-    setRightAvailable, setRightSidebarContent
-  ]);
 
-  const isViewMode = useMemo(() => !!frontmatter?.view, [frontmatter]);
-
+  // --- Main Content Rendering Logic ---
   const pageContent = useMemo(() => {
     if (status !== 'ready' || !frontmatter) {
       return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
     }
-    
+
     return (
-      <div className='flex h-full w-full flex-col p-6'>
-        <div className='container mx-auto flex h-full max-w-[900px] flex-col'>
+      <div className='flex h-full w-full flex-col'>
+        <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
+            {/* Title and Description are ALWAYS shown */}
             <div className="shrink-0">
                 <PrimaryContentFields
                     frontmatter={frontmatter}
-                    onFrontmatterChange={actions.handleFrontmatterChange}
+                    onFrontmatterChange={handleFrontmatterChange}
                 />
             </div>
-            <div className="mt-6 flex-grow">
-              {isViewMode ? (
-                <ViewEditor 
+            <div className="mt-6 flex-grow min-h-0">
+              {isCollectionPage ? (
+                // If it's a collection, show the item list table.
+                <CollectionItemList
                   siteId={siteId}
-                  frontmatter={frontmatter}
-                  onFrontmatterChange={actions.handleFrontmatterChange}
+                  collectionPagePath={filePath}
                 />
               ) : (
+                // Otherwise, show the Markdown editor for the body.
                 <MarkdownEditor
                   ref={editorRef}
-                  key={currentFilePath}
+                  key={filePath}
                   initialValue={bodyContent}
-                  onContentChange={actions.onContentModified}
+                  onContentChange={onContentModified}
                 />
               )}
             </div>
         </div>
       </div>
     );
-  }, [status, frontmatter, bodyContent, currentFilePath, editorRef, actions, isViewMode, siteId]);
-  
+  }, [status, frontmatter, bodyContent, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+
   return (
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
@@ -131,7 +140,6 @@ function EditContentPageInternal() {
     </ThreeColumnLayout>
   );
 }
-
 
 export default function EditContentPage() {
     return (

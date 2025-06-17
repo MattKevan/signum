@@ -7,8 +7,6 @@ import { createContext, useContext, useState, ReactNode, useMemo, useRef, useCal
 export type SaveState = 'idle' | 'saving' | 'saved' | 'no_changes';
 
 interface EditorContextType {
-  setLeftSidebar: (content: ReactNode) => void;
-  setRightSidebar: (content: ReactNode) => void;
   saveState: SaveState;
   setSaveState: (state: SaveState) => void;
   hasUnsavedChanges: boolean;
@@ -20,12 +18,10 @@ interface EditorContextType {
 export const EditorContext = createContext<EditorContextType | undefined>(undefined);
 
 interface EditorProviderProps {
-  children: ReactNode; 
+  children: ReactNode;
 }
 
 export function EditorProvider({ children }: EditorProviderProps) {
-  const [leftSidebarContent, setLeftSidebarContent] = useState<ReactNode>(null);
-  const [rightSidebarContent, setRightSidebarContent] = useState<ReactNode>(null);
   const [saveState, setSaveState] = useState<SaveState>('no_changes');
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const saveActionRef = useRef<(() => Promise<void>) | null>(null);
@@ -33,9 +29,9 @@ export function EditorProvider({ children }: EditorProviderProps) {
   const registerSaveAction = useCallback((saveFn: () => Promise<void>) => {
     saveActionRef.current = saveFn;
   }, []);
-  
+
   const triggerSave = useCallback(async () => {
-    if (saveActionRef.current) { // Allow manual save even if no changes (for "new file" mode)
+    if (saveActionRef.current) {
       setSaveState('saving');
       try {
         await saveActionRef.current();
@@ -45,23 +41,20 @@ export function EditorProvider({ children }: EditorProviderProps) {
       } catch (error) {
         console.error("Save failed:", error);
         toast.error((error as Error).message || "Failed to save.");
-        setSaveState('idle'); 
+        setSaveState('idle');
       }
     }
   }, []);
 
   const contextValue = useMemo(() => ({
-    setLeftSidebar: setLeftSidebarContent,
-    setRightSidebar: setRightSidebarContent,
-    // Determine saveState based on hasUnsavedChanges
-    saveState: hasUnsavedChanges ? 'idle' : saveState,
-    // --- EXPOSE THE SETTER FUNCTION ---
+    saveState,
     setSaveState,
-    hasUnsavedChanges,
-    setHasUnsavedChanges,
+    hasUnsavedChanges, 
+    setHasUnsavedChanges, 
     triggerSave,
     registerSaveAction,
-  }), [saveState, hasUnsavedChanges, registerSaveAction, triggerSave]);
+    // FIX: Add missing dependencies for correctness
+  }), [saveState, hasUnsavedChanges, registerSaveAction, triggerSave, setSaveState, setHasUnsavedChanges]);
 
   return (
     <EditorContext.Provider value={contextValue}>

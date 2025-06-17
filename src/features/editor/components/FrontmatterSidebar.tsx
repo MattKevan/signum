@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
 import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
-import { RJSFSchema } from '@rjsf/utils';
+import { RJSFSchema } from '@rjsf/utils'; // <-- Import RJSFSchema
 import { Label } from '@/core/components/ui/label';
 import { Input } from '@/core/components/ui/input';
 import { Button } from '@/core/components/ui/button';
@@ -12,9 +12,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
-import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
+import ViewEditor from '@/features/editor/components/ViewEditor'; // The collection settings editor
+import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; // <-- Import the form
 
 interface FrontmatterSidebarProps {
+  siteId: string;
   site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles' | 'contentFiles'>;
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (newFrontmatter: Partial<MarkdownFrontmatter>) => void;
@@ -22,76 +24,66 @@ interface FrontmatterSidebarProps {
   slug: string;
   onSlugChange: (newSlug: string) => void;
   onDelete: () => Promise<void>;
-  // The onViewModeToggle prop is no longer needed
 }
 
 export default function FrontmatterSidebar({
-  site, frontmatter, onFrontmatterChange,
+  siteId, site, frontmatter, onFrontmatterChange,
   isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
-  
+
+  const [availablePageLayouts, setAvailablePageLayouts] = useState<LayoutManifest[]>([]);
+  // --- NEW: State for the layout's specific schema ---
   const [layoutSchema, setLayoutSchema] = useState<RJSFSchema | null>(null);
-  const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
-  // Determine if the current page is a View Page based on its frontmatter.
-  // This is now the single source of truth for the page's type.
-  const isViewPage = useMemo(() => !!frontmatter.view, [frontmatter]);
+  const isCollectionPage = useMemo(() => !!frontmatter.collection, [frontmatter]);
 
-  // This effect fetches and filters available layouts based on the page's type.
   useEffect(() => {
-    async function fetchAndFilterLayouts() {
+    async function fetchLayoutData() {
       if (!site) return;
-      
-      const allLayouts = await getAvailableLayouts(site);
-      
-      // --- FIX: Determine the required layoutType based on whether it's a view page. ---
-      const requiredLayoutType = isViewPage ? 'view' : 'page';
-      
-      // --- FIX: Filter using the updated layoutType enum. ---
-      const filtered = allLayouts.filter(layout => layout.layoutType === requiredLayoutType);
-      setAvailableLayouts(filtered);
+      const pageLayouts = await getAvailableLayouts(site, 'page');
+      setAvailablePageLayouts(pageLayouts);
     }
-    fetchAndFilterLayouts();
-  }, [site, isViewPage]); // The dependencies are correct.
-  // This effect loads the schema for the selected layout.
+    fetchLayoutData();
+  }, [site]);
+
+  // --- NEW: Effect to load the schema for the currently selected layout ---
   useEffect(() => {
     const loadSchema = async () => {
-      if (!frontmatter.layout) return;
+      if (!frontmatter.layout) {
+        setLayoutSchema(null);
+        return;
+      }
+      // getLayoutManifest already merges the base schema, so we get everything.
       const manifest = await getLayoutManifest(site, frontmatter.layout);
       setLayoutSchema(manifest?.schema || null);
     };
     loadSchema();
-  }, [site, frontmatter.layout]);
+  }, [site, frontmatter.layout]); // Re-run when the layout changes
 
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
   };
-  
+
   return (
     <div className="p-4 space-y-6 h-full flex flex-col">
-      {/* --- Page Layout & Settings --- */}
-      <Accordion type='single' collapsible className="w-full" defaultValue="item-1">
-        <AccordionItem value="item-1">
-          <AccordionTrigger>Page Settings</AccordionTrigger>
+      <h2 className="text-lg font-semibold border-b pb-3">Page Settings</h2>
+      <Accordion type="multiple" defaultValue={['general', 'collection', 'advanced']} className="w-full">
+        <AccordionItem value="general">
+          <AccordionTrigger>General</AccordionTrigger>
           <AccordionContent className="space-y-4 pt-4">
-            <div>
-                <Label htmlFor="page-layout-select">Page Layout</Label>
-                <Select value={frontmatter.layout} onValueChange={handleLayoutChange}>
-                    <SelectTrigger id="page-layout-select">
-                        <SelectValue placeholder="Select a layout..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {availableLayouts.map(layout => (
-                          <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-                 <p className="text-xs text-muted-foreground mt-1">
-                  Controls the layout for this page&apos;s own title and content.
-                </p>
+            <div className="space-y-2">
+              <Label htmlFor="page-layout-select">Page Layout</Label>
+              <Select value={frontmatter.layout} onValueChange={handleLayoutChange}>
+                  <SelectTrigger id="page-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                  <SelectContent>{availablePageLayouts.map(layout => <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>)}</SelectContent>
+              </Select>
+               <p className="text-xs text-muted-foreground">Controls the appearance of this page&apos;s own title and content.</p>
             </div>
+
+            {/* --- THIS IS THE RESTORED SECTION --- */}
             {layoutSchema && (
                 <div className="border-t pt-4">
+                     <h4 className="text-sm font-medium mb-2">Layout Options</h4>
                     <SchemaDrivenForm
                         schema={layoutSchema}
                         formData={frontmatter}
@@ -99,18 +91,30 @@ export default function FrontmatterSidebar({
                     />
                 </div>
             )}
+            {/* --- END OF RESTORED SECTION --- */}
+
           </AccordionContent>
         </AccordionItem>
-      </Accordion>
 
-      {/* --- Advanced/Danger Zone (in its own accordion) --- */}
-      <Accordion type='single' collapsible className="w-full">
-        <AccordionItem value="item-1">
+        {isCollectionPage && (
+          <AccordionItem value="collection">
+            <AccordionTrigger>Collection Display</AccordionTrigger>
+            <AccordionContent className="pt-2">
+              <ViewEditor
+                siteId={siteId}
+                frontmatter={frontmatter}
+                onFrontmatterChange={onFrontmatterChange}
+              />
+            </AccordionContent>
+          </AccordionItem>
+        )}
+
+        <AccordionItem value="advanced">
           <AccordionTrigger>Advanced</AccordionTrigger>
           <AccordionContent className="space-y-4 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="slug-input">URL Slug</Label>
-                <Input 
+                <Input
                     id="slug-input"
                     value={slug}
                     onChange={(e) => onSlugChange(e.target.value)}
@@ -122,20 +126,20 @@ export default function FrontmatterSidebar({
         </AccordionItem>
       </Accordion>
 
-      {/* --- Delete Button (at the bottom) --- */}
       {!isNewFileMode && (
         <div className="mt-auto pt-6 border-t">
+          {/* ... Delete button dialog remains the same ... */}
           <AlertDialog>
               <AlertDialogTrigger asChild>
                   <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive">
                       <Trash2 className="h-4 w-4 mr-2" /> Delete This Page
                   </Button>
               </AlertDialogTrigger>
-              <AlertDialogContent> 
+              <AlertDialogContent>
                   <AlertDialogHeader>
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot;. This cannot be undone.
+                        This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot; and all its child items. This cannot be undone.
                       </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

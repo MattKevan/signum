@@ -1,122 +1,127 @@
 // src/core/services/pageResolver.service.ts
 
-// FIX: Removed 'StructureNode' import, added 'PageResolutionResult' and 'PageType'.
-import { LocalSiteData, ParsedMarkdownFile, ViewConfig, PaginationData, PageResolutionResult, PageType } from '@/types';
-import { findNodeByPath } from './fileTree.service';
+import {
+    LocalSiteData,
+    ParsedMarkdownFile,
+    CollectionConfig,
+    PaginationData,
+    PageResolutionResult,
+    PageType,
+    StructureNode,
+} from '@/types';
+import { findNodeByPath, findChildNodes } from './fileTree.service';
 import { getUrlForNode } from './urlUtils.service';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 /**
- * Executes a declarative query from a view's configuration.
- * This pure function takes the config and site data, finds the source collection,
- * and returns a fully sorted array of ALL matching content items.
- * Pagination/limiting is handled by the main resolver.
- * 
- * @param {ViewConfig} viewConfig - The configuration object from the page's frontmatter.
+ * Executes a declarative query for a Collection Page.
+ * This pure function takes the config and site data, finds all child pages
+ * in the structure, fetches their content, and returns a fully sorted array.
+ * Pagination is handled by the main resolver.
+ *
+ * @param {CollectionConfig} collectionConfig - The configuration object from the page's frontmatter.
+ * @param {StructureNode} collectionNode - The structure node for the Collection Page itself.
  * @param {LocalSiteData} siteData - The complete data for the site.
- * @returns {ParsedMarkdownFile[]} A sorted array of all content files that match the query.
+ * @returns {ParsedMarkdownFile[]} A sorted array of all content files that are children of the collection page.
  */
-function executeQuery(viewConfig: ViewConfig, siteData: LocalSiteData): ParsedMarkdownFile[] {
-  if (!viewConfig.source_collection || !siteData.contentFiles) {
-    return [];
-  }
-
-  const collectionNode = siteData.manifest.structure.find(
-    node => node.type === 'collection' && node.slug === viewConfig.source_collection
-  );
-
-  if (!collectionNode || !collectionNode.children) {
-    console.warn(`[Query Executor] Collection with slug "${viewConfig.source_collection}" not found or is empty.`);
-    return [];
-  }
-
-  const childPaths = new Set(collectionNode.children.map(child => child.path));
-  
-  // FIX: 'items' is never reassigned, so it can be 'const'.
-  const items = siteData.contentFiles.filter(file => childPaths.has(file.path));
-
-  // --- Sorting Logic ---
-  const sortBy = viewConfig.sort_by || 'date';
-  const sortOrder = viewConfig.sort_order || 'desc';
-  const orderModifier = sortOrder === 'desc' ? -1 : 1;
-
-  // Note: We use sort() which mutates the array in place. To be safer with const, we can create a copy.
-  return [...items].sort((a, b) => {
-    const valA = a.frontmatter[sortBy];
-    const valB = b.frontmatter[sortBy];
-
-    if (sortBy === 'date') {
-        const dateA = valA ? new Date(valA as string).getTime() : 0;
-        const dateB = valB ? new Date(valB as string).getTime() : 0;
-        if (isNaN(dateA) || isNaN(dateB)) return 0;
-        return (dateA - dateB) * orderModifier;
+function executeCollectionQuery(
+    collectionConfig: CollectionConfig,
+    collectionNode: StructureNode,
+    siteData: LocalSiteData,
+): ParsedMarkdownFile[] {
+    if (!siteData.contentFiles) {
+        return [];
     }
 
-    if (typeof valA === 'string' && typeof valB === 'string') {
-        return valA.localeCompare(valB) * orderModifier;
-    }
+    // Find all direct child nodes of the collection page in the site's structure.
+    const childNodes = findChildNodes(siteData.manifest.structure, collectionNode.path);
+    const childPaths = new Set(childNodes.map(child => child.path));
 
-    if (typeof valA === 'number' && typeof valB === 'number') {
-        return (valA - valB) * orderModifier;
-    }
-    return 0;
-  });
+    // Filter the site's content files to get only the ones that are children.
+    const items = siteData.contentFiles.filter(file => childPaths.has(file.path));
+
+    // --- Sorting Logic ---
+    const sortBy = collectionConfig.sort_by || 'date';
+    const sortOrder = collectionConfig.sort_order || 'desc';
+    const orderModifier = sortOrder === 'desc' ? -1 : 1;
+
+    // Create a copy of the array before sorting to avoid mutating the original.
+    return [...items].sort((a, b) => {
+        const valA = a.frontmatter[sortBy];
+        const valB = b.frontmatter[sortBy];
+
+        if (sortBy === 'date' && valA && valB) {
+            const dateA = new Date(valA as string).getTime();
+            const dateB = new Date(valB as string).getTime();
+            if (isNaN(dateA) || isNaN(dateB)) return 0;
+            return (dateA - dateB) * orderModifier;
+        }
+
+        if (typeof valA === 'string' && typeof valB === 'string') {
+            return valA.localeCompare(valB) * orderModifier;
+        }
+
+        if (typeof valA === 'number' && typeof valB === 'number') {
+            return (valA - valB) * orderModifier;
+        }
+        return 0;
+    });
 }
-
 
 /**
  * Finds the correct page to render based on a URL slug path.
- * If the page is a View Page, this function executes the query, handles pagination,
+ * If the page is a Collection Page, this function executes the query, handles pagination,
  * and attaches the results to the final resolution object.
  *
  * @param {LocalSiteData} siteData - The complete data for the site.
  * @param {string[]} slugArray - The URL segments used for path matching.
- * @param {number} [pageNumber=1] - The current page number for pagination, typically from a URL query param.
+ * @param {number} [pageNumber=1] - The current page number for pagination.
  * @returns {PageResolutionResult} An object containing all data needed to render the page or a not-found error.
  */
 export function resolvePageContent(
-    siteData: LocalSiteData, 
+    siteData: LocalSiteData,
     slugArray: string[],
-    pageNumber: number = 1
+    pageNumber: number = 1,
 ): PageResolutionResult {
     const pathSuffix = slugArray.length > 0 ? slugArray.join('/') : 'index';
     const potentialPagePath = `content/${pathSuffix}.md`;
 
     const targetNode = findNodeByPath(siteData.manifest.structure, potentialPagePath);
 
-    if (!targetNode || targetNode.type !== 'page') {
-        return { 
-            type: PageType.NotFound, 
-            errorMessage: `No page found at the path /${slugArray.join('/')}. Collections themselves are not directly viewable.` 
+    if (!targetNode) {
+        return {
+            type: PageType.NotFound,
+            errorMessage: `No page found at the path: /${slugArray.join('/')}`,
         };
     }
-    
+
     const contentFile = siteData.contentFiles?.find(f => f.path === targetNode.path);
     if (!contentFile) {
-        return { 
-            type: PageType.NotFound, 
-            errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.` 
+        return {
+            type: PageType.NotFound,
+            errorMessage: `Manifest references "${targetNode.path}" but its content file is missing.`,
         };
     }
 
-    let viewItems: ParsedMarkdownFile[] | undefined = undefined;
+    let collectionItems: ParsedMarkdownFile[] | undefined = undefined;
     let pagination: PaginationData | undefined = undefined;
 
-    if (contentFile.frontmatter.view) {
-        const viewConfig = contentFile.frontmatter.view;
-        const allItems = executeQuery(viewConfig, siteData);
+    const collectionConfig = contentFile.frontmatter.collection;
+    if (collectionConfig) {
+        const allItems = executeCollectionQuery(collectionConfig, targetNode, siteData);
+        const itemsPerPage = collectionConfig.items_per_page;
 
-        if (viewConfig.show_pager && viewConfig.items_per_page && viewConfig.items_per_page > 0) {
+        if (itemsPerPage && itemsPerPage > 0) {
+            // Handle pagination if configured
             const totalItems = allItems.length;
-            const itemsPerPage = viewConfig.items_per_page;
             const totalPages = Math.ceil(totalItems / itemsPerPage);
             const currentPage = Math.max(1, Math.min(pageNumber, totalPages));
 
             const startIndex = (currentPage - 1) * itemsPerPage;
-            viewItems = allItems.slice(startIndex, startIndex + itemsPerPage);
+            collectionItems = allItems.slice(startIndex, startIndex + itemsPerPage);
 
-            const pageUrlSegment = getUrlForNode({ ...targetNode, type: 'page' }, false);
-            const baseUrl = `/${pageUrlSegment}`;
+            const pageUrlSegment = getUrlForNode(targetNode, false);
+            const baseUrl = pageUrlSegment ? `/${pageUrlSegment}` : '/';
 
             pagination = {
                 currentPage,
@@ -128,16 +133,18 @@ export function resolvePageContent(
                 nextPageUrl: currentPage < totalPages ? `${baseUrl}?page=${currentPage + 1}` : undefined,
             };
         } else {
-            viewItems = allItems;
+            // If no pagination, just return all items
+            collectionItems = allItems;
         }
     }
-  
+
+    // The result object has been renamed for clarity ('viewItems' -> 'collectionItems')
     return {
         type: PageType.SinglePage,
         pageTitle: contentFile.frontmatter.title,
         contentFile: contentFile,
         layoutPath: contentFile.frontmatter.layout || DEFAULT_PAGE_LAYOUT_PATH,
-        viewItems: viewItems,
+        collectionItems: collectionItems,
         pagination: pagination,
     };
 }

@@ -2,17 +2,17 @@
 
 /**
  * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
- * Can represent a standard page or a page that also acts as a collection container.
+ * Every node is a page, which can have child pages nested under it.
+ * Whether a page acts as a "Collection Page" is determined by its frontmatter,
+ * not by a property on this node.
  */
 export interface StructureNode {
-  type: 'page' | 'collection'; // A page is a file, a collection is a virtual folder.
+  type: 'page'; // The 'type' is now always 'page'.
   title: string;
-  path: string; // For pages, this is a file path. For collections, a directory path.
-  slug: string;
+  path: string; // The full path to the .md file (e.g., 'content/blog.md').
+  slug: string; // The URL-friendly version of the path (e.g., 'blog').
   navOrder?: number;
   children?: StructureNode[];
-  layout: string; // Layout for the page itself, or 'none' for a collection.
-  itemLayout?: string; // Default layout for children within this collection.
   [key: string]: unknown;
 }
 
@@ -33,10 +33,7 @@ export interface ThemeConfig {
 export interface LayoutInfo {
   id: string;
   name: string;
-  // 'page' is for standard content pages.
-  // 'view' is for pages that list content.
-  // 'item' is for rendering a single item within a view list.
-  type: 'page' | 'view' | 'item';
+  type: 'page' | 'list' | 'item';
   path: string;
   description?: string;
 }
@@ -59,39 +56,18 @@ export interface DataSourceConfig {
   array_path?: string; // e.g., "results.items" for nested JSON
 }
 
-/**
- * Defines the configuration for a View, stored in a page's frontmatter.
- * It specifies the view template and the data source for the content list.
- */
-export interface ViewConfig {
-  template: string; // The ID of the /views/ asset to use (e.g., "list")
-  source_collection?: string; // The slug of an internal collection
-  data_source?: DataSourceConfig;
-  item_layout: string; // The layout for items in the list (e.g., "teaser")
-  item_page_layout: string; // The layout for the full page of an item (e.g., "page")
 
-  // Standard query parameters
+
+export interface CollectionConfig {
+  list_layout: string;
+  item_layout: string;
+  item_page_layout: string; 
   sort_by?: string;
   sort_order?: 'asc' | 'desc';
-  show_pager?: boolean;
   items_per_page?: number;
-  
-  // Future extensibility for filtering
-  filter?: {
-    field: string;
-    operator: 'eq' | 'neq' | 'contains';
-    value: string | number | boolean;
-  }[];
+  // Future: filter config
 }
 
-/**
- * Represents metadata for a view asset, used for populating UI selectors.
- */
-export interface ViewInfo {
-  id: string;      // The directory name, e.g., "list"
-  name: string;    // The user-friendly name from its manifest, e.g., "Simple List"
-  path: string;    // The directory name, same as id
-}
 
 /**
  * Represents the fields within a content file's YAML frontmatter.
@@ -99,7 +75,7 @@ export interface ViewInfo {
 export interface MarkdownFrontmatter {
   title: string;
   layout: string; // The layout for this specific page's content.
-  view?: ViewConfig; // Optional view configuration block.
+  collection?: CollectionConfig;
   [key: string]: unknown;
 }
 
@@ -191,7 +167,7 @@ export type PageResolutionResult = {
   pageTitle: string;
   contentFile: ParsedMarkdownFile;
   layoutPath: string;
-  viewItems?: ParsedMarkdownFile[];
+  collectionItems?: ParsedMarkdownFile[]; 
   pagination?: PaginationData;
 } | {
   type: PageType.NotFound;

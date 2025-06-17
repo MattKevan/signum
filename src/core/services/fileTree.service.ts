@@ -125,3 +125,14 @@ export function updatePathsRecursively(node: StructureNode, newParentPath: strin
 
   return updatedNode;
 }
+
+/**
+ * Finds all direct child nodes of a given parent node path.
+ * @param nodes The entire site structure array.
+ * @param parentPath The path of the parent node whose children are to be found.
+ * @returns An array of StructureNodes that are children of the parent.
+ */
+export function findChildNodes(nodes: StructureNode[], parentPath: string): StructureNode[] {
+    const parentNode = findNodeByPath(nodes, parentPath);
+    return parentNode?.children || [];
+}
