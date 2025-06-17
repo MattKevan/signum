@@ -1,36 +1,67 @@
-{{! 
-  This header component provides the site title and navigation.
-  It uses Tachyons for styling and Alpine.js for the mobile menu toggle.
-  - `x-data="{ isMobileMenuOpen: false }"`: Initializes the Alpine component state.
-  - `@click="isMobileMenuOpen = !isMobileMenuOpen"`: Toggles the state on button click.
-  - `x-show="isMobileMenuOpen"`: Conditionally shows/hides the mobile menu panel.
-  - ARIA attributes (`aria-controls`, `aria-expanded`) are used for accessibility.
-  - Tachyons responsive classes (`dn`, `db-ns`) handle desktop vs. mobile visibility.
+{{! themes/default/partials/header.hbs }}
+{{!
+  This header provides a responsive navigation bar using Tachyons and Alpine.js.
+  - Desktop: Shows links horizontally with hover-activated dropdowns.
+  - Mobile: A hamburger button toggles a full-screen menu with accordion-style dropdowns.
 }}
-<header class="w-100 bb b--black-10 bg-white-80" style="backdrop-filter: blur(8px);">
+<header x-data="{ isMobileMenuOpen: false }" @keydown.escape.window="isMobileMenuOpen = false" class="w-100 bb b--black-10 bg-white-80" style="backdrop-filter: blur(8px);">
     <div class="mw8 center ph3 ph4-ns">
         <div class="flex h3 items-center justify-between">
             
             {{!-- Site Logo/Title --}}
             <div class="flex-shrink-0">
-                {{!-- The `link` class removes default underline, `dim` adds a hover effect. --}}
-                <a href="/" class="link dim f4 fw7 near-black">
-                    {{manifest.title}}
+                <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black">
+                    {{@root.manifest.title}}
                 </a>
             </div>
 
-            {{!-- Desktop Navigation --}}
-            {{!-- `dn` (display: none) on mobile, `db-ns` (display: block) on screens "not small" --}}
+            {{!-- ================================== --}}
+            {{!-- DESKTOP NAVIGATION (hidden on mobile) --}}
+            {{!-- ================================== --}}
             <nav class="dn db-ns">
-                {{#each navLinks}}
-                    <a href="{{this.href}}" class="link dim gray f6 fw5 mh3">
-                        {{this.label}}
-                    </a>
-                {{/each}}
+                <ul class="list pa0 ma0 flex items-center">
+                    {{#each @root.navLinks}}
+                        {{!-- If a nav link has children, render as a hoverable dropdown --}}
+                        {{#if this.children.length}}
+                            <li class="mh2 relative" x-data="{ open: false }" @mouseenter="open = true" @mouseleave="open = false">
+                                <a href="{{this.href}}" class="link dim gray f6 fw5 flex items-center pv2">
+                                    <span>{{this.label}}</span>
+                                    <svg class="ml1 h1 w1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </a>
+                                {{!-- Dropdown Panel --}}
+                                <div 
+                                    x-show="open" 
+                                    x-transition:enter="transition-all-fast ease-out"
+                                    x-transition:enter-start="o-0"
+                                    x-transition:enter-end="o-100"
+                                    x-transition:leave="transition-all-fast ease-in"
+                                    x-transition:leave-start="o-100"
+                                    x-transition:leave-end="o-0"
+                                    class="absolute left-0 mt1 w5 br2 shadow-5 bg-white z-1" 
+                                    x-cloak
+                                >
+                                    <ul class="list pa0 ma0 py1">
+                                        {{#each this.children}}
+                                            <li>
+                                                <a href="{{this.href}}" class="db link dim near-black f6 ph3 pv2 hover-bg-light-gray">{{this.label}}</a>
+                                            </li>
+                                        {{/each}}
+                                    </ul>
+                                </div>
+                            </li>
+                        {{else}}
+                            {{!-- Otherwise, render a simple link --}}
+                            <li class="mh2">
+                                <a href="{{this.href}}" class="link dim gray f6 fw5 pv2">{{this.label}}</a>
+                            </li>
+                        {{/if}}
+                    {{/each}}
+                </ul>
             </nav>
 
-            {{!-- Mobile Menu Button --}}
-            {{!-- `db` (display: block) on mobile, `dn-ns` (display: none) on screens "not small" --}}
+            {{!-- ========================================= --}}
+            {{!-- MOBILE MENU BUTTON (visible only on mobile) --}}
+            {{!-- ========================================= --}}
             <div class="db dn-ns">
                 <button 
                     @click="isMobileMenuOpen = !isMobileMenuOpen" 
@@ -40,49 +71,71 @@
                     :aria-expanded="isMobileMenuOpen.toString()"
                 >
                     <span class="sr-only">Open main menu</span>
-                    
-                    {{!-- Hamburger Icon (visible when menu is closed) --}}
+                    {{!-- Hamburger Icon --}}
                     <svg x-show="!isMobileMenuOpen" class="h2 w2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                     </svg>
-                    
-                    {{!-- Close (X) Icon (visible when menu is open) --}}
-                    {{!-- `x-cloak` prevents the icon from flashing on page load before Alpine initializes. --}}
+                    {{!-- Close (X) Icon --}}
                     <svg x-show="isMobileMenuOpen" x-cloak class="h2 w2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
                     </svg>
                 </button>
             </div>
-
         </div>
     </div>
 
-    {{!-- Mobile Menu Panel --}}
-    {{!-- This panel is shown or hidden by Alpine based on the `isMobileMenuOpen` state. --}}
-    {{!-- `x-transition` adds a smooth fade/scale effect. --}}
+    {{!-- ======================================================= --}}
+    {{!-- MOBILE MENU PANEL (full screen, visible only on mobile) --}}
+    {{!-- ======================================================= --}}
     <div 
         x-show="isMobileMenuOpen" 
-        x-transition:enter="transition ease-out duration-200"
-        x-transition:enter-start="opacity-0 scale-95"
-        x-transition:enter-end="opacity-100 scale-100"
-        x-transition:leave="transition ease-in duration-150"
-        x-transition:leave-start="opacity-100 scale-100"
-        x-transition:leave-end="opacity-0 scale-95"
-        class="db dn-ns bb b--black-10" 
+        x-transition:enter="transition-all-fast ease-out"
+        x-transition:enter-start="o-0"
+        x-transition:enter-end="o-100"
+        x-transition:leave="transition-all-fast ease-in"
+        x-transition:leave-start="o-100"
+        x-transition:leave-end="o-0"
+        class="fixed inset-0 z-50 bg-white pa4"
         id="mobile-menu"
         x-cloak
     >
-        <div class="pa3">
-            {{#each navLinks}}
-                <a 
-                    href="{{this.href}}" 
-                    class="db link dim near-black f6 pa2 br2 hover-bg-light-gray"
-                    {{!-- Clicking a link closes the mobile menu --}}
-                    @click="isMobileMenuOpen = false"
-                >
-                    {{this.label}}
-                </a>
-            {{/each}}
+        <div class="flex items-center justify-between mb4">
+            <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black">
+                {{@root.manifest.title}}
+            </a>
+            <button @click="isMobileMenuOpen = false" type="button" class="button-reset bg-transparent bn pa2">
+                <span class="sr-only">Close menu</span>
+                <svg class="h2 w2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
         </div>
+        <nav>
+            <ul class="list pa0 ma0">
+                {{#each @root.navLinks}}
+                    <li class="pv2">
+                        {{#if this.children.length}}
+                            <div x-data="{ open: false }">
+                                <button @click="open = !open" class="button-reset bn bg-transparent w-100 f5 fw5 tl flex items-center justify-between">
+                                    <span>{{this.label}}</span>
+                                    <svg class="h1 w1 gray transition-all" :class="{ 'rotate-180': open }" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
+                                </button>
+                                <div x-show="open" x-transition class="mt2 pl3">
+                                    <ul class="list pa0 ma0">
+                                        {{#each this.children}}
+                                            <li class="pv1">
+                                                <a href="{{this.href}}" class="link dim f6 gray" @click="isMobileMenuOpen = false">{{this.label}}</a>
+                                            </li>
+                                        {{/each}}
+                                    </ul>
+                                </div>
+                            </div>
+                        {{else}}
+                            <a href="{{this.href}}" class="link dim f5 fw5 near-black" @click="isMobileMenuOpen = false">{{this.label}}</a>
+                        {{/if}}
+                    </li>
+                {{/each}}
+            </ul>
+        </nav>
     </div>
 </header>

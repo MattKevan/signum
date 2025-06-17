@@ -105,7 +105,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
   const pageLayoutPath = resolution.layoutPath;
 
   // 2. Prepare Data for Rendering
-    const currentPageExportPath = getUrlForNode({ ...resolution.contentFile, type: 'page' }, true);
+  const currentPageExportPath = getUrlForNode(resolution.contentFile, true);
   const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;

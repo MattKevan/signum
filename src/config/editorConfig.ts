@@ -1,5 +1,5 @@
 // src/config/editorConfig.ts
-import type { ThemeInfo, LayoutInfo, ViewInfo } from '@/types';
+import type { ThemeInfo, LayoutInfo } from '@/types';
 import { RJSFSchema, UiSchema } from '@rjsf/utils'; 
 
 /**
@@ -42,21 +42,20 @@ export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 export const DEFAULT_VIEW_LAYOUT_PATH = 'listing';
 
 export const CORE_LAYOUTS: LayoutInfo[] = [
-  { id: 'page', name: 'Page', type: 'page', path: 'page' },
-  { id: 'listing', name: 'Listing', type: 'view', path: 'listing' },
+  // Page Layouts
+  { id: 'page', name: 'Standard Page', type: 'page', path: 'page', description: "A clean, single-column page layout." },
+  // Add other page layouts like 'post' here if they exist
+
+  // List Layouts
+  { id: 'listing', name: 'Vertical List', type: 'list', path: 'listing', description: "A standard, top-to-bottom list of items." },
+  // Add other list layouts like 'grid' here if they exist
+
+  // Item Layouts
+  { id: 'teaser', name: 'Teaser Card', type: 'item', path: 'teaser', description: "A compact card with a title and summary." },
 ];
 
 export const CORE_THEMES: ThemeInfo[] = [
   { id: 'default', name: 'Default Theme', path: 'default' },
-];
-
-/**
- * A list of the core, built-in views that ship with Signum.
- * The `id` and `path` must match the directory name in `/public/views/`.
- */
-export const CORE_VIEWS: ViewInfo[] = [
-    { id: 'list', name: 'Simple List View', path: 'list' },
-    // Add other core views like 'grid' here as they are created.
 ];
 
 /**

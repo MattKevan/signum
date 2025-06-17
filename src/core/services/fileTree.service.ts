@@ -110,15 +110,19 @@ export function findAndRemoveNode(nodes: StructureNode[], path: string): { found
  * @returns {StructureNode} The node with all paths and slugs updated.
  */
 export function updatePathsRecursively(node: StructureNode, newParentPath: string): StructureNode {
-  const oldSlug = node.slug;
-  const newPath = `${newParentPath}/${oldSlug}.md`;
-  
-  const updatedNode: StructureNode = { ...node, path: newPath };
+  // Get the last part of the old path to append to the new parent path.
+  const oldFileName = node.path.substring(node.path.lastIndexOf('/'));
+  const newPath = `${newParentPath}${oldFileName}`;
+
+  // The new slug is the new path, minus the 'content/' prefix and '.md' extension.
+  const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
+
+  const updatedNode: StructureNode = { ...node, path: newPath, slug: newSlug };
 
   if (updatedNode.children) {
     // The new parent path for the children is the updated node's path, without the '.md' extension.
     const newChildsParentPath = newPath.replace(/\.md$/, '');
-    updatedNode.children = updatedNode.children.map(child => 
+    updatedNode.children = updatedNode.children.map(child =>
       updatePathsRecursively(child, newChildsParentPath)
     );
   }

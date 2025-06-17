@@ -22,7 +22,6 @@ export default function CollectionItemList({ siteId, collectionPagePath }: Colle
     return findChildNodes(site.manifest.structure, collectionPagePath);
   }, [site?.manifest, collectionPagePath]);
 
-  // The path for creating a new item is nested under the collection page
   const newItemPath = `/sites/${siteId}/edit/content/${collectionPagePath.replace('content/', '').replace('.md', '')}/${NEW_FILE_SLUG_MARKER}`;
 
   return (
@@ -39,7 +38,12 @@ export default function CollectionItemList({ siteId, collectionPagePath }: Colle
         {collectionItems.length > 0 ? (
           <ul className="space-y-1">
             {collectionItems.map((item) => {
-              const itemEditorPath = `/sites/${siteId}/edit/content/${item.slug}`;
+              // --- THIS IS THE FIX ---
+              // Generate the link from the reliable `item.path` instead of `item.slug`.
+              const editorSlug = item.path.replace(/^content\//, '').replace(/\.md$/, '');
+              const itemEditorPath = `/sites/${siteId}/edit/content/${editorSlug}`;
+              // --- END OF FIX ---
+
               return (
                 <li key={item.path}>
                   <Link href={itemEditorPath} className="flex items-center rounded-md p-2 transition-colors hover:bg-muted">

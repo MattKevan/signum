@@ -1,36 +1,20 @@
-{{! /public/layouts/listing/listing.hbs }}
-{{!-- 
-  This layout is specifically for "View Pages". 
-  It receives the full page resolution context, including:
-  - contentFile: The .md file for this page itself (for title, intro content).
-  - viewItems: The array of items for the *current* page.
-  - pagination: The object with all pagination data (totalPages, currentPage, etc.).
---}}
 <article class="w-100">
-    {{!-- 1. Render the page's own title from its .md file, if the user wants it. --}}
-    {{#if contentFile.frontmatter.show_page_title}}
-      <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
+    <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
+    {{#if contentFile.frontmatter.description}}
+        <p class="lh-copy measure mb4">{{contentFile.frontmatter.description}}</p>
     {{/if}}
 
-    {{!-- 2. Render any introductory content from the page's .md file. --}}
-    {{#if contentFile.content}}
-      <div class="lh-copy measure mb4">
-        {{{markdown contentFile.content}}}
-      </div>
-    {{/if}}
-    
-    {{!-- 
-      3. Render the list of items. 
-      The render_view helper is still used to select the correct view template (e.g., 'list' or 'grid').
-    --}}
-    {{#if viewItems}}
-        {{{render_view contentFile.frontmatter.view viewItems}}}
-    {{/if}}
+    <div class="item-loop">
+        {{#each collectionItems}}
+            {{!-- Use the `assign` helper to add a `url` property to this item's context --}}
+            {{#assign this "url" (getUrlForNode this @root.options.isExport)}}
+                {{!-- Now, the item layout template will have access to {{this.url}} --}}
+                {{{render_layout_for_item this layout=@root.contentFile.frontmatter.collection.item_layout}}}
+            {{/assign}}
+        {{/each}}
+    </div>
 
-    {{!-- 
-      4. Render the pager. 
-      The pager helper gets the pagination object directly from this layout's context.
-      It will automatically render nothing if pagination is not needed.
-    --}}
-    {{{pager pagination}}}
+    <div class="pager-wrapper mt4">
+        {{{pager pagination}}}
+    </div>
 </article>

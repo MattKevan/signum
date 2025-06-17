@@ -2,21 +2,9 @@
   "name": "Listing",
   "version": "1.0.0",
   "description": "A layout for pages that display lists of content, such as a blog index or project gallery.",
-  "layoutType": "view",
+  "layoutType": "list",
   "files": [
     { "path": "layout.json", "type": "manifest" },
     { "path": "listing.hbs", "type": "template" }
-  ],
-  "schema": {
-    "title": "Listing Page Options",
-    "type": "object",
-    "properties": {
-      "show_page_title": {
-        "type": "boolean",
-        "title": "Show Page Title",
-        "description": "Display the page's main title above the content list.",
-        "default": true
-      }
-    }
-  }
+  ]
 }

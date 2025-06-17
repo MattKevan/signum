@@ -1,15 +1,11 @@
-{{! /public/layouts/page/page.hbs }}
-<article class="lh-copy measure">
-    {{!-- Render the page's own content --}}
-    <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
+{{! page.hbs }}
+<article>
+    <h1>{{contentFile.frontmatter.title}}</h1>
     {{{markdown contentFile.content}}}
-    
-    {{!-- 
-      If the page resolver found view items, it means this page is a View Page.
-      Call the `render_view` helper to render the list section.
-    --}}
-    {{#if viewItems}}
-        <hr class="bt b--black-10 mv4" />
-        {{{render_view contentFile.frontmatter.view viewItems}}}
+
+    {{#if collectionItems}}
+        <hr/>
+        {{! The helper now implicitly has the context it needs }}
+        {{{render_collection}}}
     {{/if}}
 </article>

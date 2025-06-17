@@ -20,7 +20,6 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
   const site = useAppStore(state => state.getSiteById(siteId));
 
   // State for the dropdown options
-  const [listLayouts, setListLayouts] = useState<LayoutManifest[]>([]);
   const [itemLayouts, setItemLayouts] = useState<LayoutManifest[]>([]);
   const [pageLayouts, setPageLayouts] = useState<LayoutManifest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -32,7 +31,6 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
       setIsLoading(true);
       const allLayouts = await getAvailableLayouts(site);
       // Filter layouts by their new, specific types
-      setListLayouts(allLayouts.filter(l => l.layoutType === 'list'));
       setItemLayouts(allLayouts.filter(l => l.layoutType === 'item'));
       setPageLayouts(allLayouts.filter(l => l.layoutType === 'page'));
       setIsLoading(false);
@@ -72,14 +70,7 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
 
       {/* --- Layout Selection --- */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-            <Label htmlFor="list-layout">List Layout</Label>
-            <Select value={collectionConfig.list_layout} onValueChange={(v) => handleCollectionConfigChange('list_layout', v)}>
-                <SelectTrigger id="list-layout"><SelectValue placeholder="Select..." /></SelectTrigger>
-                <SelectContent>{listLayouts.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">Appearance of the list container.</p>
-        </div>
+       
         <div className="space-y-2">
             <Label htmlFor="item-layout">Item Layout (in list)</Label>
             <Select value={collectionConfig.item_layout} onValueChange={(v) => handleCollectionConfigChange('item_layout', v)}>

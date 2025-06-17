@@ -118,6 +118,7 @@ export default function LeftSidebar() {
             {topLevelPages.length > 0 ? (
               <FileTree
                   nodes={topLevelPages}
+                  contentFiles={site.contentFiles || []}
                   baseEditPath={`/sites/${siteId}/edit`}
                   activePath={activePath}
                   onStructureChange={handleStructureChange}

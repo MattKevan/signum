@@ -59,7 +59,6 @@ export interface DataSourceConfig {
 
 
 export interface CollectionConfig {
-  list_layout: string;
   item_layout: string;
   item_page_layout: string; 
   sort_by?: string;

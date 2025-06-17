@@ -1,31 +1,32 @@
-// src/lib/theme-helpers/renderLayoutForItem.helper.ts
+// src/core/services/theme-engine/helpers/renderLayoutForItem.helper.ts
 import Handlebars from 'handlebars';
-import { SignumHelper } from './types'; 
-import { ParsedMarkdownFile } from '@/types'; 
+import { SignumHelper } from './types';
+// Import the specific types we need
+import { ParsedMarkdownFile, PageResolutionResult } from '@/types';
 import { HelperOptions } from 'handlebars';
 
-export const renderLayoutForItemHelper: SignumHelper = (siteData) => ({
+export const renderLayoutForItemHelper: SignumHelper = () => ({
   /**
    * Renders a specific layout for a single content item.
    * This is used inside a view template's `each` loop.
-   * @example {{{render_layout_for_item this layout=config.item_layout}}}
+   * @example {{{render_layout_for_item this layout=../contentFile.frontmatter.collection.item_layout}}}
    */
   render_layout_for_item: function(
-    this: any, 
-    item: ParsedMarkdownFile, 
-    options: HelperOptions 
+    // The 'this' context for a helper is typically the top-level data object
+    // passed to the template that contains the helper call. PageResolutionResult is a good, safe type.
+    this: PageResolutionResult,
+    item: ParsedMarkdownFile,
+    options: HelperOptions
   ) {
     const layoutId = options.hash.layout;
     if (!item || !layoutId) {
         return '';
     }
 
-    // The themeEngine has pre-cached the required layout as a partial
-    // under its ID (e.g., 'post-card').
-    const layoutTemplate = Handlebars.partials[layoutId];
-    
-    if (layoutTemplate) {
-        // The context for the layout partial is the item itself.
+    const layoutTemplateSource = Handlebars.partials[layoutId];
+
+    if (layoutTemplateSource) {
+        const layoutTemplate = Handlebars.compile(layoutTemplateSource);
         return new Handlebars.SafeString(layoutTemplate(item));
     }
 

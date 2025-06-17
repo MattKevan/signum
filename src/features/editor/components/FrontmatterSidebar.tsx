@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
 import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
-import { RJSFSchema } from '@rjsf/utils'; // <-- Import RJSFSchema
+import { RJSFSchema } from '@rjsf/utils'; 
 import { Label } from '@/core/components/ui/label';
 import { Input } from '@/core/components/ui/input';
 import { Button } from '@/core/components/ui/button';
@@ -12,8 +12,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
-import ViewEditor from '@/features/editor/components/ViewEditor'; // The collection settings editor
-import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; // <-- Import the form
+import ViewEditor from '@/features/editor/components/ViewEditor'; 
+import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; 
 
 interface FrontmatterSidebarProps {
   siteId: string;
@@ -31,34 +31,35 @@ export default function FrontmatterSidebar({
   isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
 
-  const [availablePageLayouts, setAvailablePageLayouts] = useState<LayoutManifest[]>([]);
-  // --- NEW: State for the layout's specific schema ---
+ const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
   const [layoutSchema, setLayoutSchema] = useState<RJSFSchema | null>(null);
 
   const isCollectionPage = useMemo(() => !!frontmatter.collection, [frontmatter]);
 
   useEffect(() => {
-    async function fetchLayoutData() {
+    async function fetchAndFilterLayouts() {
       if (!site) return;
-      const pageLayouts = await getAvailableLayouts(site, 'page');
-      setAvailablePageLayouts(pageLayouts);
-    }
-    fetchLayoutData();
-  }, [site]);
 
-  // --- NEW: Effect to load the schema for the currently selected layout ---
+      // Determine which type of layout we need to show in the dropdown.
+      const requiredLayoutType = isCollectionPage ? 'list' : 'page';
+      const filteredLayouts = await getAvailableLayouts(site, requiredLayoutType);
+      setAvailableLayouts(filteredLayouts);
+    }
+    fetchAndFilterLayouts();
+  }, [site, isCollectionPage]); // Re-runs when the page type changes
+
+  // This effect loads the schema for the currently selected layout.
   useEffect(() => {
     const loadSchema = async () => {
       if (!frontmatter.layout) {
         setLayoutSchema(null);
         return;
       }
-      // getLayoutManifest already merges the base schema, so we get everything.
       const manifest = await getLayoutManifest(site, frontmatter.layout);
       setLayoutSchema(manifest?.schema || null);
     };
     loadSchema();
-  }, [site, frontmatter.layout]); // Re-run when the layout changes
+  }, [site, frontmatter.layout]);
 
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
@@ -71,16 +72,20 @@ export default function FrontmatterSidebar({
         <AccordionItem value="general">
           <AccordionTrigger>General</AccordionTrigger>
           <AccordionContent className="space-y-4 pt-4">
+          
             <div className="space-y-2">
-              <Label htmlFor="page-layout-select">Page Layout</Label>
+              <Label htmlFor="page-layout-select">Layout</Label>
               <Select value={frontmatter.layout} onValueChange={handleLayoutChange}>
                   <SelectTrigger id="page-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
-                  <SelectContent>{availablePageLayouts.map(layout => <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>)}</SelectContent>
+                  <SelectContent>
+                      {availableLayouts.map(layout => (
+                          <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
+                      ))}
+                  </SelectContent>
               </Select>
-               <p className="text-xs text-muted-foreground">Controls the appearance of this page&apos;s own title and content.</p>
+               <p className="text-xs text-muted-foreground">Controls the appearance of this page.</p>
             </div>
 
-            {/* --- THIS IS THE RESTORED SECTION --- */}
             {layoutSchema && (
                 <div className="border-t pt-4">
                      <h4 className="text-sm font-medium mb-2">Layout Options</h4>
@@ -91,8 +96,6 @@ export default function FrontmatterSidebar({
                     />
                 </div>
             )}
-            {/* --- END OF RESTORED SECTION --- */}
-
           </AccordionContent>
         </AccordionItem>
 

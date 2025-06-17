@@ -118,9 +118,9 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         if (file.frontmatter.layout) {
             layoutIds.add(file.frontmatter.layout);
         }
-        // If it's a collection page, add its list and item layouts
+        // If it's a collection page, add its item layout
         if (file.frontmatter.collection) {
-            layoutIds.add(file.frontmatter.collection.list_layout);
+            // The line trying to access list_layout is REMOVED.
             layoutIds.add(file.frontmatter.collection.item_layout);
         }
     });

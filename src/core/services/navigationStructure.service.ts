@@ -1,8 +1,9 @@
-// src/lib/navigationUtils.ts
+// src/core/services/navigationStructureService.ts
+
 import { LocalSiteData, NavLinkItem, StructureNode } from '@/types';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { getRelativePath } from '@/core/services/relativePaths.service';
-import { RenderOptions } from '@/core/services/theme-engine/themeEngine.service'; 
+import { RenderOptions } from '@/core/services/theme-engine/themeEngine.service';
 
 /**
  * Recursively builds a navigation link structure with context-aware paths.
@@ -20,28 +21,26 @@ function buildNavLinks(nodes: StructureNode[], currentPagePath: string, options:
       const urlSegment = getUrlForNode(node, options.isExport);
 
       if (options.isExport) {
-        // EXPORT MODE: Calculate a portable, document-relative path.
         href = getRelativePath(currentPagePath, urlSegment);
       } else {
-        // PREVIEW MODE: Construct a full, absolute-style path for the SPA viewer.
-        // e.g., /sites/signum-e1bry/view + / + about -> /sites/signum-e1bry/view/about
-        href = `${options.siteRootPath}${urlSegment ? `/${urlSegment}` : ''}`;
+        href = `${options.siteRootPath}${urlSegment ? `/${urlSegment}` : ''}`.replace(/\/$/, '') || '/';
       }
-      
+
+      // --- NEW: Recursive call for children ---
+      const children = (node.children && node.children.length > 0)
+        ? buildNavLinks(node.children, currentPagePath, options)
+        : [];
+
       return {
         href: href,
         label: node.title,
-        children: node.children ? buildNavLinks(node.children, currentPagePath, options) : [],
+        children: children,
       };
     });
 }
 
 /**
  * Generates the complete navigation structure for a given page.
- * @param siteData - The complete site data.
- * @param currentPagePath - The path of the HTML page being rendered (for relative calculations).
- * @param options - The full render options object.
- * @returns The final array of navigation links.
  */
 export function generateNavLinks(
   siteData: LocalSiteData,

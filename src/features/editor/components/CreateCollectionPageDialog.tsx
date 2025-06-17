@@ -24,7 +24,6 @@ interface CreateCollectionPageDialogProps {
 }
 
 // Default layouts for a new collection page
-const DEFAULT_COLLECTION_PAGE_LAYOUT = 'page'; // A simple page layout for the collection's own content
 const DEFAULT_LIST_LAYOUT = 'listing';
 const DEFAULT_ITEM_LAYOUT = 'teaser';
 const DEFAULT_ITEM_PAGE_LAYOUT = 'page';
@@ -71,9 +70,8 @@ export default function CreateCollectionPageDialog({ siteId, children, onComplet
 
     const frontmatter: MarkdownFrontmatter = {
         title: name.trim(),
-        layout: DEFAULT_COLLECTION_PAGE_LAYOUT, // The layout for this page itself
+        layout: DEFAULT_LIST_LAYOUT, // The layout for this page itself
         collection: { // The special block that makes this a Collection Page
-            list_layout: DEFAULT_LIST_LAYOUT,
             item_layout: DEFAULT_ITEM_LAYOUT,
             item_page_layout: DEFAULT_ITEM_PAGE_LAYOUT,
             sort_by: 'date',

@@ -1,7 +1,7 @@
 // src/lib/localSiteFs.ts
 import { LocalSiteData, Manifest, ParsedMarkdownFile, RawFile } from '@/types'; // Ensure RawFile is imported
 import localforage from 'localforage';
-import { parseMarkdownString, stringifyToMarkdown } from '@/lib/markdownParser';
+import { stringifyToMarkdown, parseMarkdownString } from '@/lib/markdownParser';
 
 const DB_NAME = 'SignumDB';
 
@@ -98,9 +98,9 @@ export async function saveManifest(siteId: string, manifest: Manifest): Promise<
 
 export async function saveContentFile(siteId: string, filePath: string, rawMarkdownContent: string): Promise<ParsedMarkdownFile> {
     const contentFiles = await siteContentFilesStore.getItem<ParsedMarkdownFile[]>(siteId) ?? [];
-    
+
     const { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
-    const fileSlug = filePath.substring(filePath.lastIndexOf('/') + 1).replace('.md', '');
+    const fileSlug = filePath.replace(/^content\//, '').replace(/\.md$/, '');
     const savedFile: ParsedMarkdownFile = { slug: fileSlug, path: filePath, frontmatter, content };
 
     const fileIndex = contentFiles.findIndex(f => f.path === filePath);
@@ -109,7 +109,7 @@ export async function saveContentFile(siteId: string, filePath: string, rawMarkd
     } else {
       contentFiles.push(savedFile);
     }
-    
+
     await siteContentFilesStore.setItem(siteId, contentFiles);
     return savedFile;
 }
