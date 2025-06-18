@@ -18,6 +18,9 @@ import { markdownToBlocks } from '@/core/services/blocknote.service';
 
 export type FileStatus = 'initializing' | 'loading' | 'ready' | 'not_found';
 
+interface PageFrontmatter extends MarkdownFrontmatter {
+    menuTitle?: string;
+}
 /**
  * Manages the state of a single content file for the editor.
  * It handles loading the raw Markdown, parsing it, converting the body
@@ -29,7 +32,7 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
   const { setHasUnsavedChanges } = useEditor();
 
   const [status, setStatus] = useState<FileStatus>('initializing');
-  const [frontmatter, setFrontmatter] = useState<MarkdownFrontmatter | null>(null);
+  const [frontmatter, setFrontmatter] = useState<PageFrontmatter | null>(null);
   const [slug, setSlug] = useState('');
   
   // This state now holds the Blocknote-compatible JSON for the editor.
@@ -93,7 +96,7 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
    * local frontmatter state and also auto-generates the slug if the title
    * is changed on a new file.
    */
-  const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
+const handleFrontmatterChange = useCallback((update: Partial<PageFrontmatter>) => {
     setFrontmatter(prev => {
       if (!prev) return null;
       const newFm = { ...prev, ...update };

@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: ios, public, node_modules
+Excluded Directories: ios, node_modules, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -395,8 +395,14 @@ File: themes/default/partials/head.hbs
     {{/if}}
 
     {{!-- Favicon Placeholder - Users should replace these --}}
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    {{#if faviconUrl}}
+        <link rel="icon" href="{{faviconUrl}}" sizes="any">
+        <link rel="apple-touch-icon" href="{{faviconUrl}}">
+    {{else}}
+        {{!-- Fallback to default public icons --}}
+        <link rel="icon" href="/favicon.ico" sizes="any">
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    {{/if}}
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
      {{!-- STYLESHEETS --}}
@@ -413,8 +419,7 @@ File: themes/default/partials/header.hbs
 {{! themes/default/partials/header.hbs }}
 {{!
   This header provides a responsive navigation bar using Tachyons and Alpine.js.
-  - Desktop: Shows links horizontally with hover-activated dropdowns.
-  - Mobile: A hamburger button toggles a full-screen menu with accordion-style dropdowns.
+  It now dynamically displays the pre-rendered site logo if one exists in the manifest.
 }}
 <header x-data="{ isMobileMenuOpen: false }" @keydown.escape.window="isMobileMenuOpen = false" class="w-100 bb b--black-10 bg-white-80" style="backdrop-filter: blur(8px);">
     <div class="mw8 center ph3 ph4-ns">
@@ -422,8 +427,16 @@ File: themes/default/partials/header.hbs
             
             {{!-- Site Logo/Title --}}
             <div class="flex-shrink-0">
-                <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black">
-                    {{@root.manifest.title}}
+                <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black flex items-center">
+                    
+                
+                    {{#if logoUrl}}
+                        <img src="{{logoUrl}}" alt="{{@root.manifest.title}} logo" class="mr2 h-8 w-auto">
+                    {{else}}
+                        {{!-- Optional: You could place a default SVG logo here if you wanted --}}
+                    {{/if}}
+
+                    <span>{{@root.manifest.title}}</span>
                 </a>
             </div>
 
@@ -433,7 +446,6 @@ File: themes/default/partials/header.hbs
             <nav class="dn db-ns">
                 <ul class="list pa0 ma0 flex items-center">
                     {{#each @root.navLinks}}
-                        {{!-- If a nav link has children, render as a hoverable dropdown --}}
                         {{#if this.children.length}}
                             <li class="mh2 relative" x-data="{ open: false }" @mouseenter="open = true" @mouseleave="open = false">
                                 <a href="{{this.href}}" class="link dim gray f6 fw5 flex items-center pv2">
@@ -462,7 +474,6 @@ File: themes/default/partials/header.hbs
                                 </div>
                             </li>
                         {{else}}
-                            {{!-- Otherwise, render a simple link --}}
                             <li class="mh2">
                                 <a href="{{this.href}}" class="link dim gray f6 fw5 pv2">{{this.label}}</a>
                             </li>
@@ -512,8 +523,11 @@ File: themes/default/partials/header.hbs
         x-cloak
     >
         <div class="flex items-center justify-between mb4">
-            <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black">
-                {{@root.manifest.title}}
+            <a href="{{#if @root.options.isExport}}./index.html{{else}}/{{/if}}" class="link dim f4 fw7 near-black flex items-center">
+                {{#if logoUrl}}
+                    <img src="{{logoUrl}}" alt="{{@root.manifest.title}} logo" class="mr2 h-8 w-auto">
+                {{/if}}
+                <span>{{@root.manifest.title}}</span>
             </a>
             <button @click="isMobileMenuOpen = false" type="button" class="button-reset bg-transparent bn pa2">
                 <span class="sr-only">Close menu</span>

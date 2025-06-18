@@ -38,6 +38,7 @@ const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath
     });
     
     const [isOpen, setIsOpen] = useState(true);
+    const displayLabel = node.menuTitle || node.title || node.slug;
 
     // --- NEW: Determine if this node represents a Collection Page ---
     const isCollectionPage = useMemo(() => {
@@ -83,9 +84,9 @@ const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath
                         onClick={() => hasChildren && setIsOpen(!isOpen)}
                     />
                     {isCollectionPage ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={node.title}>{node.title}</Link>
-
-                    {/* NEW: Show "New Item" button for collections */}
+                        <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={displayLabel}>
+                                                {displayLabel}
+                                            </Link>
                     {isCollectionPage && (
                         <Button asChild variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Link href={newItemHref} title={`New item in ${node.title}`}>
@@ -95,7 +96,6 @@ const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath
                     )}
                 </div>
             </div>
-            {/* NEW: Conditionally render children only for standard pages */}
             {hasChildren && !isCollectionPage && isOpen && (
                 <div className="pl-6 border-l ml-4">
                     <FileTree

@@ -1,11 +1,12 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: public, node_modules, ios
+Excluded Directories: node_modules, ios, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
 File: types/index.ts
 // src/types/index.ts
+import { SiteSecrets } from '@/core/services/siteSecrets.service';
 
 /**
  * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
@@ -16,6 +17,7 @@ File: types/index.ts
 export interface StructureNode {
   type: 'page'; // The 'type' is now always 'page'.
   title: string;
+  menuTitle?: string;
   path: string; // The full path to the .md file (e.g., 'content/blog.md').
   slug: string; // The URL-friendly version of the path (e.g., 'blog').
   navOrder?: number;
@@ -131,6 +133,12 @@ export interface Manifest {
   structure: StructureNode[];
   layouts?: LayoutInfo[];
   themes?: ThemeInfo[];
+  logo?: ImageRef;
+  favicon?: ImageRef;
+  settings?: {
+    imageService?: 'local' | 'cloudinary';
+    [key: string]: any; // Allow for other future settings
+  };
 }
 
 /**
@@ -142,6 +150,7 @@ export interface LocalSiteData {
   contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
+  secrets?: SiteSecrets;
   // Future: viewFiles?: RawFile[]
 }
 
@@ -179,6 +188,35 @@ export type PageResolutionResult = {
   type: PageType.NotFound;
   errorMessage: string;
 };
+
+
+/** The storable reference to an uploaded image. This goes in frontmatter. */
+export interface ImageRef {
+  serviceId: 'local' | 'cloudinary';
+  src: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+
+/** Transformation options requested by a template's image helper. */
+export interface ImageTransformOptions {
+  width?: number;
+  height?: number;
+  // --- FIX: Adopt Cloudinary's 'crop' and 'gravity' terminology ---
+  crop?: 'fill' | 'fit' | 'scale'; // 'scale' is a simple resize, 'fit' is letterbox, 'fill' is crop
+  gravity?: 'center' | 'north' | 'south' | 'east' | 'west' | 'auto';
+  format?: 'webp' | 'avif' | 'jpeg';
+}
+
+/** The interface/contract that all image services must implement. */
+export interface ImageService {
+  id: string;
+  name: string;
+  upload(file: File, siteId: string): Promise<ImageRef>;
+  getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string>;
+  getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]>;
+}
 
 ================================================================================
 
@@ -474,12 +512,13 @@ import { create } from 'zustand';
 import {  enableMapSet } from 'immer';
 import { SiteSlice, createSiteSlice } from './slices/siteSlice';
 import { ContentSlice, createContentSlice } from './slices/contentSlice';
+import { SecretsSlice, createSecretsSlice } from './slices/secretsSlice';
 
 // Enable Immer for Map and Set support
 enableMapSet();
 
 // The full store type is an intersection of all slice types
-type AppStore = SiteSlice & ContentSlice & {
+type AppStore = SiteSlice & ContentSlice & SecretsSlice & {
   isInitialized: boolean;
   initialize: () => void;
 };
@@ -494,6 +533,7 @@ export const useAppStore = create<AppStore>()((...a) => ({
   },
   ...createSiteSlice(...a),
   ...createContentSlice(...a),
+  ...createSecretsSlice(...a),
 }));
 
 ================================================================================
@@ -740,6 +780,7 @@ import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { LocalSiteData, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { loadSiteSecretsFromDb } from '@/core/services/siteSecrets.service';
 import { toast } from 'sonner';
 
 export interface SiteSlice {
@@ -768,13 +809,14 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
       const manifest = await localSiteFs.getManifestById(siteId);
       if (!manifest) throw new Error(`Failed to load manifest for siteId: ${siteId}`);
       
-      const [contentFiles, layoutFiles, themeFiles] = await Promise.all([
+      const [contentFiles, layoutFiles, themeFiles, secrets] = await Promise.all([
         localSiteFs.getSiteContentFiles(siteId),
         localSiteFs.getSiteLayoutFiles(siteId),
-        localSiteFs.getSiteThemeFiles(siteId)
+        localSiteFs.getSiteThemeFiles(siteId),
+        loadSiteSecretsFromDb(siteId)
       ]);
 
-      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles };
+      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles, secrets };
 
       set(produce((draft: SiteSlice) => {
         const siteIndex = draft.sites.findIndex(s => s.siteId === siteId);
@@ -794,6 +836,11 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
 
   addSite: async (newSiteData) => {
     await localSiteFs.saveSite(newSiteData);
+    const siteWithSecrets: LocalSiteData = {
+        ...newSiteData,
+        secrets: newSiteData.secrets || {}
+    };
+    await localSiteFs.saveSite(siteWithSecrets); // saveSite needs to be updated to handle secrets
     set(produce((draft: SiteSlice) => {
       if (!draft.sites.some(s => s.siteId === newSiteData.siteId)) {
         draft.sites.push(newSiteData);
@@ -814,6 +861,50 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
     set(produce((draft: SiteSlice) => {
       draft.sites = draft.sites.filter(s => s.siteId !== siteId);
     }));
+  },
+});
+
+================================================================================
+
+File: core/state/slices/secretsSlice.ts
+// src/core/state/slices/secretsSlice.ts
+import { StateCreator } from 'zustand';
+import { produce } from 'immer';
+import { SiteSlice } from './siteSlice';
+import { SiteSecrets, saveSiteSecretsToDb } from '@/core/services/siteSecrets.service';
+import { toast } from 'sonner';
+
+export interface SecretsSlice {
+  /**
+   * Updates the secrets for a site, persisting them to storage first
+   * and then updating the in-memory state.
+   * @param siteId The ID of the site to update.
+   * @param secrets The new secrets object to save.
+   */
+  updateSiteSecrets: (siteId: string, secrets: SiteSecrets) => Promise<void>;
+}
+
+export const createSecretsSlice: StateCreator<SiteSlice & SecretsSlice, [], [], SecretsSlice> = (set, get) => ({
+  updateSiteSecrets: async (siteId, newSecrets) => {
+    try {
+      // 1. Persist the secrets to the database first.
+      await saveSiteSecretsToDb(siteId, newSecrets);
+
+      // 2. If successful, update the in-memory state.
+      set(produce((draft: SiteSlice) => {
+        const site = draft.sites.find(s => s.siteId === siteId);
+        if (site) {
+          site.secrets = newSecrets;
+        }
+      }));
+
+      toast.success("Secret settings saved successfully!");
+    } catch (error) {
+      console.error("Failed to save site secrets:", error);
+      toast.error("Could not save secret settings.");
+      // Re-throw the error if you want the calling component to handle it
+      throw error;
+    }
   },
 });
 
@@ -2162,10 +2253,61 @@ export async function getAvailableLayouts(
 
 ================================================================================
 
+File: core/services/blocknote.service.ts
+// src/core/services/blocknote.service.ts
+import { Block, BlockNoteEditor } from '@blocknote/core';
+
+/**
+ * Converts a Markdown string into an array of Blocknote `Block` objects.
+ * This works by creating a headless editor and using the `tryParseMarkdownToBlocks`
+ * instance method.
+ *
+ * @param markdown The Markdown string to convert.
+ * @returns A promise that resolves to an array of Blocks.
+ */
+export async function markdownToBlocks(markdown: string): Promise<Block[]> {
+  // If the incoming markdown is empty, return an empty array to avoid
+  // creating an unnecessary editor instance.
+  if (!markdown || markdown.trim() === '') {
+    return [];
+  }
+  
+  const editor = await BlockNoteEditor.create();
+  const blocks = await editor.tryParseMarkdownToBlocks(markdown);
+  
+  return blocks;
+}
+
+/**
+ * Converts an array of Blocknote `Block` objects into a Markdown string.
+ * This works by creating a headless editor pre-populated with the blocks
+ * and then using its instance method to serialize them to Markdown.
+ *
+ * @param blocks The array of Blocks to convert.
+ * @returns A promise that resolves to a Markdown string.
+ */
+export async function blocksToMarkdown(blocks: Block[]): Promise<string> {
+  // If the blocks array is empty or undefined, return an empty string immediately.
+  if (!blocks || blocks.length === 0) {
+    return "";
+  }
+  
+  // Only create an editor instance if there are blocks to process.
+  const editor = await BlockNoteEditor.create({
+    initialContent: blocks,
+  });
+  
+  const markdown = await editor.blocksToMarkdownLossy();
+
+  return markdown;
+}
+
+================================================================================
+
 File: core/services/siteExporter.service.ts
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
@@ -2173,6 +2315,7 @@ import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
+import { getActiveImageService } from '@/core/services/images/images.service'; 
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
@@ -2214,6 +2357,34 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
     }
 }
 
+/**
+ * A helper function to recursively find all ImageRef objects within
+ * a site's content files' frontmatter.
+ */
+function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
+  const refs = new Set<ImageRef>(); // Use a Set to avoid duplicates
+  const visited = new Set();
+
+  function find(obj: any) {
+    if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
+    visited.add(obj);
+
+    if ('serviceId' in obj && 'src' in obj) {
+      refs.add(obj as ImageRef);
+      return;
+    }
+    if (Array.isArray(obj)) obj.forEach(item => find(item));
+    else Object.values(obj).forEach(value => find(value));
+  }
+
+  // 1. Search the root of the manifest for top-level assets
+  find(siteData.manifest);
+
+  // 2. Search all content file frontmatter
+  siteData.contentFiles?.forEach(file => find(file.frontmatter));
+  
+  return Array.from(refs);
+}
 
 /**
  * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
@@ -2276,7 +2447,18 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         });
     }
 
-    // --- THIS IS THE FIX: Gather ALL used layouts from frontmatter ---
+    const allImageRefs = findAllImageRefs(siteData);
+    if (allImageRefs.length > 0) {
+        const imageService = getActiveImageService(manifest);
+        const assetsToBundle = await imageService.getExportableAssets(siteData.siteId, allImageRefs);
+
+        for (const asset of assetsToBundle) {
+            zip.file(asset.path, asset.data);
+        }
+    }
+
+
+    // Gather ALL used layouts from frontmatter
     const layoutIds = new Set<string>();
     contentFiles.forEach(file => {
         // Add the main page layout
@@ -2291,7 +2473,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     });
 
     const uniqueLayoutIds = [...layoutIds];
-    // --- END OF FIX ---
 
     const activeThemeId = manifest.theme.name;
     await bundleAsset(zip, siteData, 'theme', activeThemeId);
@@ -2339,6 +2520,8 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
+
+    
 
     // --- 4. Generate the Final ZIP file ---
     return zip.generateAsync({ type: 'blob' });
@@ -2485,6 +2668,11 @@ const siteThemeFilesStore = localforage.createInstance({
     storeName: 'siteThemeFiles',
 });
 
+const siteImageAssetsStore = localforage.createInstance({
+  name: DB_NAME,
+  storeName: 'siteImageAssets',
+});
+
 // --- Function to load only manifests for a fast initial load ---
 export async function loadAllSiteManifests(): Promise<Manifest[]> {
   const manifests: Manifest[] = [];
@@ -2609,6 +2797,36 @@ export async function moveContentFiles(siteId: string, pathsToMove: { oldPath: s
     await siteContentFilesStore.setItem(siteId, updatedFiles);
 }
 
+/**
+ * Saves a binary image asset (as a Blob) to storage for a specific site.
+ * @param siteId The ID of the site.
+ * @param imagePath The relative path to the image (e.g., 'assets/images/foo.jpg').
+ * @param imageData The image data as a Blob.
+ */
+export async function saveImageAsset(siteId: string, imagePath: string, imageData: Blob): Promise<void> {
+  const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId) || {};
+  imageMap[imagePath] = imageData;
+  await siteImageAssetsStore.setItem(siteId, imageMap);
+}
+
+/**
+ * Retrieves a binary image asset (as a Blob) from storage for a specific site.
+ * @param siteId The ID of the site to look within.
+ * @param imagePath The relative path of the image to retrieve.
+ * @returns A Promise that resolves to the image Blob, or null if not found.
+ */
+export async function getImageAsset(siteId: string, imagePath: string): Promise<Blob | null> {
+  // <-- FIX: This is now much more efficient and correct.
+  // 1. Get the image map for the specific site.
+  const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId);
+  if (!imageMap) {
+    return null; // The site has no images.
+  }
+  // 2. Return the image from the map, or null if it doesn't exist.
+  return imageMap[imagePath] || null;
+}
+
+
 ================================================================================
 
 File: core/services/navigationStructure.service.ts
@@ -2647,7 +2865,7 @@ function buildNavLinks(nodes: StructureNode[], currentPagePath: string, options:
 
       return {
         href: href,
-        label: node.title,
+        label: node.menuTitle || node.title,
         children: children,
       };
     });
@@ -2821,6 +3039,45 @@ export function resolvePageContent(
 
 ================================================================================
 
+File: core/services/siteSecrets.service.ts
+// src/core/services/siteSecrets.service.ts
+import localforage from 'localforage';
+
+const DB_NAME = 'SignumDB';
+
+// This store is NEVER included in the site export.
+const siteSecretsStore = localforage.createInstance({
+  name: DB_NAME,
+  storeName: 'siteSecrets',
+});
+
+// Define the shape of the secrets object for a site.
+export interface SiteSecrets {
+  cloudinary?: {
+    uploadPreset?: string;
+  };
+}
+
+/**
+ * Loads the secrets object for a specific site from the database.
+ * @param siteId The ID of the site.
+ * @returns A promise that resolves to the SiteSecrets object, or an empty object.
+ */
+export async function loadSiteSecretsFromDb(siteId: string): Promise<SiteSecrets> {
+  return (await siteSecretsStore.getItem<SiteSecrets>(siteId)) || {};
+}
+
+/**
+ * Saves the complete secrets object for a specific site to the database.
+ * @param siteId The ID of the site.
+ * @param secrets The SiteSecrets object to save.
+ */
+export async function saveSiteSecretsToDb(siteId: string, secrets: SiteSecrets): Promise<void> {
+  await siteSecretsStore.setItem(siteId, secrets);
+}
+
+================================================================================
+
 File: core/services/fileTree.service.ts
 // src/core/services/fileTree.service.ts
 
@@ -2968,164 +3225,420 @@ export function findChildNodes(nodes: StructureNode[], parentPath: string): Stru
 ================================================================================
 
 File: core/services/images/images.service.ts
-import { ImageService } from './types';
-import { localImageService } from './localImages.service';
-import { cloudinaryImageService } from './cloudinaryImages.service';
+// src/core/services/images/images.service.ts
 
-// A registry of all available image services.
+// <-- FIX: Import all necessary types from the central types file.
+import { ImageService, Manifest } from '@/types';
+
+import { localImageService } from './localImage.service';
+import { cloudinaryImageService } from './cloudinaryImage.service';
+
 const services: Record<string, ImageService> = {
   local: localImageService,
   cloudinary: cloudinaryImageService,
 };
 
-/**
- * Retrieves the currently active image service based on the site's configuration.
- * Defaults to the local service if no configuration is found.
- * @param siteManifest The site's manifest, which should contain the image service choice.
- * @returns The active ImageService instance.
- */
-export function getActiveImageService(siteManifest: Manifest): ImageService {
-  // In the future, the manifest will have a property like:
-  // "imageService": "cloudinary"
-  const serviceId = siteManifest.settings?.imageServiceId || 'local';
+export function getActiveImageService(manifest: Manifest): ImageService {
+  // This now correctly type-checks against the updated Manifest interface.
+  const serviceId = manifest.settings?.imageService || 'local';
   return services[serviceId] || localImageService;
 }
 
 ================================================================================
 
 File: core/services/images/types.ts
-export interface ImageRef {
-  serviceId: 'local' | 'cloudinary';
-  // The 'src' is ALWAYS the path to the single, high-resolution source image.
-  // For local, it's 'assets/images/my-photo.jpg'.
-  // For Cloudinary, it's 'https://.../my-photo.jpg'.
-  src: string;
-  alt?: string;
-  width?: number; // Original width
-  height?: number; // Original height
-}
+// src/core/services/theme-engine/helpers/types.ts
+import { LocalSiteData } from '@/types';
+import Handlebars from 'handlebars';
 
-export interface ImageService {
-  id: string;
-  name: string;
-  // Upload now only handles one file and returns a simple reference.
-  upload(file: File, siteId: string): Promise<ImageRef>;
-  // We need a way to get the raw data for the source image for local processing.
-  getSourceData(src: string, siteId: string): Promise<string>; // Returns Base64/Blob URL
-}
+/**
+ * Defines the function signature for a Handlebars helper function within Signum.
+ * `this` refers to the current template context.
+ * `args` are the arguments passed to the helper in the template.
+ */
+export type SignumHelperFunction = (
+  this: any, ...args: any[]
+// <-- FIX: The return type now includes a Promise, allowing for async helpers.
+) => string | Handlebars.SafeString | boolean | Promise<string | Handlebars.SafeString>;
 
-================================================================================
-
-File: core/services/images/cloudinaryImages.service.ts
-import { ImageService, ImageRef } from './types';
-
-// This is a placeholder for the Cloudinary Upload Widget.
-// You would import it from the library you choose.
-declare const cloudinaryWidget: {
-  open: (options: any, callback: (error: any, result: any) => void) => void;
-};
-
-class CloudinaryImageService implements ImageService {
-  id = 'cloudinary';
-  name = 'Upload to Cloudinary';
-
-  upload(file: File, siteId: string): Promise<ImageRef> {
-    // The Cloudinary widget handles the upload UI itself.
-    // We wrap its callback in a Promise for a modern async/await workflow.
-    return new Promise((resolve, reject) => {
-      // This is a conceptual example. The actual options would depend on the widget.
-      const options = {
-        cloudName: 'YOUR_CLOUD_NAME', // These would come from user settings
-        uploadPreset: 'YOUR_UNSIGNED_PRESET',
-        sources: ['local', 'url'],
-        multiple: false,
-      };
-
-      cloudinaryWidget.open(options, (error, result) => {
-        if (error) {
-          return reject(error);
-        }
-        // The widget returns a result object upon successful upload.
-        if (result && result.event === 'success') {
-          const info = result.info;
-          resolve({
-            // The src and previewUrl are the same secure URL from Cloudinary.
-            src: info.secure_url,
-            previewUrl: info.secure_url,
-            alt: info.original_filename,
-          });
-        }
-      });
-    });
-  }
-
-  async getDisplayUrl(imageRef: ImageRef, siteId: string): Promise<string> {
-    // For a CDN, the src is already a public URL. No extra work needed.
-    return Promise.resolve(imageRef.src);
-  }
-}
-
-export const cloudinaryImageService = new CloudinaryImageService();
+/**
+ * Defines a "Helper Factory". It's a function that receives the full site data
+ * and returns an object mapping helper names to their implementation functions.
+ */
+export type SignumHelper = (siteData: LocalSiteData) => Record<string, SignumHelperFunction>;
 
 ================================================================================
 
-File: core/services/images/imageCache.service.ts
-// A simple in-memory cache for generated derivatives.
-// Key: "path/to/image.jpg_w400_h300_cover"
-// Value: "data:image/jpeg;base64,..."
-const derivativeCache = new Map<string, string>();
+File: core/services/images/localImage.service.ts
+// src/core/services/images/localImage.service.ts
 
-export function getCachedDerivative(key: string): string | undefined {
-  return derivativeCache.get(key);
-}
-
-export function setCachedDerivative(key: string, dataUrl: string) {
-  derivativeCache.set(key, dataUrl);
-}
-
-================================================================================
-
-File: core/services/images/localImages.service.ts
-import { ImageService, ImageRef } from './types';
+import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { slugify } from '@/lib/utils';
+import { getCachedDerivative, setCachedDerivative, getAllCacheKeys } from './derivativeCache.service';
+import imageCompression from 'browser-image-compression';
 
-// Helper to convert a File to a Base64 string
-const toBase64 = (file: File): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = (error) => reject(error);
+const sourceImageCache = new Map<string, Blob>();
+const processingPromises = new Map<string, Promise<Blob>>();
+
+const getImageDimensions = (blob: Blob): Promise<{ width: number; height: number }> => {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ width: img.width, height: img.height });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = (err) => {
+      reject(err);
+      URL.revokeObjectURL(url);
+    };
+    img.src = url;
   });
+};
 
 class LocalImageService implements ImageService {
   id = 'local';
   name = 'Store in Site Bundle';
 
   async upload(file: File, siteId: string): Promise<ImageRef> {
-    const base64String = await toBase64(file);
-    const fileName = `${Date.now()}-${slugify(file.name)}`;
+    const extIndex = file.name.lastIndexOf('.');
+    if (extIndex === -1) {
+      throw new Error("Uploaded file is missing an extension.");
+    }
+    const baseName = file.name.substring(0, extIndex);
+    const extension = file.name.substring(extIndex);
+    const slugifiedBaseName = slugify(baseName);
+    const fileName = `${Date.now()}-${slugifiedBaseName}${extension}`;
     const relativePath = `assets/images/${fileName}`;
 
-    // We need a new function in our file system service to save image assets.
-    await localSiteFs.saveImageAsset(siteId, relativePath, base64String);
+    await localSiteFs.saveImageAsset(siteId, relativePath, file as Blob);
+    const { width, height } = await getImageDimensions(file as Blob);
 
     return {
-      src: relativePath, // The src stored in frontmatter is the relative path.
-      previewUrl: base64String, // For immediate preview, we can use the base64 string.
+      serviceId: 'local',
+      src: relativePath,
       alt: file.name,
+      width,
+      height,
     };
   }
 
-  async getDisplayUrl(imageRef: ImageRef, siteId: string): Promise<string> {
-    // In the editor, we need to load the Base64 data from storage to show the preview.
-    const base64String = await localSiteFs.getImageAsset(siteId, imageRef.src);
-    return base64String || ''; // Return the data URL or an empty string.
+  /**
+   * Main method to get a displayable URL for an image.
+   * This has been refactored into a single, unified pipeline to prevent deadlocks.
+   */
+  async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
+    const { width, height, crop = 'scale', gravity = 'center' } = options;
+    const extIndex = ref.src.lastIndexOf('.');
+    if (extIndex === -1) throw new Error("Source image has no extension.");
+    
+    const pathWithoutExt = ref.src.substring(0, extIndex);
+    const ext = ref.src.substring(extIndex);
+    const derivativePath = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
+
+    // The core logic is now in a separate, private method.
+    const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, derivativePath, options);
+    
+    // After getting the blob, simply decide what to return based on the context.
+    return isExport ? derivativePath : URL.createObjectURL(finalBlob);
+  }
+
+  /**
+   * The core processing pipeline. It checks all caches and processes the image
+   * only if absolutely necessary, preventing race conditions.
+   */
+  private async getOrProcessDerivative(siteId: string, srcPath: string, cacheKey: string, options: ImageTransformOptions): Promise<Blob> {
+    // 1. Check persistent cache for a completed job.
+    const cachedBlob = await getCachedDerivative(cacheKey);
+    if (cachedBlob) {
+      return cachedBlob;
+    }
+
+    // 2. Check in-memory cache for an in-progress job.
+    if (processingPromises.has(cacheKey)) {
+      return processingPromises.get(cacheKey)!;
+    }
+    
+    // 3. If no cache hit, create and store a new processing promise.
+    const processingPromise = (async (): Promise<Blob> => {
+      try {
+        const sourceBlob = await this.getSourceBlob(siteId, srcPath);
+
+        const compressionOptions: any = {
+            maxSizeMB: 1.5,
+            initialQuality: 0.8,
+            useWebWorker: true,
+            exifOrientation: -1,
+        };
+        const { width, height, crop } = options;
+        if (crop === 'fill' && width && height) {
+          compressionOptions.maxWidth = width;
+          compressionOptions.maxHeight = height;
+        } else {
+          compressionOptions.maxWidthOrHeight = Math.max(width || 0, height || 0) || undefined;
+        }
+
+        console.log(`[ImageService] Processing new derivative: ${cacheKey}`);
+        const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
+        
+        await setCachedDerivative(cacheKey, derivativeBlob);
+        
+        return derivativeBlob;
+      } finally {
+        processingPromises.delete(cacheKey);
+      }
+    })();
+
+    processingPromises.set(cacheKey, processingPromise);
+    return processingPromise;
+  }
+
+  private async getSourceBlob(siteId: string, srcPath: string): Promise<Blob> {
+    let sourceBlob = sourceImageCache.get(srcPath);
+    if (!sourceBlob) {
+        const blobData = await localSiteFs.getImageAsset(siteId, srcPath);
+        if (!blobData) throw new Error(`Source image not found in local storage: ${srcPath}`);
+        sourceBlob = blobData;
+        sourceImageCache.set(srcPath, sourceBlob);
+    }
+    return sourceBlob;
+  }
+
+  async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
+    const exportableMap = new Map<string, Blob>();
+    
+    // Add all original source images
+    for (const ref of allImageRefs) {
+      if (ref.serviceId === 'local' && !exportableMap.has(ref.src)) {
+        const sourceBlob = await localSiteFs.getImageAsset(siteId, ref.src);
+        if (sourceBlob) {
+          exportableMap.set(ref.src, sourceBlob);
+        }
+      }
+    }
+    
+    // Add all derivatives from the persistent cache
+    const derivativeKeys = await getAllCacheKeys();
+    for (const key of derivativeKeys) {
+      if (!exportableMap.has(key)) {
+        const derivativeBlob = await getCachedDerivative(key);
+        if (derivativeBlob) {
+          exportableMap.set(key, derivativeBlob);
+        }
+      }
+    }
+    
+    return Array.from(exportableMap.entries()).map(([path, data]) => ({ path, data }));
   }
 }
 
 export const localImageService = new LocalImageService();
+
+================================================================================
+
+File: core/services/images/derivativeCache.service.ts
+// src/core/services/images/derivativeCache.service.ts
+import localforage from 'localforage';
+
+const derivativeCacheStore = localforage.createInstance({
+  name: 'SignumDB',
+  storeName: 'derivativeCacheStore',
+});
+
+/**
+ * Retrieves a cached image derivative from IndexedDB by its key.
+ * @param key The unique key for the derivative.
+ * @returns A promise that resolves to the derivative Blob, or null if not found.
+ */
+export async function getCachedDerivative(key: string): Promise<Blob | null> {
+  return derivativeCacheStore.getItem<Blob>(key);
+}
+
+/**
+ * Stores an image derivative Blob in IndexedDB.
+ * @param key The unique key for the derivative.
+ * @param blob The derivative image data as a Blob.
+ */
+export async function setCachedDerivative(key: string, blob: Blob): Promise<void> {
+  await derivativeCacheStore.setItem(key, blob);
+}
+
+/**
+ * --- FIX: Add the missing exported function. ---
+ * Retrieves all keys currently stored in the derivative cache. This is used
+ * by the exporter to bundle all generated images.
+ * @returns A promise that resolves to an array of all keys (strings).
+ */
+export async function getAllCacheKeys(): Promise<string[]> {
+  return derivativeCacheStore.keys();
+}
+
+================================================================================
+
+File: core/services/images/imageCache.service.ts
+// src/core/services/images/derivativeCache.service.ts
+import localforage from 'localforage';
+
+const derivativeCacheStore = localforage.createInstance({
+  name: 'SignumDB',
+  storeName: 'derivativeCacheStore',
+});
+
+/**
+ * Retrieves a cached image derivative from IndexedDB by its key.
+ * @param key The unique key for the derivative.
+ * @returns A promise that resolves to the derivative Blob, or null if not found.
+ */
+export async function getCachedDerivative(key: string): Promise<Blob | null> {
+  return derivativeCacheStore.getItem<Blob>(key);
+}
+
+/**
+ * Stores an image derivative Blob in IndexedDB.
+ * @param key The unique key for the derivative.
+ * @param blob The derivative image data as a Blob.
+ */
+export async function setCachedDerivative(key: string, blob: Blob): Promise<void> {
+  await derivativeCacheStore.setItem(key, blob);
+}
+
+/**
+ * Retrieves all keys currently stored in the derivative cache.
+ * @returns A promise that resolves to an array of all keys (strings).
+ */
+export async function getAllCacheKeys(): Promise<string[]> {
+  return derivativeCacheStore.keys();
+}
+
+================================================================================
+
+File: core/services/images/cloudinaryImage.service.ts
+// src/core/services/images/cloudinaryImage.service.ts
+
+import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
+import { useAppStore } from '@/core/state/useAppStore';
+import { Cloudinary } from "@cloudinary/url-gen";
+import { fill, fit, scale } from "@cloudinary/url-gen/actions/resize";
+import { Gravity } from "@cloudinary/url-gen/qualifiers/gravity";
+import { format, quality } from "@cloudinary/url-gen/actions/delivery";
+
+/**
+ * A type declaration for the Cloudinary Upload Widget.
+ * In a real application, you would import this from its own package.
+ */
+declare const cloudinary: {
+  createUploadWidget: (
+    options: any,
+    callback: (error: any, result: any) => void
+  ) => {
+    open: () => void;
+    close: () => void;
+  };
+};
+
+class CloudinaryImageService implements ImageService {
+  id = 'cloudinary';
+  name = 'Upload to Cloudinary';
+
+  async upload(file: File, siteId: string): Promise<ImageRef> {
+    const site = useAppStore.getState().getSiteById(siteId);
+    if (!site) {
+      throw new Error(`Site with ID "${siteId}" not found in state.`);
+    }
+
+    const cloudName = site.manifest?.settings?.cloudinary?.cloudName;
+    const uploadPreset = site.secrets?.cloudinary?.uploadPreset;
+
+    if (!cloudName || !uploadPreset) {
+      throw new Error("Cloudinary Cloud Name and Upload Preset must be configured in your site's image settings.");
+    }
+
+    return new Promise((resolve, reject) => {
+      const widget = cloudinary.createUploadWidget(
+        {
+          cloudName: cloudName,
+          uploadPreset: uploadPreset,
+          sources: ['local', 'url', 'camera'],
+          multiple: false,
+        },
+        (error, result) => {
+          if (error) {
+            console.error('Cloudinary Upload Error:', error);
+            widget.close();
+            return reject(new Error('Image upload failed. Please try again.'));
+          }
+
+          if (result && result.event === 'success') {
+            const { public_id, version, format, width, height } = result.info;
+            // The 'src' we store is just the public ID with folder structure.
+            // The version is handled by the SDK.
+            const srcPath = public_id;
+            
+            widget.close();
+            resolve({
+              serviceId: 'cloudinary',
+              src: srcPath,
+              alt: result.info.original_filename || 'Uploaded image',
+              width,
+              height,
+            });
+          }
+        }
+      );
+      widget.open();
+    });
+  }
+
+  async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
+    const cloudName = manifest.settings?.cloudinary?.cloudName;
+    if (!cloudName) { /* error handling */ }
+    
+    const cld = new Cloudinary({ cloud: { cloudName: cloudName } });
+    const cldImage = cld.image(ref.src);
+
+    const { width, height, crop = 'scale', gravity } = options;
+
+    switch (crop) {
+        case 'fill':
+            const fillResize = fill(width, height);
+            
+            // --- FIX: Map our simple gravity terms to the correct SDK methods ---
+            if (gravity === 'auto') {
+                fillResize.gravity(Gravity.autoGravity());
+            } else if (gravity && ['north', 'south', 'east', 'west'].includes(gravity)) {
+                // For cardinal directions, use compass
+                fillResize.gravity(Gravity.compass(gravity));
+            } else if (gravity === 'center') {
+                // For center, use the correctly named xyCenter
+                fillResize.gravity(Gravity.xyCenter());
+            }
+            // If no gravity is specified, Cloudinary defaults to center, which is fine.
+
+            cldImage.resize(fillResize);
+            break;
+        case 'fit':
+            cldImage.resize(fit(width, height));
+            break;
+        case 'scale':
+        default:
+            cldImage.resize(scale(width, height));
+            break;
+    }
+
+
+    // Use the correct delivery and quality actions
+    cldImage.delivery(format('auto')).delivery(quality('auto'));
+    
+    return cldImage.toURL();
+  }
+
+  async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
+    return Promise.resolve([]);
+  }
+}
+
+export const cloudinaryImageService = new CloudinaryImageService();
 
 ================================================================================
 
@@ -3136,6 +3649,7 @@ import {
     LocalSiteData,
     PageResolutionResult,
     PageType,
+    ImageRef,
 } from '@/types';
 import {
     getJsonAsset,
@@ -3147,6 +3661,8 @@ import {
 import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
+import { getActiveImageService } from '@/core/services/images/images.service';
+
 
 // --- Type Definitions ---
 export interface RenderOptions {
@@ -3220,74 +3736,94 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
  * Renders a resolved page into a full HTML string based on the active theme and assets.
  */
 export async function render(siteData: LocalSiteData, resolution: PageResolutionResult, options: RenderOptions): Promise<string> {
-  // 1. Setup, Helper Registration, and Template Caching
+    if (resolution.type === PageType.NotFound) {
+      // You can create a simple 404 template or just return a basic error message.
+      return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
+  }
   registerCoreHelpers(siteData);
   await cacheAllTemplates(siteData);
 
-  if (!siteData.contentFiles) {
-    return 'Error: Site content has not been loaded. Cannot render page.';
-  }
-  if (resolution.type === PageType.NotFound) {
-      return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
-  }
+  if (!siteData.contentFiles) { /* error handling */ }
 
   const { manifest } = siteData;
   const themePath = manifest.theme.name;
-  // This is the ID of the main PAGE layout (e.g., 'page-wide', 'post-full').
   const pageLayoutPath = resolution.layoutPath;
 
-  // 2. Prepare Data for Rendering
+  // --- STEP 1: Render the main body content first ---
+  // The body render might call the async `{{{image}}}` helper, so we must await it.
+  const pageLayoutSource = Handlebars.partials[pageLayoutPath];
+  if (!pageLayoutSource) { /* error handling */ }
+  const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
+  
+  // This render pass populates the image derivative cache.
+  const bodyHtml = await pageLayoutTemplate({
+    ...resolution,
+    options: options // Pass options down for the image helper
+  });
+
+
+  // --- STEP 2: Resolve ALL top-level asynchronous data ---
   const currentPageExportPath = getUrlForNode(resolution.contentFile, true);
   const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
   const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
+  // Resolve logo and favicon URLs, passing the isExport flag.
+  let logoUrl: string | undefined = undefined;
+  if (siteData.manifest.logo) {
+      try {
+          const service = getActiveImageService(siteData.manifest);
+          logoUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.logo, { height: 32 }, options.isExport);
+      } catch (e) { console.warn("Could not generate logo URL:", e); }
+  }
+  
+  let faviconUrl: string | undefined = undefined;
+  if (siteData.manifest.favicon) {
+      try {
+          const service = getActiveImageService(siteData.manifest);
+          faviconUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.favicon, { width: 32, height: 32 }, options.isExport);
+      } catch (e) { console.warn("Could not generate favicon URL:", e); }
+  }
+
   let styleOverrides = '';
-  if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) {
-      const cssVars = Object.entries(manifest.theme.config).map(([k, v]) => `--${k.replace(/_/g, '-')}: ${v};`).join(' ');
-      if (cssVars) {
-          styleOverrides = `<style id="signum-theme-overrides">:root { ${cssVars} }</style>`;
-      }
-  }
+  if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) { /* style logic */ }
 
-  // 3. Render Main Content Body using the specified PAGE layout
-  const pageLayoutSource = Handlebars.partials[pageLayoutPath];
-  if (!pageLayoutSource) {
-      return `<h1>Rendering Error</h1><p>The page layout template with ID '<strong>${pageLayoutPath}</strong>' could not be found. Please check that the layout exists, its type is 'page', and its manifest is correct.</p>`;
-  }
 
-  const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
-  // The 'resolution' object contains everything the page layout needs:
-  // contentFile, collectionItems, pagination, etc.
-  const bodyHtml = pageLayoutTemplate(resolution);
-
-  // 4. Render Final Document Shell
-  const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
-  const baseTemplatePath = themeManifest?.files.find((f: AssetFile) => f.type === 'base')?.path;
-  if (!baseTemplatePath) return 'Error: Active theme is missing a template with type "base".';
-
-  const baseTemplateSource = await getAssetContent(siteData, 'theme', themePath, baseTemplatePath);
-  if (!baseTemplateSource) return `Error: Could not load base template source at '${baseTemplatePath}'.`;
+  // --- STEP 3: Render the final document with all data now resolved ---
+   const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
+  if (!themeManifest) return 'Error: Could not load theme manifest.';
+   const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
+  if (!baseTemplateFile) return 'Error: Theme manifest is missing a file with type "base".';
+  
+  const baseTemplateSource = await getAssetContent(siteData, 'theme', themePath, baseTemplateFile.path);
+  if (!baseTemplateSource) return 'Error: Could not load base template source.';
   const baseTemplate = Handlebars.compile(baseTemplateSource);
 
-  const headContext = {
-      pageTitle: resolution.pageTitle,
-      manifest: manifest,
-      contentFile: resolution.contentFile,
-      canonicalUrl: canonicalUrl,
-      baseUrl: baseUrl,
-      styleOverrides: new Handlebars.SafeString(styleOverrides)
-  };
-
-  return baseTemplate({
+  const finalContext = {
       manifest,
       navLinks,
       year: new Date().getFullYear(),
-      headContext: headContext,
+      headContext: {
+          // All these accesses are now safe.
+          pageTitle: resolution.pageTitle,
+          manifest: manifest,
+          contentFile: resolution.contentFile,
+          canonicalUrl: canonicalUrl,
+          baseUrl: baseUrl,
+          styleOverrides: new Handlebars.SafeString(styleOverrides),
+          faviconUrl: faviconUrl,
+      },
       body: new Handlebars.SafeString(bodyHtml),
-      ...resolution
-  });
+      logoUrl: logoUrl,
+      options: options, // For any helpers still needing it
+      ...resolution,
+  };
+
+  // This final render is now synchronous because all async data has been prepared.
+  const finalHtml = baseTemplate(finalContext);
+
+  return finalHtml;
 }
 
 ================================================================================
@@ -3321,6 +3857,33 @@ export const strUtilHelper: SignumHelper = () => ({
         return input;
     }
   }
+});
+
+================================================================================
+
+File: core/services/theme-engine/helpers/concat.helper.ts
+// src/core/services/theme-engine/helpers/concat.helper.ts
+
+import { SignumHelper } from './types';
+import { HelperOptions } from 'handlebars';
+
+export const concatHelper: SignumHelper = () => ({
+  /**
+   * Concatenates multiple string arguments into a single string.
+   *
+   * @example
+   * {{concat "Hello" " " "World"}} -> "Hello World"
+   *
+   * @example
+   * <img alt=(concat @root.manifest.title " Logo")>
+   */
+  concat: function(...args: any[]): string {
+    // The last argument provided by Handlebars is the 'options' object. We don't need it.
+    const options = args.pop() as HelperOptions;
+
+    // Join all other arguments with an empty string.
+    return args.join('');
+  },
 });
 
 ================================================================================
@@ -3474,21 +4037,22 @@ export const getUrlHelper: SignumHelper = () => ({
 ================================================================================
 
 File: core/services/theme-engine/helpers/types.ts
-// src/lib/theme-helpers/types.ts
-import { LocalSiteData } from '@/types'; // Use the correct path alias to the main types
-import Handlebars from 'handlebars'; 
+import { LocalSiteData } from '@/types';
+import Handlebars from 'handlebars';
 
 /**
  * Defines the function signature for a Handlebars helper function within Signum.
  * `this` refers to the current template context.
  * `args` are the arguments passed to the helper in the template.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type SignumHelperFunction = (this: any, ...args: any[]) => string | Handlebars.SafeString | boolean;
+export type SignumHelperFunction = (
+  this: any,
+  ...args: any[]
+) => string | Handlebars.SafeString | boolean | Promise<Handlebars.SafeString>;
+
 /**
  * Defines a "Helper Factory". It's a function that receives the full site data
  * and returns an object mapping helper names to their implementation functions.
- * This allows helpers to be data-aware if needed.
  */
 export type SignumHelper = (siteData: LocalSiteData) => Record<string, SignumHelperFunction>;
 
@@ -3586,7 +4150,8 @@ import { pagerHelper } from './pager.helper';
 import { SignumHelper } from './types';
 import { getUrlHelper } from './getUrl.helper';
 import { assignHelper } from './assign.helper';
-
+import { imageHelper } from './image.helper';
+import { concatHelper } from './concat.helper';
 
 export const coreHelpers: SignumHelper[] = [
   queryHelper,
@@ -3597,7 +4162,9 @@ export const coreHelpers: SignumHelper[] = [
   renderLayoutForItemHelper, 
   pagerHelper,
   getUrlHelper,
-  assignHelper
+  assignHelper,
+  imageHelper,
+  concatHelper
 ];
 
 ================================================================================
@@ -3670,55 +4237,58 @@ export const renderLayoutForItemHelper: SignumHelper = () => ({
 ================================================================================
 
 File: core/services/theme-engine/helpers/image.helper.ts
+// src/core/services/theme-engine/helpers/image.helper.ts
+
+import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
-import { ImageRef } from '@/core/services/images/types';
+// --- FIX: Import ImageTransformOptions along with the other types ---
+import { ImageRef, LocalSiteData, ImageTransformOptions } from '@/types';
 import { getActiveImageService } from '@/core/services/images/images.service';
-// You would also import your cache and canvas processing functions here.
 
-export const imageHelper: SignumHelper = (siteData) => ({
-  /**
-   * Renders a responsive image, handling CDN transformations or on-the-fly
-   * local derivative generation and caching.
-   * @example {{{image src=frontmatter.image width=400 height=300 fit="cover" alt="Description"}}}
-   */
-  image: function(options: Handlebars.HelperOptions): string {
-    const { src, width, height, fit, alt, lazy = true, class: className = '' } = options.hash;
+interface RootTemplateContext {
+  options: {
+    isExport: boolean;
+  };
+}
 
-    if (!src || !(src as ImageRef).serviceId) {
-      return '<!-- ImageRef not provided or invalid -->';
+export const imageHelper: SignumHelper = (siteData: LocalSiteData) => ({
+  image: async function(this: any, options: Handlebars.HelperOptions): Promise<Handlebars.SafeString> {
+    const rootContext = options.data.root as RootTemplateContext;
+    const isExport = rootContext.options?.isExport || false;
+
+    const { src, width, height, crop, gravity, alt, lazy = true, class: className = '' } = options.hash;
+
+    if (!src || typeof src !== 'object' || !('serviceId' in src)) {
+      return new Handlebars.SafeString('<!-- Invalid ImageRef provided to image helper -->');
     }
 
     const imageRef = src as ImageRef;
-    const imageService = getActiveImageService(siteData.manifest);
 
-    let finalSrc = '';
+    try {
+      const imageService = getActiveImageService(siteData.manifest);
+      
+      const transformOptions: ImageTransformOptions = {
+        width: width,
+        height: height,
+        crop: crop,
+        gravity: gravity,
+      };
 
-    if (imageService.id === 'cloudinary') {
-      // Construct Cloudinary URL with transformations
-      const transforms = `w_${width},h_${height},c_${fit || 'fill'}`;
-      finalSrc = imageRef.src.replace('/upload/', `/upload/${transforms}/`);
-    } else {
-      // --- LOCAL JIT PROCESSING ---
-      const cacheKey = `${imageRef.src}_w${width}_h${height}_c${fit}`;
-      const cached = getCachedDerivative(cacheKey);
+      const displayUrl = await imageService.getDisplayUrl(siteData.manifest, imageRef, transformOptions, isExport);
+      
+      const lazyAttr = lazy ? 'loading="lazy"' : '';
+      const altAttr = `alt="${alt || imageRef.alt || ''}"`;
+      const classAttr = className ? `class="${className}"` : '';
+      const widthAttr = width ? `width="${width}"` : '';
+      const heightAttr = height ? `height="${height}"` : '';
 
-      if (cached) {
-        finalSrc = cached;
-      } else {
-        // This is a placeholder for the actual processing logic.
-        // In a real implementation, this would be an async operation.
-        // Handlebars helpers are synchronous, which is a CHALLENGE.
-        // See "The Synchronous Challenge" below.
-        finalSrc = imageRef.src; // Fallback to original for now
-        // performCanvasResize(imageRef, {width, height, fit}).then(dataUrl => {
-        //   setCachedDerivative(cacheKey, dataUrl);
-        //   // But we can't update the UI from here...
-        // });
-      }
+      const imgTag = `<img src="${displayUrl}" ${widthAttr} ${heightAttr} ${altAttr} ${classAttr} ${lazyAttr}>`;
+
+      return new Handlebars.SafeString(imgTag);
+    } catch (error) {
+      console.error(`[ImageHelper] Failed to render image for src: ${imageRef.src}`, error);
+      return new Handlebars.SafeString(`<!-- Image render failed: ${(error as Error).message} -->`);
     }
-
-    const lazyAttr = lazy ? 'loading="lazy"' : '';
-    return `<img src="${finalSrc}" width="${width}" height="${height}" alt="${alt || ''}" class="${className}" ${lazyAttr}>`;
   }
 });
 
@@ -4317,12 +4887,21 @@ File: app/sites/[siteId]/settings/page.tsx
 
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm';
 import { Button } from '@/core/components/ui/button';
-import { Manifest } from '@/types';
+import { Manifest, ImageRef } from '@/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
-import Link from 'next/link';
+import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form
+
+// --- FIX: Define the complete form data shape in one place ---
+interface PageFormData {
+  title: string;
+  description: string;
+  author: string;
+  baseUrl: string;
+  logo: ImageRef | undefined;
+  favicon: ImageRef | undefined;
+}
 
 export default function SiteSettingsPage() {
   const params = useParams();
@@ -4330,54 +4909,52 @@ export default function SiteSettingsPage() {
 
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
-  const isStoreInitialized = useAppStore(state => state.isInitialized);
 
-  // Add baseUrl to the form state
-  const [formData, setFormData] = useState({ title: '', description: '', author: '', baseUrl: '' });
-  const [isLoading, setIsLoading] = useState(false);
+  // --- FIX: Manage the entire form's data in a single state object ---
+  const [formData, setFormData] = useState<PageFormData | null>(null);
+
+  const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Load all settings from the manifest into the single formData state
   useEffect(() => {
     if (site?.manifest) {
+      setIsLoading(true);
       setFormData({
         title: site.manifest.title,
         description: site.manifest.description,
         author: site.manifest.author || '',
         baseUrl: site.manifest.baseUrl || '',
+        logo: site.manifest.logo,
+        favicon: site.manifest.favicon,
       });
       setHasChanges(false);
+      setIsLoading(false);
     }
   }, [site]);
   
-  const handleFormChange = useCallback((newData: typeof formData) => {
+  // This single handler receives the complete, updated form data from the child component.
+  const handleFormChange = useCallback((newData: PageFormData) => {
     setFormData(newData);
     setHasChanges(true);
   }, []);
 
   const handleSave = async () => {
-    if (!site || !site.manifest) return;
-    if (!formData.title.trim()) {
-      toast.error("Site title cannot be empty.");
-      return;
-    }
-    
-    const trimmedBaseUrl = formData.baseUrl.trim();
-    if (trimmedBaseUrl) {
-      try {
-        new URL(trimmedBaseUrl);
-      } catch {
-        toast.error("The Base URL you entered is not a valid URL. Please include https://");
+    if (!site?.manifest || !formData) {
+        toast.error("Form data is not ready. Cannot save.");
         return;
-      }
     }
-    
     setIsLoading(true);
+    
+    // Construct the new manifest directly from the single formData object.
     const newManifest: Manifest = {
       ...site.manifest,
       title: formData.title.trim(),
       description: formData.description.trim(),
       author: formData.author.trim(),
-      baseUrl: trimmedBaseUrl,
+      baseUrl: formData.baseUrl.trim(),
+      logo: formData.logo,
+      favicon: formData.favicon,
     };
 
     try {
@@ -4392,37 +4969,209 @@ export default function SiteSettingsPage() {
     }
   };
 
-  if (!isStoreInitialized || (site && !formData.title && !site.manifest.title)) {
+  if (isLoading || !formData) {
     return <div className="p-6">Loading settings...</div>;
   }
-  
-  if (!site) {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold">Site Not Found</h2>
-        <Button asChild variant="outline" className="mt-4">
-          <Link href="/">Go to Dashboard</Link>
-        </Button>
-      </div>
-    );
-  }
 
-  // The component now only returns its content, not the layout.
   return (
     <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Site Settings</h1>
-        <p className="text-muted-foreground">Manage the core details of your website.</p>
+        <p className="text-muted-foreground">Manage the core details and identity of your website.</p>
       </div>
+
       <div className="border-t pt-6">
-        <SiteSettingsForm 
+        {/* --- FIX: Render the single, encapsulated form component --- */}
+        <SiteSettingsForm
+          siteId={siteId}
           formData={formData}
-          onFormChange={handleFormChange} 
+          onFormChange={handleFormChange}
         />
       </div>
+
       <div className="flex justify-end pt-4">
         <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
           {isLoading ? 'Saving...' : 'Save Settings'}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+================================================================================
+
+File: app/sites/[siteId]/settings/images/page.tsx
+// src/app/sites/[siteId]/settings/image/page.tsx
+'use client';
+
+import { useParams } from 'next/navigation';
+import { useAppStore } from '@/core/state/useAppStore';
+import { Button } from '@/core/components/ui/button';
+import { Manifest } from '@/types';
+import { useEffect, useState, useCallback } from 'react';
+import { toast } from "sonner";
+import { Label } from '@/core/components/ui/label';
+import { Input } from '@/core/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
+import { SiteSecrets } from '@/core/services/siteSecrets.service';
+
+type ImageServiceId = 'local' | 'cloudinary';
+
+export default function ImageSettingsPage() {
+  const params = useParams();
+  const siteId = params.siteId as string;
+
+  // Get the site object and the actions from the Zustand store.
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const updateManifestAction = useAppStore(state => state.updateManifest);
+  const updateSiteSecretsAction = useAppStore(state => state.updateSiteSecrets);
+
+  // State for public settings (from manifest)
+  const [selectedService, setSelectedService] = useState<ImageServiceId>('local');
+  const [cloudinaryCloudName, setCloudinaryCloudName] = useState('');
+
+  // State for private settings (from secrets store)
+  const [cloudinaryUploadPreset, setCloudinaryUploadPreset] = useState('');
+
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasChanges, setHasChanges] = useState(false);
+
+  // This effect runs when the component mounts or the site data in the store changes.
+  // It populates the form's local state with the authoritative data from the store.
+  useEffect(() => {
+    if (site?.manifest) {
+      setIsLoading(true);
+
+      // Load public settings from the site's manifest
+      const { imageService, cloudinary } = site.manifest.settings || {};
+      setSelectedService(imageService || 'local');
+      setCloudinaryCloudName(cloudinary?.cloudName || '');
+      
+      // Load private settings from the site's secrets object
+      setCloudinaryUploadPreset(site.secrets?.cloudinary?.uploadPreset || '');
+      
+      setHasChanges(false);
+      setIsLoading(false);
+    }
+  }, [site]); // Re-run this effect if the `site` object in the store is updated
+  
+  // Generic handler to simplify state updates and track changes
+  const handleStateChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
+    setter(value);
+    setHasChanges(true);
+  };
+  const handleServiceChange = (value: string) => {
+    // The value from the Select is a string, which we cast to our specific type.
+    setSelectedService(value as ImageServiceId);
+    setHasChanges(true);
+  };
+  
+  // This generic handler can still be used for simple text inputs.
+  const handleInputChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
+    setter(value);
+    setHasChanges(true);
+  };
+
+  const handleSave = async () => {
+    if (!site?.manifest) {
+        toast.error("Site data not available. Cannot save settings.");
+        return;
+    }
+    
+    setIsLoading(true);
+
+    // 1. Prepare the new public manifest data
+    const newManifest: Manifest = {
+      ...site.manifest,
+      settings: {
+        ...site.manifest.settings,
+        imageService: selectedService,
+        cloudinary: {
+            cloudName: cloudinaryCloudName.trim(),
+        },
+      },
+    };
+
+    // 2. Prepare the new private secrets data
+    const newSecrets: SiteSecrets = {
+        cloudinary: {
+            uploadPreset: cloudinaryUploadPreset.trim(),
+        }
+    };
+
+    try {
+      // 3. Call the store actions to save both data structures.
+      // These actions will persist the data and update the global state.
+      await updateManifestAction(siteId, newManifest);
+      await updateSiteSecretsAction(siteId, newSecrets);
+      
+      setHasChanges(false);
+      // The toast messages are now handled inside the store actions for consistency.
+    } catch(error) {
+      // The actions will throw on failure, allowing us to catch here if needed.
+      console.error("An error occurred during save:", error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading || !site) {
+    return <div className="p-6">Loading settings...</div>;
+  }
+  
+  return (
+    <div className="space-y-6 max-w-2xl p-6">
+      <div>
+        <h1 className="text-2xl font-bold">Image Settings</h1>
+        <p className="text-muted-foreground">Configure how images are stored and processed for your site.</p>
+      </div>
+
+      <div className="border-t pt-6 space-y-6">
+        <div className="space-y-2">
+            <Label htmlFor="service-select">Image Storage Backend</Label>
+            <Select value={selectedService} onValueChange={handleServiceChange}>
+                <SelectTrigger id="service-select" className="mt-1">
+                    <SelectValue placeholder="Select a service..." />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="local">Store in Site Bundle (Default)</SelectItem>
+                    <SelectItem value="cloudinary">Upload to Cloudinary</SelectItem>
+                </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">"Local" is best for portability. "Cloudinary" is best for performance.</p>
+        </div>
+        
+        {selectedService === 'cloudinary' && (
+            <div className="p-4 border rounded-lg bg-card space-y-4">
+                <h3 className="font-semibold text-card-foreground">Cloudinary Settings</h3>
+                 <div className="space-y-2">
+                    <Label htmlFor="cloud-name">Cloudinary Cloud Name (Public)</Label>
+                    <Input
+                        id="cloud-name"
+                        value={cloudinaryCloudName}
+                        onChange={(e) => handleInputChange(setCloudinaryCloudName, e.target.value)}
+                        placeholder="e.g., your-cloud-name"
+                    />
+                     <p className="text-xs text-muted-foreground">This is public and stored in your site's manifest.</p>
+                </div>
+                 <div className="space-y-2">
+                    <Label htmlFor="upload-preset">Cloudinary Upload Preset (Secret)</Label>
+                        <Input
+                        id="upload-preset"
+                        type="password"
+                        value={cloudinaryUploadPreset}
+                        onChange={(e) => handleInputChange(setCloudinaryUploadPreset, e.target.value)}
+                        placeholder="e.g., ml_default"
+                    />
+                     <p className="text-xs text-muted-foreground">This is a secret and is stored securely in your browser, not in your public site files.</p>
+                </div>
+            </div>
+        )}
+      </div>
+
+      <div className="flex justify-end pt-4">
+        <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
+          {isLoading ? 'Saving...' : 'Save Image Settings'}
         </Button>
       </div>
     </div>
@@ -4618,11 +5367,12 @@ import type { LocalSiteData } from '@/types';
 
 // --- Component Imports ---
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
-import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
+import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import CollectionItemList from '@/features/editor/components/CollectionItemList';
+import SaveButton from '@/features/editor/components/SaveButton'; // Import the extracted button
 
 // --- Modular Hooks ---
 import { usePageIdentifier } from '@/features/editor/hooks/usePageIdentifier';
@@ -4630,7 +5380,7 @@ import { useFileContent } from '@/features/editor/hooks/useFileContent';
 import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 
 function EditContentPageInternal() {
-  const editorRef = useRef<MarkdownEditorRef>(null);
+  const editorRef = useRef<BlocknoteEditorRef>(null);
 
   // 1. Identify the page from the URL
   const { siteId, isNewFileMode, filePath } = usePageIdentifier();
@@ -4640,7 +5390,7 @@ function EditContentPageInternal() {
     status,
     site,
     frontmatter,
-    bodyContent,
+    initialBlocks,
     slug,
     setSlug,
     handleFrontmatterChange,
@@ -4655,7 +5405,8 @@ function EditContentPageInternal() {
     isNewFileMode,
     frontmatter,
     slug,
-    getEditorContent: () => editorRef.current?.getMarkdown() ?? '',
+    // This function now correctly gets the Block[] array from the editor's ref.
+    getEditorContent: () => editorRef.current?.getBlocks() ?? [],
   });
 
   // 4. Manage UI state (sidebars)
@@ -4727,10 +5478,10 @@ function EditContentPageInternal() {
                 />
               ) : (
                 // Otherwise, show the Markdown editor for the body.
-                <MarkdownEditor
+                <BlocknoteEditor
                   ref={editorRef}
-                  key={filePath}
-                  initialValue={bodyContent}
+                  key={filePath} // Use key to force re-mount on file change
+                  initialContent={initialBlocks}
                   onContentChange={onContentModified}
                 />
               )}
@@ -4738,12 +5489,13 @@ function EditContentPageInternal() {
         </div>
       </div>
     );
-  }, [status, frontmatter, bodyContent, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+  }, [status, frontmatter, initialBlocks, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
 
   return (
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
         rightSidebar={rightSidebarContent}
+        headerActions={<SaveButton />}
     >
         {pageContent}
     </ThreeColumnLayout>
@@ -5394,74 +6146,211 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
 ================================================================================
 
 File: features/site-settings/components/SiteSettingsForm.tsx
-// src/components/publishing/SiteSettingsForm.tsx
+// src/features/site-settings/components/SiteSettingsForm.tsx
 'use client';
 
 import { Label } from '@/core/components/ui/label';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
+import { ImageRef } from '@/types';
+import SiteAssetUploader from './SiteAssetsUploader'; // Import the uploader
 
+// --- FIX: The props now define the complete shape of the form's data ---
 interface SiteSettingsFormProps {
+  siteId: string;
   formData: {
     title: string;
     description: string;
     author: string;
-    baseUrl: string; // <-- ADD THIS LINE
+    baseUrl: string;
+    logo: ImageRef | undefined;
+    favicon: ImageRef | undefined;
   };
   onFormChange: (newData: SiteSettingsFormProps['formData']) => void;
 }
 
-export default function SiteSettingsForm({ formData, onFormChange }: SiteSettingsFormProps) {
-  const handleChange = (field: keyof typeof formData, value: string) => {
+export default function SiteSettingsForm({ siteId, formData, onFormChange }: SiteSettingsFormProps) {
+  
+  // A generic handler to update any field in the formData object.
+  const handleChange = (field: keyof typeof formData, value: any) => {
     onFormChange({ ...formData, [field]: value });
   };
 
   return (
     <div className="space-y-6">
-      <div className="space-y-2">
-        <Label htmlFor="title">Site Title</Label>
-        <Input
-          id="title"
-          value={formData.title}
-          onChange={(e) => handleChange('title', e.target.value)}
-          placeholder="My Awesome Site"
+      {/* --- NEW: Site Identity section is now part of the form --- */}
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Site Identity</h2>
+        <SiteAssetUploader 
+          siteId={siteId}
+          label="Site Logo"
+          value={formData.logo}
+          onChange={(newRef) => handleChange('logo', newRef)}
+          onRemove={() => handleChange('logo', undefined)}
         />
-        <p className="text-sm text-muted-foreground">The main title for your website.</p>
+        <SiteAssetUploader
+          siteId={siteId}
+          label="Favicon"
+          value={formData.favicon}
+          onChange={(newRef) => handleChange('favicon', newRef)}
+          onRemove={() => handleChange('favicon', undefined)}
+        />
       </div>
-      <div className="space-y-2">
-        <Label htmlFor="description">Site Description</Label>
-        <Textarea
-          id="description"
-          value={formData.description}
-          onChange={(e) => handleChange('description', e.target.value)}
-          placeholder="A short, catchy description."
-          rows={3}
-        />
-         <p className="text-sm text-muted-foreground">Used for search engines and social media previews.</p>
+
+      {/* --- NEW: Core Details section is now within the form --- */}
+      <div className="border-t pt-6 space-y-4">
+        <h2 className="text-lg font-semibold">Core Details</h2>
+        <div className="space-y-2">
+            <Label htmlFor="title">Site Title</Label>
+            <Input
+                id="title"
+                value={formData.title}
+                onChange={(e) => handleChange('title', e.target.value)}
+                placeholder="My Awesome Site"
+            />
+            <p className="text-sm text-muted-foreground">The main title for your website.</p>
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="description">Site Description</Label>
+            <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e) => handleChange('description', e.target.value)}
+                placeholder="A short, catchy description."
+                rows={3}
+            />
+            <p className="text-sm text-muted-foreground">Used for search engines and social media previews.</p>
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="author">Author (Optional)</Label>
+            <Input
+                id="author"
+                value={formData.author}
+                onChange={(e) => handleChange('author', e.target.value)}
+                placeholder="Your Name or Organization"
+            />
+            <p className="text-sm text-muted-foreground">The default author for content on this site.</p>
+        </div>
+        <div className="space-y-2">
+            <Label htmlFor="baseUrl">Base URL</Label>
+            <Input
+                id="baseUrl"
+                type="url"
+                value={formData.baseUrl}
+                onChange={(e) => handleChange('baseUrl', e.target.value)}
+                placeholder="https://www.my-awesome-site.com"
+            />
+            <p className="text-sm text-muted-foreground">
+                The full public URL of your site. Required for generating correct RSS feeds and sitemaps.
+            </p>
+        </div>
       </div>
-       <div className="space-y-2">
-        <Label htmlFor="author">Author (Optional)</Label>
-        <Input
-          id="author"
-          value={formData.author}
-          onChange={(e) => handleChange('author', e.target.value)}
-          placeholder="Your Name or Organization"
-        />
-         <p className="text-sm text-muted-foreground">The default author for content on this site.</p>
+    </div>
+  );
+}
+
+================================================================================
+
+File: features/site-settings/components/SiteAssetsUploader.tsx
+// src/features/site-settings/components/SiteAssetUploader.tsx
+'use client';
+
+import { useEffect, useState } from 'react';
+import { ImageRef } from '@/types';
+import { useAppStore } from '@/core/state/useAppStore';
+import { getActiveImageService } from '@/core/services/images/images.service';
+import { Button } from '@/core/components/ui/button';
+import { UploadCloud, XCircle } from 'lucide-react';
+import { toast } from 'sonner';
+
+interface SiteAssetUploaderProps {
+  siteId: string;
+  label: string;
+  value: ImageRef | undefined; // The current ImageRef from the manifest
+  onChange: (newRef: ImageRef) => void;
+  onRemove: () => void;
+}
+
+export default function SiteAssetUploader({ siteId, label, value, onChange, onRemove }: SiteAssetUploaderProps) {
+  const site = useAppStore(state => state.getSiteById(siteId));
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  // Effect to generate a preview URL whenever the `value` prop changes
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    const generatePreview = async () => {
+      if (value && site?.manifest) {
+        try {
+          const service = getActiveImageService(site.manifest);
+             const url = await service.getDisplayUrl(site.manifest, value, { width: 128, height: 128, crop: 'fit' }, false);
+          setPreviewUrl(url);
+          objectUrl = url;
+        } catch (error) {
+          console.error(`Could not generate preview for ${label}:`, error);
+          setPreviewUrl(null);
+        }
+      } else {
+        setPreviewUrl(null);
+      }
+    };
+    generatePreview();
+    
+    // Cleanup function to revoke blob URLs and prevent memory leaks
+    return () => {
+      if (objectUrl && objectUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(objectUrl);
+      }
+    };
+  }, [value, site, label]);
+
+  const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !site?.manifest) return;
+    
+    setIsUploading(true);
+    try {
+      const service = getActiveImageService(site.manifest);
+      const newRef = await service.upload(file, siteId);
+      onChange(newRef); // Pass the new ImageRef up to the parent form state
+      toast.success(`${label} uploaded successfully.`);
+    } catch (error) {
+      toast.error(`Failed to upload ${label}: ${(error as Error).message}`);
+    } finally {
+      setIsUploading(false);
+    }
+    // Reset the input so the same file can be selected again
+    event.target.value = '';
+  };
+
+  const inputId = `uploader-${label.toLowerCase().replace(' ', '-')}`;
+
+  return (
+    <div className="flex items-center gap-4">
+      <div className="w-16 h-16 bg-muted rounded-md flex items-center justify-center overflow-hidden flex-shrink-0">
+        {previewUrl ? (
+          <img src={previewUrl} alt={`${label} preview`} className="max-w-full max-h-full object-contain" />
+        ) : (
+          <UploadCloud className="w-8 h-8 text-muted-foreground" />
+        )}
       </div>
-       {/* --- NEW BASE URL FIELD --- */}
-       <div className="space-y-2 border-t pt-6">
-        <Label htmlFor="baseUrl">Base URL</Label>
-        <Input
-          id="baseUrl"
-          type="url"
-          value={formData.baseUrl}
-          onChange={(e) => handleChange('baseUrl', e.target.value)}
-          placeholder="https://www.my-awesome-site.com"
-        />
-         <p className="text-sm text-muted-foreground">
-            The full public URL of your site. Required for generating correct RSS feeds and sitemaps.
-         </p>
+      <div className="flex-grow">
+        <label htmlFor={inputId} className="font-medium text-sm">{label}</label>
+        <div className="flex items-center gap-2 mt-1">
+          <Button asChild size="sm" variant="outline" disabled={isUploading}>
+            <label htmlFor={inputId}>
+              {isUploading ? 'Uploading...' : (value ? 'Change...' : 'Upload...')}
+            </label>
+          </Button>
+          <input type="file" id={inputId} className="hidden" onChange={handleFileSelect} accept="image/png, image/jpeg, image/svg+xml, image/x-icon" />
+
+          {value && (
+            <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
+              <XCircle className="w-4 h-4 mr-1" />
+              Remove
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -5474,7 +6363,7 @@ File: features/site-settings/components/SettingsNav.tsx
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { TbUserCircle, TbPalette } from 'react-icons/tb';
+import { TbUserCircle, TbPalette, TbPhoto } from 'react-icons/tb';
 import { cn } from '@/lib/utils';
 
 // This is the navigation component for the settings area.
@@ -5485,6 +6374,7 @@ export default function SettingsNav() {
   const navItems = [
     { href: `/sites/${siteId}/settings`, title: 'Site Details', icon: TbUserCircle },
     { href: `/sites/${siteId}/settings/appearance`, title: 'Appearance', icon: TbPalette },
+    { href: `/sites/${siteId}/settings/images`, title: 'Images', icon: TbPhoto },
     // Add more settings links here as needed
   ];
 
@@ -5727,75 +6617,40 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
 ================================================================================
 
 File: features/editor/components/EditorHeader.tsx
+// src/features/editor/components/EditorHeader.tsx
 'use client';
 
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/core/services/siteExporter.service';
-import { useEditor } from '@/features/editor/contexts/EditorContext'; 
 import { slugify } from '@/lib/utils';
-import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
-import Image from 'next/image';
+import { Eye, PanelLeft, UploadCloud, PanelRight } from 'lucide-react';
 
-const SaveButton = () => {
-  const editorContext = useEditor();
+/**
+ * Props for the generic EditorHeader component.
+ */
+interface EditorHeaderProps {
+  /**
+   * An optional React node containing action buttons or other components
+   * to be displayed in the header. This allows for context-specific actions.
+   */
+  actions?: ReactNode;
+}
 
-   if (!editorContext) {
-    return null;
-  }
-
-  // --- FIX: Consume both raw state values ---
-  const { saveState, hasUnsavedChanges, triggerSave } = editorContext;
-
-  const buttonContent = {
-    idle: { icon: <Save className="h-4 w-4" />, text: 'Save' },
-    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving' },
-    saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
-  };
-
-  // --- FIX: New logic to determine the display state ---
-  let displayState: 'idle' | 'saving' | 'saved';
-  let isDisabled = false;
-
-  if (saveState === 'saving') {
-    displayState = 'saving';
-    isDisabled = true;
-  } else if (hasUnsavedChanges) {
-    displayState = 'idle';
-    isDisabled = false;
-  } else {
-    // This covers 'saved' and 'no_changes'
-    displayState = 'saved';
-    isDisabled = true;
-  }
-
-  const current = buttonContent[displayState];
-
-  return (
-    <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>
-      {current.icon}
-      <span className='hidden md:block'>{current.text}</span>
-    </Button>
-  );
-};
-
-
-export default function EditorHeader() {
+export default function EditorHeader({ actions }: EditorHeaderProps) {
   const params = useParams();
   const siteId = params.siteId as string;
   const [isPublishing, setIsPublishing] = useState(false);
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  
-  const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
-  const toggleRightSidebar = useUIStore((state) => state.sidebar.toggleRightSidebar);
-  const isLeftAvailable = useUIStore((state) => state.sidebar.isLeftAvailable);
-  const isRightAvailable = useUIStore((state) => state.sidebar.isRightAvailable);
 
+  // Get site and UI state from the global stores
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const { toggleLeftSidebar, toggleRightSidebar, isLeftAvailable, isRightAvailable } = useUIStore((state) => state.sidebar);
 
   const handlePublishSite = async () => {
     if (!site) {
@@ -5818,10 +6673,11 @@ export default function EditorHeader() {
       console.error("Error publishing site to Zip:", error);
       toast.error(`Failed to generate Zip: ${(error as Error).message}`);
     } finally {
-        setIsPublishing(false);
+      setIsPublishing(false);
     }
   };
   
+  // Render a placeholder header if site data isn't loaded yet
   if (!site) {
     return (
         <header className="sticky top-0 z-20 flex h-[60px] items-center gap-4 border-b bg-background px-4 lg:h-[60px]"></header>
@@ -5831,36 +6687,38 @@ export default function EditorHeader() {
   return (
     <header className="sticky top-0 z-20 flex shrink-0 items-center gap-4 border-b bg-background lg:pl-4 pr-4 h-[60px]">
       <div className="flex items-center gap-2">
-        {/* Render button only if the left sidebar is available for the current page */}
         <Link
             href="/sites"
             title="Dashboard"
-            className=' flex lg:hidden flex-col w-[60px] h-[60px] items-center border-r mr-2'
+            className='flex lg:hidden flex-col w-[60px] h-[60px] items-center border-r mr-2'
           >
-            <Image src="/signum.svg" width={34} height={34} alt="" className='m-auto'/>
-          </Link>
+            <Image src="/signum.svg" width={34} height={34} alt="Signum Logo" className='m-auto'/>
+        </Link>
         {isLeftAvailable && (
             <Button 
                 variant="outline" 
                 size="icon" 
                 className="shrink-0" 
                 onClick={toggleLeftSidebar}
+                aria-label="Toggle file tree"
             >
                 <PanelLeft className="h-5 w-5" />
-                <span className="sr-only">Toggle file tree</span>
             </Button>
         )}
       </div>
 
-      <div className="flex-1 text-lg text-muted-foreground">
+      <div className="flex-1 text-lg text-muted-foreground truncate">
        <span className="font-bold text-foreground">{site.manifest.title}</span>
       </div>
       
       <div className="flex items-center justify-end gap-2">
-        <SaveButton />
+        {/* Render the custom actions passed via props. This is where the SaveButton will appear on the editor page. */}
+        {actions}
+
         <Button variant="outline" asChild>
             <Link href={`/sites/${siteId}/view`} target="_blank">
-                <Eye className="h-4 w-4" /> <span className='hidden md:block '>View</span>
+                <Eye className="h-4 w-4" />
+                <span className='hidden md:block '>View</span>
             </Link>
         </Button>
         <Button variant="default" onClick={handlePublishSite} disabled={isPublishing}>
@@ -5868,11 +6726,15 @@ export default function EditorHeader() {
             <span className='hidden md:block '>{isPublishing ? 'Publishing...' : 'Publish'}</span>
         </Button>
 
-        {/* Render button only if the right sidebar is available for the current page */}
         {isRightAvailable && (
-            <Button variant="outline" size="icon" className="shrink-0" onClick={toggleRightSidebar}>
+            <Button 
+                variant="outline" 
+                size="icon" 
+                className="shrink-0" 
+                onClick={toggleRightSidebar}
+                aria-label="Toggle settings sidebar"
+            >
                 <PanelRight className="h-5 w-5" />
-                <span className="sr-only">Toggle settings sidebar</span>
             </Button>
         )}
       </div>
@@ -5888,7 +6750,7 @@ File: features/editor/components/ImageUploadWidget.tsx
 import { useState } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
-import { ImageRef } from '@/core/services/images/types';
+import { ImageRef } from '@/types';
 import { Button } from '@/core/components/ui/button';
 
 interface ImageUploadWidgetProps {
@@ -6421,6 +7283,63 @@ export default DataSourceSelectWidget;
 
 ================================================================================
 
+File: features/editor/components/BlocknoteEditor.tsx
+// src/features/editor/components/BlocknoteEditor.tsx
+'use client';
+
+import { useMemo, forwardRef, useImperativeHandle } from 'react';
+import { Block } from '@blocknote/core';
+import { useCreateBlockNote } from '@blocknote/react';
+import { BlockNoteView } from '@blocknote/mantine';
+import '@blocknote/mantine/style.css';
+import { Label } from '@/core/components/ui/label';
+
+interface BlocknoteEditorProps {
+  initialContent: Block[];
+  onContentChange: () => void; // Only needs to signal a change, not pass content
+}
+
+// The ref will now expose a function to get the editor's block data.
+export interface BlocknoteEditorRef {
+  getBlocks: () => Block[];
+}
+
+const BlocknoteEditor = forwardRef<BlocknoteEditorRef, BlocknoteEditorProps>(
+  ({ initialContent, onContentChange }, ref) => {
+    // Creates a new editor instance.
+    const editor = useCreateBlockNote({
+        initialContent: initialContent.length > 0 ? initialContent : undefined,
+    });
+
+    // Expose a function for the parent component to get the current content.
+    useImperativeHandle(ref, () => ({
+      getBlocks: () => {
+        return editor.document;
+      },
+    }));
+
+    return (
+      <div className="space-y-2 h-full flex flex-col">
+        <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400 shrink-0">
+          Content
+        </Label>
+        <div className="flex-grow min-h-0 overflow-y-auto rounded-md border p-2">
+            <BlockNoteView
+                editor={editor}
+                theme="light" // Or use a theme provider to make it dynamic
+                onChange={onContentChange}
+            />
+        </div>
+      </div>
+    );
+  }
+);
+
+BlocknoteEditor.displayName = 'BlocknoteEditor';
+export default BlocknoteEditor;
+
+================================================================================
+
 File: features/editor/components/CollectionItemList.tsx
 // src/features/editor/components/CollectionItemList.tsx
 'use client';
@@ -6672,6 +7591,69 @@ export default function RightSidebar({ children }: RightSidebarProps) {
 
 ================================================================================
 
+File: features/editor/components/SaveButton.tsx
+// src/features/editor/components/SaveButton.tsx
+'use client';
+
+import { useEditor } from '@/features/editor/contexts/EditorContext';
+import { Button } from '@/core/components/ui/button';
+import { Save, Check, Loader2 } from 'lucide-react';
+
+/**
+ * A context-aware button that displays the current save state
+ * (e.g., Save, Saving..., Saved) and triggers the save action.
+ *
+ * This component MUST be rendered within a tree wrapped by an `<EditorProvider>`
+ * as it relies on the `useEditor` hook for its state and actions.
+ */
+export default function SaveButton() {
+  const { saveState, hasUnsavedChanges, triggerSave } = useEditor();
+
+  // Define the visual states for the button
+  const buttonStates = {
+    idle: {
+      icon: <Save className="h-4 w-4" />,
+      text: 'Save',
+    },
+    saving: {
+      icon: <Loader2 className="h-4 w-4 animate-spin" />,
+      text: 'Saving...',
+    },
+    saved: {
+      icon: <Check className="h-4 w-4" />,
+      text: 'Saved',
+    },
+  };
+
+  // Determine the current display state and if the button should be disabled
+  let currentDisplayState: 'idle' | 'saving' | 'saved';
+  let isDisabled = false;
+
+  if (saveState === 'saving') {
+    currentDisplayState = 'saving';
+    isDisabled = true;
+  } else if (hasUnsavedChanges) {
+    currentDisplayState = 'idle';
+    isDisabled = false;
+  } else {
+    // This covers both 'saved' and 'no_changes' states.
+    // In both cases, the content is considered saved and there's nothing to do.
+    currentDisplayState = 'saved';
+    isDisabled = true;
+  }
+
+  const current = buttonStates[currentDisplayState];
+
+  return (
+    <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>
+      {current.icon}
+      <span className='hidden md:block'>{current.text}</span>
+    </Button>
+  );
+}
+
+================================================================================
+
 File: features/editor/components/FrontmatterSidebar.tsx
 // src/features/editor/components/FrontmatterSidebar.tsx
 'use client';
@@ -6911,18 +7893,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useEditor } from '@/features/editor/contexts/EditorContext';
-import * as localSiteFs from '@/core/services/localFileSystem.service'; // <-- This is now USED
-import { parseMarkdownString } from '@/lib/markdownParser'; // <-- This is now USED
+import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { parseMarkdownString } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
-import { toast } from 'sonner'; // <-- This is now USED
+import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
-import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig'; // <-- This is now USED
+import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+
+// Import the new Blocknote types and conversion service
+import { Block } from '@blocknote/core';
+import { markdownToBlocks } from '@/core/services/blocknote.service';
 
 export type FileStatus = 'initializing' | 'loading' | 'ready' | 'not_found';
 
 /**
- * Manages the state of a single content file: loading it from storage
- * and handling in-memory state changes for its frontmatter and body.
+ * Manages the state of a single content file for the editor.
+ * It handles loading the raw Markdown, parsing it, converting the body
+ * to Blocknote's format, and managing in-memory state for frontmatter and slugs.
  */
 export function useFileContent(siteId: string, filePath: string, isNewFileMode: boolean) {
   const router = useRouter();
@@ -6931,37 +7918,49 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
 
   const [status, setStatus] = useState<FileStatus>('initializing');
   const [frontmatter, setFrontmatter] = useState<MarkdownFrontmatter | null>(null);
-  const [bodyContent, setBodyContent] = useState<string>('');
   const [slug, setSlug] = useState('');
+  
+  // This state now holds the Blocknote-compatible JSON for the editor.
+  const [initialBlocks, setInitialBlocks] = useState<Block[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
-      if (!site?.manifest) { // <-- Check for manifest to ensure site is at least partially loaded
+      // Wait until the site's manifest is loaded into the store
+      if (!site?.manifest) {
         setStatus('loading');
         return;
       }
 
+      let markdownContent = '';
       if (isNewFileMode) {
+        // Setup default state for a brand new, unsaved file
         setFrontmatter({
           title: '',
-          layout: DEFAULT_PAGE_LAYOUT_PATH, // <-- USED HERE
+          layout: DEFAULT_PAGE_LAYOUT_PATH,
           date: new Date().toISOString().split('T')[0],
+          status: 'draft',
         });
-        setBodyContent('# Start Writing...'); // <-- 'setBodyContent' IS USED HERE
+        markdownContent = '# Start Writing...';
         setSlug('');
       } else {
-        const rawContent = await localSiteFs.getContentFileRaw(siteId, filePath); // <-- USED HERE
+        // Load an existing file from storage
+        const rawContent = await localSiteFs.getContentFileRaw(siteId, filePath);
         if (rawContent === null) {
           setStatus('not_found');
-          toast.error(`Content not found for this URL.`); // <-- USED HERE
+          toast.error(`Content file not found for this URL.`);
           router.push(`/sites/${siteId}/edit`);
           return;
         }
-        const { frontmatter: fm, content } = parseMarkdownString(rawContent); // <-- USED HERE
+        const { frontmatter: fm, content } = parseMarkdownString(rawContent);
         setFrontmatter(fm);
-        setBodyContent(content);
+        markdownContent = content;
         setSlug(filePath.split('/').pop()?.replace('.md', '') || '');
       }
+
+      // Asynchronously convert the loaded markdown string to Blocknote's format
+      const blocks = await markdownToBlocks(markdownContent);
+      setInitialBlocks(blocks);
+      
       setStatus('ready');
       setHasUnsavedChanges(false);
     };
@@ -6969,10 +7968,19 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
     loadData();
   }, [site?.manifest, filePath, isNewFileMode, siteId, router, setHasUnsavedChanges]);
 
+  /**
+   * A callback passed to the editor to signal that its content has changed.
+   * This sets the global "unsaved changes" flag.
+   */
   const onContentModified = useCallback(() => {
     setHasUnsavedChanges(true);
   }, [setHasUnsavedChanges]);
 
+  /**
+   * A callback to handle changes to frontmatter fields. It updates the
+   * local frontmatter state and also auto-generates the slug if the title
+   * is changed on a new file.
+   */
   const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
     setFrontmatter(prev => {
       if (!prev) return null;
@@ -6982,14 +7990,14 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
       }
       return newFm;
     });
-    onContentModified();
+    onContentModified(); // Any frontmatter change is considered an unsaved change
   }, [isNewFileMode, onContentModified]);
 
   return {
     status,
     site,
     frontmatter,
-    bodyContent,
+    initialBlocks,
     slug,
     setSlug,
     handleFrontmatterChange,
@@ -7013,13 +8021,17 @@ import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
 import { useUnloadPrompt } from './useUnloadPrompt';
 
+// Import the necessary types
+import { Block } from '@blocknote/core';
+import { blocksToMarkdown } from '@/core/services/blocknote.service';
+
 interface PersistenceParams {
   siteId: string;
   filePath: string;
   isNewFileMode: boolean;
   frontmatter: MarkdownFrontmatter | null;
   slug: string;
-  getEditorContent: () => string;
+  getEditorContent: () => Block[]; 
 }
 
 /**
@@ -7048,7 +8060,9 @@ export function useFilePersistence({
         throw new Error("A title is required.");
     }
 
-    const markdownBody = getEditorContent();
+    const currentBlocks = getEditorContent();
+    const markdownBody = await blocksToMarkdown(currentBlocks);
+    
     const finalPath = isNewFileMode ? `${filePath}/${slug.trim()}.md`.replace('//', '/') : filePath;
     const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
 
@@ -7070,7 +8084,6 @@ export function useFilePersistence({
     } catch (error) {
       toast.error(`Failed to delete page: ${(error as Error).message}`);
     }
-    // --- FIX 2: Remove store action from dependency array ---
   }, [isNewFileMode, frontmatter, deleteContentFileAndState, siteId, filePath, router]);
 
   // Register the save action with the EditorContext
@@ -7078,7 +8091,7 @@ export function useFilePersistence({
     registerSaveAction(handleSave);
   }, [handleSave, registerSaveAction]);
 
-  // Autosave effect now correctly uses the hasUnsavedChanges from the context
+  // Autosave effect
   useEffect(() => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
     const canAutosave = !isNewFileMode || isInitialSaveCompleted;
@@ -7568,20 +8581,20 @@ interface ThreeColumnLayoutProps {
   leftSidebar: ReactNode;
   rightSidebar: ReactNode;
   children: ReactNode;
+  headerActions?: ReactNode;
 }
 
-export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children }: ThreeColumnLayoutProps) {
+export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children, headerActions }: ThreeColumnLayoutProps) {
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const isRightOpen = useUIStore((state) => state.sidebar.isRightOpen);
 
   return (
     <div className="flex h-screen w-full flex-col bg-muted/20">
-      <EditorHeader />
+      <EditorHeader actions={headerActions} />
       
       {/* This is now the positioning context for all three columns */}
       <div className="relative flex-1 overflow-hidden">
         
-        {/* --- START OF FIX --- */}
         
         {/* Left Sidebar: Absolutely positioned within the parent div */}
         <aside
@@ -7621,8 +8634,6 @@ export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children 
             {rightSidebar}
           </div>
         </aside>
-
-        {/* --- END OF FIX --- */}
       </div>
     </div>
   );

@@ -60,7 +60,7 @@ export default function FrontmatterSidebar({
     };
     loadSchema();
   }, [site, frontmatter.layout]);
-
+ const menuTitleValue = typeof frontmatter.menuTitle === 'string' ? frontmatter.menuTitle : '';
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
   };
@@ -72,6 +72,19 @@ export default function FrontmatterSidebar({
         <AccordionItem value="general">
           <AccordionTrigger>General</AccordionTrigger>
           <AccordionContent className="space-y-4 pt-4">
+
+            <div className="space-y-2">
+              <Label htmlFor="menu-title-input">Menu Title (Optional)</Label>
+               <Input
+                  id="menu-title-input"
+                  placeholder="e.g., Home, About"
+                  value={menuTitleValue}
+                  onChange={(e) => onFrontmatterChange({ menuTitle: e.target.value })}
+              />
+              
+              <p className="text-xs text-muted-foreground">A short label for navigation menus. If left blank, the page title will be used.</p>
+            </div>
+
           
             <div className="space-y-2">
               <Label htmlFor="page-layout-select">Layout</Label>
