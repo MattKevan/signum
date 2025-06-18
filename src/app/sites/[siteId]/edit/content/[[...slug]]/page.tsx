@@ -9,7 +9,7 @@ import type { LocalSiteData } from '@/types';
 
 // --- Component Imports ---
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
-import MarkdownEditor, { type MarkdownEditorRef } from '@/components/publishing/MarkdownEditor';
+import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
@@ -22,7 +22,7 @@ import { useFileContent } from '@/features/editor/hooks/useFileContent';
 import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 
 function EditContentPageInternal() {
-  const editorRef = useRef<MarkdownEditorRef>(null);
+  const editorRef = useRef<BlocknoteEditorRef>(null);
 
   // 1. Identify the page from the URL
   const { siteId, isNewFileMode, filePath } = usePageIdentifier();
@@ -32,7 +32,7 @@ function EditContentPageInternal() {
     status,
     site,
     frontmatter,
-    bodyContent,
+    initialBlocks,
     slug,
     setSlug,
     handleFrontmatterChange,
@@ -47,7 +47,8 @@ function EditContentPageInternal() {
     isNewFileMode,
     frontmatter,
     slug,
-    getEditorContent: () => editorRef.current?.getMarkdown() ?? '',
+    // This function now correctly gets the Block[] array from the editor's ref.
+    getEditorContent: () => editorRef.current?.getBlocks() ?? [],
   });
 
   // 4. Manage UI state (sidebars)
@@ -119,10 +120,10 @@ function EditContentPageInternal() {
                 />
               ) : (
                 // Otherwise, show the Markdown editor for the body.
-                <MarkdownEditor
+                <BlocknoteEditor
                   ref={editorRef}
-                  key={filePath}
-                  initialValue={bodyContent}
+                  key={filePath} // Use key to force re-mount on file change
+                  initialContent={initialBlocks}
                   onContentChange={onContentModified}
                 />
               )}
@@ -130,7 +131,7 @@ function EditContentPageInternal() {
         </div>
       </div>
     );
-  }, [status, frontmatter, bodyContent, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+  }, [status, frontmatter, initialBlocks, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
 
   return (
     <ThreeColumnLayout

@@ -5,18 +5,23 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useEditor } from '@/features/editor/contexts/EditorContext';
-import * as localSiteFs from '@/core/services/localFileSystem.service'; // <-- This is now USED
-import { parseMarkdownString } from '@/lib/markdownParser'; // <-- This is now USED
+import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { parseMarkdownString } from '@/lib/markdownParser';
 import { slugify } from '@/lib/utils';
-import { toast } from 'sonner'; // <-- This is now USED
+import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
-import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig'; // <-- This is now USED
+import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+
+// Import the new Blocknote types and conversion service
+import { Block } from '@blocknote/core';
+import { markdownToBlocks } from '@/core/services/blocknote.service';
 
 export type FileStatus = 'initializing' | 'loading' | 'ready' | 'not_found';
 
 /**
- * Manages the state of a single content file: loading it from storage
- * and handling in-memory state changes for its frontmatter and body.
+ * Manages the state of a single content file for the editor.
+ * It handles loading the raw Markdown, parsing it, converting the body
+ * to Blocknote's format, and managing in-memory state for frontmatter and slugs.
  */
 export function useFileContent(siteId: string, filePath: string, isNewFileMode: boolean) {
   const router = useRouter();
@@ -25,37 +30,49 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
 
   const [status, setStatus] = useState<FileStatus>('initializing');
   const [frontmatter, setFrontmatter] = useState<MarkdownFrontmatter | null>(null);
-  const [bodyContent, setBodyContent] = useState<string>('');
   const [slug, setSlug] = useState('');
+  
+  // This state now holds the Blocknote-compatible JSON for the editor.
+  const [initialBlocks, setInitialBlocks] = useState<Block[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
-      if (!site?.manifest) { // <-- Check for manifest to ensure site is at least partially loaded
+      // Wait until the site's manifest is loaded into the store
+      if (!site?.manifest) {
         setStatus('loading');
         return;
       }
 
+      let markdownContent = '';
       if (isNewFileMode) {
+        // Setup default state for a brand new, unsaved file
         setFrontmatter({
           title: '',
-          layout: DEFAULT_PAGE_LAYOUT_PATH, // <-- USED HERE
+          layout: DEFAULT_PAGE_LAYOUT_PATH,
           date: new Date().toISOString().split('T')[0],
+          status: 'draft',
         });
-        setBodyContent('# Start Writing...'); // <-- 'setBodyContent' IS USED HERE
+        markdownContent = '# Start Writing...';
         setSlug('');
       } else {
-        const rawContent = await localSiteFs.getContentFileRaw(siteId, filePath); // <-- USED HERE
+        // Load an existing file from storage
+        const rawContent = await localSiteFs.getContentFileRaw(siteId, filePath);
         if (rawContent === null) {
           setStatus('not_found');
-          toast.error(`Content not found for this URL.`); // <-- USED HERE
+          toast.error(`Content file not found for this URL.`);
           router.push(`/sites/${siteId}/edit`);
           return;
         }
-        const { frontmatter: fm, content } = parseMarkdownString(rawContent); // <-- USED HERE
+        const { frontmatter: fm, content } = parseMarkdownString(rawContent);
         setFrontmatter(fm);
-        setBodyContent(content);
+        markdownContent = content;
         setSlug(filePath.split('/').pop()?.replace('.md', '') || '');
       }
+
+      // Asynchronously convert the loaded markdown string to Blocknote's format
+      const blocks = await markdownToBlocks(markdownContent);
+      setInitialBlocks(blocks);
+      
       setStatus('ready');
       setHasUnsavedChanges(false);
     };
@@ -63,10 +80,19 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
     loadData();
   }, [site?.manifest, filePath, isNewFileMode, siteId, router, setHasUnsavedChanges]);
 
+  /**
+   * A callback passed to the editor to signal that its content has changed.
+   * This sets the global "unsaved changes" flag.
+   */
   const onContentModified = useCallback(() => {
     setHasUnsavedChanges(true);
   }, [setHasUnsavedChanges]);
 
+  /**
+   * A callback to handle changes to frontmatter fields. It updates the
+   * local frontmatter state and also auto-generates the slug if the title
+   * is changed on a new file.
+   */
   const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
     setFrontmatter(prev => {
       if (!prev) return null;
@@ -76,14 +102,14 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
       }
       return newFm;
     });
-    onContentModified();
+    onContentModified(); // Any frontmatter change is considered an unsaved change
   }, [isNewFileMode, onContentModified]);
 
   return {
     status,
     site,
     frontmatter,
-    bodyContent,
+    initialBlocks,
     slug,
     setSlug,
     handleFrontmatterChange,

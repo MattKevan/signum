@@ -7,8 +7,8 @@ const derivativeCacheStore = localforage.createInstance({
 });
 
 /**
- * Retrieves a cached image derivative from IndexedDB.
- * @param key The unique key for the derivative (e.g., 'path/to/img_w400_h300_cover').
+ * Retrieves a cached image derivative from IndexedDB by its key.
+ * @param key The unique key for the derivative.
  * @returns A promise that resolves to the derivative Blob, or null if not found.
  */
 export async function getCachedDerivative(key: string): Promise<Blob | null> {
@@ -22,4 +22,14 @@ export async function getCachedDerivative(key: string): Promise<Blob | null> {
  */
 export async function setCachedDerivative(key: string, blob: Blob): Promise<void> {
   await derivativeCacheStore.setItem(key, blob);
+}
+
+/**
+ * --- FIX: Add the missing exported function. ---
+ * Retrieves all keys currently stored in the derivative cache. This is used
+ * by the exporter to bundle all generated images.
+ * @returns A promise that resolves to an array of all keys (strings).
+ */
+export async function getAllCacheKeys(): Promise<string[]> {
+  return derivativeCacheStore.keys();
 }

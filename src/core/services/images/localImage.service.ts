@@ -3,12 +3,11 @@
 import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { slugify } from '@/lib/utils';
-import { getCachedDerivative, setCachedDerivative } from './derivativeCache.service';
-// --- FIX: Import the image compression library ---
-import imageCompression, { Options } from 'browser-image-compression';
+import { getCachedDerivative, setCachedDerivative, getAllCacheKeys } from './derivativeCache.service';
+import imageCompression from 'browser-image-compression';
 
 const sourceImageCache = new Map<string, Blob>();
-const derivativeCache = new Map<string, Blob>();
+const processingPromises = new Map<string, Promise<Blob>>();
 
 const getImageDimensions = (blob: Blob): Promise<{ width: number; height: number }> => {
   return new Promise((resolve, reject) => {
@@ -53,6 +52,10 @@ class LocalImageService implements ImageService {
     };
   }
 
+  /**
+   * Main method to get a displayable URL for an image.
+   * This has been refactored into a single, unified pipeline to prevent deadlocks.
+   */
   async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
     const { width, height, crop = 'scale', gravity = 'center' } = options;
     const extIndex = ref.src.lastIndexOf('.');
@@ -61,53 +64,69 @@ class LocalImageService implements ImageService {
     const pathWithoutExt = ref.src.substring(0, extIndex);
     const ext = ref.src.substring(extIndex);
     const derivativePath = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
-    const cacheKey = derivativePath;
 
-    // Check persistent cache first
+    // The core logic is now in a separate, private method.
+    const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, derivativePath, options);
+    
+    // After getting the blob, simply decide what to return based on the context.
+    return isExport ? derivativePath : URL.createObjectURL(finalBlob);
+  }
+
+  /**
+   * The core processing pipeline. It checks all caches and processes the image
+   * only if absolutely necessary, preventing race conditions.
+   */
+  private async getOrProcessDerivative(siteId: string, srcPath: string, cacheKey: string, options: ImageTransformOptions): Promise<Blob> {
+    // 1. Check persistent cache for a completed job.
     const cachedBlob = await getCachedDerivative(cacheKey);
     if (cachedBlob) {
-      // If we are exporting, we still need to add this blob to the in-memory export cache
-      if (isExport) derivativeCache.set(cacheKey, cachedBlob);
-      return isExport ? derivativePath : URL.createObjectURL(cachedBlob);
+      return cachedBlob;
+    }
+
+    // 2. Check in-memory cache for an in-progress job.
+    if (processingPromises.has(cacheKey)) {
+      return processingPromises.get(cacheKey)!;
     }
     
-    // If not cached, get the source and process it
-    const sourceBlob = await this.getSourceBlob(manifest.siteId, ref.src);
+    // 3. If no cache hit, create and store a new processing promise.
+    const processingPromise = (async (): Promise<Blob> => {
+      try {
+        const sourceBlob = await this.getSourceBlob(siteId, srcPath);
 
-    // --- FIX: Replace manual worker/canvas logic with the library ---
-    const compressionOptions: any = {
-        maxSizeMB: 1.5,
-        initialQuality: 0.8,
-        useWebWorker: true,
-        exifOrientation: -1,
-    };
-    
-    if (crop === 'fill' && width && height) {
-      compressionOptions.maxWidth = width;
-      compressionOptions.maxHeight = height;
-      // Note: 'gravity' is not supported by this library, it will center-crop.
-    } else { // Handles 'fit' and 'scale'
-      compressionOptions.maxWidthOrHeight = Math.max(width || 0, height || 0) || undefined;
-    }
-    
-    console.log(`[ImageService] Generating derivative: ${cacheKey}`);
-    const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
-    // --- END OF REPLACEMENT ---
+        const compressionOptions: any = {
+            maxSizeMB: 1.5,
+            initialQuality: 0.8,
+            useWebWorker: true,
+            exifOrientation: -1,
+        };
+        const { width, height, crop } = options;
+        if (crop === 'fill' && width && height) {
+          compressionOptions.maxWidth = width;
+          compressionOptions.maxHeight = height;
+        } else {
+          compressionOptions.maxWidthOrHeight = Math.max(width || 0, height || 0) || undefined;
+        }
 
-    // Cache the newly generated derivative persistently and in-memory
-    await setCachedDerivative(cacheKey, derivativeBlob);
-    derivativeCache.set(cacheKey, derivativeBlob);
-    
-    return isExport ? derivativePath : URL.createObjectURL(derivativeBlob);
+        console.log(`[ImageService] Processing new derivative: ${cacheKey}`);
+        const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
+        
+        await setCachedDerivative(cacheKey, derivativeBlob);
+        
+        return derivativeBlob;
+      } finally {
+        processingPromises.delete(cacheKey);
+      }
+    })();
+
+    processingPromises.set(cacheKey, processingPromise);
+    return processingPromise;
   }
 
   private async getSourceBlob(siteId: string, srcPath: string): Promise<Blob> {
     let sourceBlob = sourceImageCache.get(srcPath);
     if (!sourceBlob) {
         const blobData = await localSiteFs.getImageAsset(siteId, srcPath);
-        if (!blobData) {
-            throw new Error(`Source image not found in local storage: ${srcPath}`);
-        }
+        if (!blobData) throw new Error(`Source image not found in local storage: ${srcPath}`);
         sourceBlob = blobData;
         sourceImageCache.set(srcPath, sourceBlob);
     }
@@ -117,22 +136,27 @@ class LocalImageService implements ImageService {
   async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
     const exportableMap = new Map<string, Blob>();
     
-    // 1. Add all original source images
+    // Add all original source images
     for (const ref of allImageRefs) {
       if (ref.serviceId === 'local' && !exportableMap.has(ref.src)) {
         const sourceBlob = await localSiteFs.getImageAsset(siteId, ref.src);
-        if (sourceBlob) exportableMap.set(ref.src, sourceBlob);
+        if (sourceBlob) {
+          exportableMap.set(ref.src, sourceBlob);
+        }
       }
     }
     
-    // 2. Add all generated derivatives from the in-memory cache
-    for (const [path, data] of derivativeCache.entries()) {
-        exportableMap.set(path, data);
+    // Add all derivatives from the persistent cache
+    const derivativeKeys = await getAllCacheKeys();
+    for (const key of derivativeKeys) {
+      if (!exportableMap.has(key)) {
+        const derivativeBlob = await getCachedDerivative(key);
+        if (derivativeBlob) {
+          exportableMap.set(key, derivativeBlob);
+        }
+      }
     }
     
-    // Clear the in-memory cache after export to free up memory
-    derivativeCache.clear();
-
     return Array.from(exportableMap.entries()).map(([path, data]) => ({ path, data }));
   }
 }

@@ -11,13 +11,17 @@ import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
 import { useUnloadPrompt } from './useUnloadPrompt';
 
+// Import the necessary types
+import { Block } from '@blocknote/core';
+import { blocksToMarkdown } from '@/core/services/blocknote.service';
+
 interface PersistenceParams {
   siteId: string;
   filePath: string;
   isNewFileMode: boolean;
   frontmatter: MarkdownFrontmatter | null;
   slug: string;
-  getEditorContent: () => string;
+  getEditorContent: () => Block[]; 
 }
 
 /**
@@ -46,7 +50,9 @@ export function useFilePersistence({
         throw new Error("A title is required.");
     }
 
-    const markdownBody = getEditorContent();
+    const currentBlocks = getEditorContent();
+    const markdownBody = await blocksToMarkdown(currentBlocks);
+    
     const finalPath = isNewFileMode ? `${filePath}/${slug.trim()}.md`.replace('//', '/') : filePath;
     const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
 
@@ -68,7 +74,6 @@ export function useFilePersistence({
     } catch (error) {
       toast.error(`Failed to delete page: ${(error as Error).message}`);
     }
-    // --- FIX 2: Remove store action from dependency array ---
   }, [isNewFileMode, frontmatter, deleteContentFileAndState, siteId, filePath, router]);
 
   // Register the save action with the EditorContext
@@ -76,7 +81,7 @@ export function useFilePersistence({
     registerSaveAction(handleSave);
   }, [handleSave, registerSaveAction]);
 
-  // Autosave effect now correctly uses the hasUnsavedChanges from the context
+  // Autosave effect
   useEffect(() => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
     const canAutosave = !isNewFileMode || isInitialSaveCompleted;
