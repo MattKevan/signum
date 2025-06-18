@@ -1,0 +1,35 @@
+// src/core/services/siteSecrets.service.ts
+import localforage from 'localforage';
+
+const DB_NAME = 'SignumDB';
+
+// This store is NEVER included in the site export.
+const siteSecretsStore = localforage.createInstance({
+  name: DB_NAME,
+  storeName: 'siteSecrets',
+});
+
+// Define the shape of the secrets object for a site.
+export interface SiteSecrets {
+  cloudinary?: {
+    uploadPreset?: string;
+  };
+}
+
+/**
+ * Loads the secrets object for a specific site from the database.
+ * @param siteId The ID of the site.
+ * @returns A promise that resolves to the SiteSecrets object, or an empty object.
+ */
+export async function loadSiteSecretsFromDb(siteId: string): Promise<SiteSecrets> {
+  return (await siteSecretsStore.getItem<SiteSecrets>(siteId)) || {};
+}
+
+/**
+ * Saves the complete secrets object for a specific site to the database.
+ * @param siteId The ID of the site.
+ * @param secrets The SiteSecrets object to save.
+ */
+export async function saveSiteSecretsToDb(siteId: string, secrets: SiteSecrets): Promise<void> {
+  await siteSecretsStore.setItem(siteId, secrets);
+}

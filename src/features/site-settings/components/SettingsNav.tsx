@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { TbUserCircle, TbPalette } from 'react-icons/tb';
+import { TbUserCircle, TbPalette, TbPhoto } from 'react-icons/tb';
 import { cn } from '@/lib/utils';
 
 // This is the navigation component for the settings area.
@@ -13,6 +13,7 @@ export default function SettingsNav() {
   const navItems = [
     { href: `/sites/${siteId}/settings`, title: 'Site Details', icon: TbUserCircle },
     { href: `/sites/${siteId}/settings/appearance`, title: 'Appearance', icon: TbPalette },
+    { href: `/sites/${siteId}/settings/images`, title: 'Images', icon: TbPhoto },
     // Add more settings links here as needed
   ];
 

@@ -1,4 +1,5 @@
 // src/types/index.ts
+import { SiteSecrets } from '@/core/services/siteSecrets.service';
 
 /**
  * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
@@ -9,6 +10,7 @@
 export interface StructureNode {
   type: 'page'; // The 'type' is now always 'page'.
   title: string;
+  menuTitle?: string;
   path: string; // The full path to the .md file (e.g., 'content/blog.md').
   slug: string; // The URL-friendly version of the path (e.g., 'blog').
   navOrder?: number;
@@ -124,6 +126,12 @@ export interface Manifest {
   structure: StructureNode[];
   layouts?: LayoutInfo[];
   themes?: ThemeInfo[];
+  logo?: ImageRef;
+  favicon?: ImageRef;
+  settings?: {
+    imageService?: 'local' | 'cloudinary';
+    [key: string]: any; // Allow for other future settings
+  };
 }
 
 /**
@@ -135,6 +143,7 @@ export interface LocalSiteData {
   contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
+  secrets?: SiteSecrets;
   // Future: viewFiles?: RawFile[]
 }
 
@@ -172,3 +181,32 @@ export type PageResolutionResult = {
   type: PageType.NotFound;
   errorMessage: string;
 };
+
+
+/** The storable reference to an uploaded image. This goes in frontmatter. */
+export interface ImageRef {
+  serviceId: 'local' | 'cloudinary';
+  src: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+}
+
+/** Transformation options requested by a template's image helper. */
+export interface ImageTransformOptions {
+  width?: number;
+  height?: number;
+  // --- FIX: Adopt Cloudinary's 'crop' and 'gravity' terminology ---
+  crop?: 'fill' | 'fit' | 'scale'; // 'scale' is a simple resize, 'fit' is letterbox, 'fill' is crop
+  gravity?: 'center' | 'north' | 'south' | 'east' | 'west' | 'auto';
+  format?: 'webp' | 'avif' | 'jpeg';
+}
+
+/** The interface/contract that all image services must implement. */
+export interface ImageService {
+  id: string;
+  name: string;
+  upload(file: File, siteId: string): Promise<ImageRef>;
+  getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string>;
+  getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]>;
+}

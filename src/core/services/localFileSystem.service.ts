@@ -25,6 +25,11 @@ const siteThemeFilesStore = localforage.createInstance({
     storeName: 'siteThemeFiles',
 });
 
+const siteImageAssetsStore = localforage.createInstance({
+  name: DB_NAME,
+  storeName: 'siteImageAssets',
+});
+
 // --- Function to load only manifests for a fast initial load ---
 export async function loadAllSiteManifests(): Promise<Manifest[]> {
   const manifests: Manifest[] = [];
@@ -147,4 +152,33 @@ export async function moveContentFiles(siteId: string, pathsToMove: { oldPath: s
     });
     
     await siteContentFilesStore.setItem(siteId, updatedFiles);
+}
+
+/**
+ * Saves a binary image asset (as a Blob) to storage for a specific site.
+ * @param siteId The ID of the site.
+ * @param imagePath The relative path to the image (e.g., 'assets/images/foo.jpg').
+ * @param imageData The image data as a Blob.
+ */
+export async function saveImageAsset(siteId: string, imagePath: string, imageData: Blob): Promise<void> {
+  const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId) || {};
+  imageMap[imagePath] = imageData;
+  await siteImageAssetsStore.setItem(siteId, imageMap);
+}
+
+/**
+ * Retrieves a binary image asset (as a Blob) from storage for a specific site.
+ * @param siteId The ID of the site to look within.
+ * @param imagePath The relative path of the image to retrieve.
+ * @returns A Promise that resolves to the image Blob, or null if not found.
+ */
+export async function getImageAsset(siteId: string, imagePath: string): Promise<Blob | null> {
+  // <-- FIX: This is now much more efficient and correct.
+  // 1. Get the image map for the specific site.
+  const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId);
+  if (!imageMap) {
+    return null; // The site has no images.
+  }
+  // 2. Return the image from the map, or null if it doesn't exist.
+  return imageMap[imagePath] || null;
 }

@@ -1,72 +1,37 @@
+// src/features/editor/components/EditorHeader.tsx
 'use client';
 
-import { useState } from 'react';
+import { ReactNode, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import Image from 'next/image';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/core/services/siteExporter.service';
-import { useEditor } from '@/features/editor/contexts/EditorContext'; 
 import { slugify } from '@/lib/utils';
-import { Eye, PanelLeft, UploadCloud, PanelRight, Save, Check, Loader2 } from 'lucide-react';
-import Image from 'next/image';
+import { Eye, PanelLeft, UploadCloud, PanelRight } from 'lucide-react';
 
-const SaveButton = () => {
-  const editorContext = useEditor();
+/**
+ * Props for the generic EditorHeader component.
+ */
+interface EditorHeaderProps {
+  /**
+   * An optional React node containing action buttons or other components
+   * to be displayed in the header. This allows for context-specific actions.
+   */
+  actions?: ReactNode;
+}
 
-   if (!editorContext) {
-    return null;
-  }
-
-  // --- FIX: Consume both raw state values ---
-  const { saveState, hasUnsavedChanges, triggerSave } = editorContext;
-
-  const buttonContent = {
-    idle: { icon: <Save className="h-4 w-4" />, text: 'Save' },
-    saving: { icon: <Loader2 className="h-4 w-4 animate-spin" />, text: 'Saving' },
-    saved: { icon: <Check className="h-4 w-4" />, text: 'Saved' },
-  };
-
-  // --- FIX: New logic to determine the display state ---
-  let displayState: 'idle' | 'saving' | 'saved';
-  let isDisabled = false;
-
-  if (saveState === 'saving') {
-    displayState = 'saving';
-    isDisabled = true;
-  } else if (hasUnsavedChanges) {
-    displayState = 'idle';
-    isDisabled = false;
-  } else {
-    // This covers 'saved' and 'no_changes'
-    displayState = 'saved';
-    isDisabled = true;
-  }
-
-  const current = buttonContent[displayState];
-
-  return (
-    <Button variant='ghost' onClick={triggerSave} disabled={isDisabled}>
-      {current.icon}
-      <span className='hidden md:block'>{current.text}</span>
-    </Button>
-  );
-};
-
-
-export default function EditorHeader() {
+export default function EditorHeader({ actions }: EditorHeaderProps) {
   const params = useParams();
   const siteId = params.siteId as string;
   const [isPublishing, setIsPublishing] = useState(false);
-  const site = useAppStore((state) => state.getSiteById(siteId));
-  
-  const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
-  const toggleRightSidebar = useUIStore((state) => state.sidebar.toggleRightSidebar);
-  const isLeftAvailable = useUIStore((state) => state.sidebar.isLeftAvailable);
-  const isRightAvailable = useUIStore((state) => state.sidebar.isRightAvailable);
 
+  // Get site and UI state from the global stores
+  const site = useAppStore((state) => state.getSiteById(siteId));
+  const { toggleLeftSidebar, toggleRightSidebar, isLeftAvailable, isRightAvailable } = useUIStore((state) => state.sidebar);
 
   const handlePublishSite = async () => {
     if (!site) {
@@ -89,10 +54,11 @@ export default function EditorHeader() {
       console.error("Error publishing site to Zip:", error);
       toast.error(`Failed to generate Zip: ${(error as Error).message}`);
     } finally {
-        setIsPublishing(false);
+      setIsPublishing(false);
     }
   };
   
+  // Render a placeholder header if site data isn't loaded yet
   if (!site) {
     return (
         <header className="sticky top-0 z-20 flex h-[60px] items-center gap-4 border-b bg-background px-4 lg:h-[60px]"></header>
@@ -102,36 +68,38 @@ export default function EditorHeader() {
   return (
     <header className="sticky top-0 z-20 flex shrink-0 items-center gap-4 border-b bg-background lg:pl-4 pr-4 h-[60px]">
       <div className="flex items-center gap-2">
-        {/* Render button only if the left sidebar is available for the current page */}
         <Link
             href="/sites"
             title="Dashboard"
-            className=' flex lg:hidden flex-col w-[60px] h-[60px] items-center border-r mr-2'
+            className='flex lg:hidden flex-col w-[60px] h-[60px] items-center border-r mr-2'
           >
-            <Image src="/signum.svg" width={34} height={34} alt="" className='m-auto'/>
-          </Link>
+            <Image src="/signum.svg" width={34} height={34} alt="Signum Logo" className='m-auto'/>
+        </Link>
         {isLeftAvailable && (
             <Button 
                 variant="outline" 
                 size="icon" 
                 className="shrink-0" 
                 onClick={toggleLeftSidebar}
+                aria-label="Toggle file tree"
             >
                 <PanelLeft className="h-5 w-5" />
-                <span className="sr-only">Toggle file tree</span>
             </Button>
         )}
       </div>
 
-      <div className="flex-1 text-lg text-muted-foreground">
+      <div className="flex-1 text-lg text-muted-foreground truncate">
        <span className="font-bold text-foreground">{site.manifest.title}</span>
       </div>
       
       <div className="flex items-center justify-end gap-2">
-        <SaveButton />
+        {/* Render the custom actions passed via props. This is where the SaveButton will appear on the editor page. */}
+        {actions}
+
         <Button variant="outline" asChild>
             <Link href={`/sites/${siteId}/view`} target="_blank">
-                <Eye className="h-4 w-4" /> <span className='hidden md:block '>View</span>
+                <Eye className="h-4 w-4" />
+                <span className='hidden md:block '>View</span>
             </Link>
         </Button>
         <Button variant="default" onClick={handlePublishSite} disabled={isPublishing}>
@@ -139,11 +107,15 @@ export default function EditorHeader() {
             <span className='hidden md:block '>{isPublishing ? 'Publishing...' : 'Publish'}</span>
         </Button>
 
-        {/* Render button only if the right sidebar is available for the current page */}
         {isRightAvailable && (
-            <Button variant="outline" size="icon" className="shrink-0" onClick={toggleRightSidebar}>
+            <Button 
+                variant="outline" 
+                size="icon" 
+                className="shrink-0" 
+                onClick={toggleRightSidebar}
+                aria-label="Toggle settings sidebar"
+            >
                 <PanelRight className="h-5 w-5" />
-                <span className="sr-only">Toggle settings sidebar</span>
             </Button>
         )}
       </div>

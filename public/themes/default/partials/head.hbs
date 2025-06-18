@@ -46,8 +46,14 @@
     {{/if}}
 
     {{!-- Favicon Placeholder - Users should replace these --}}
-    <link rel="icon" href="/favicon.ico" sizes="any">
-    <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+    {{#if faviconUrl}}
+        <link rel="icon" href="{{faviconUrl}}" sizes="any">
+        <link rel="apple-touch-icon" href="{{faviconUrl}}">
+    {{else}}
+        {{!-- Fallback to default public icons --}}
+        <link rel="icon" href="/favicon.ico" sizes="any">
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    {{/if}}
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 
      {{!-- STYLESHEETS --}}

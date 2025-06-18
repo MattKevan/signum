@@ -1,0 +1,40 @@
+// src/core/state/slices/secretsSlice.ts
+import { StateCreator } from 'zustand';
+import { produce } from 'immer';
+import { SiteSlice } from './siteSlice';
+import { SiteSecrets, saveSiteSecretsToDb } from '@/core/services/siteSecrets.service';
+import { toast } from 'sonner';
+
+export interface SecretsSlice {
+  /**
+   * Updates the secrets for a site, persisting them to storage first
+   * and then updating the in-memory state.
+   * @param siteId The ID of the site to update.
+   * @param secrets The new secrets object to save.
+   */
+  updateSiteSecrets: (siteId: string, secrets: SiteSecrets) => Promise<void>;
+}
+
+export const createSecretsSlice: StateCreator<SiteSlice & SecretsSlice, [], [], SecretsSlice> = (set, get) => ({
+  updateSiteSecrets: async (siteId, newSecrets) => {
+    try {
+      // 1. Persist the secrets to the database first.
+      await saveSiteSecretsToDb(siteId, newSecrets);
+
+      // 2. If successful, update the in-memory state.
+      set(produce((draft: SiteSlice) => {
+        const site = draft.sites.find(s => s.siteId === siteId);
+        if (site) {
+          site.secrets = newSecrets;
+        }
+      }));
+
+      toast.success("Secret settings saved successfully!");
+    } catch (error) {
+      console.error("Failed to save site secrets:", error);
+      toast.error("Could not save secret settings.");
+      // Re-throw the error if you want the calling component to handle it
+      throw error;
+    }
+  },
+});

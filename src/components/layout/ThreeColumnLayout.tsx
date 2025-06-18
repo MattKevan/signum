@@ -9,20 +9,20 @@ interface ThreeColumnLayoutProps {
   leftSidebar: ReactNode;
   rightSidebar: ReactNode;
   children: ReactNode;
+  headerActions?: ReactNode;
 }
 
-export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children }: ThreeColumnLayoutProps) {
+export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children, headerActions }: ThreeColumnLayoutProps) {
   const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
   const isRightOpen = useUIStore((state) => state.sidebar.isRightOpen);
 
   return (
     <div className="flex h-screen w-full flex-col bg-muted/20">
-      <EditorHeader />
+      <EditorHeader actions={headerActions} />
       
       {/* This is now the positioning context for all three columns */}
       <div className="relative flex-1 overflow-hidden">
         
-        {/* --- START OF FIX --- */}
         
         {/* Left Sidebar: Absolutely positioned within the parent div */}
         <aside
@@ -62,8 +62,6 @@ export default function ThreeColumnLayout({ leftSidebar, rightSidebar, children 
             {rightSidebar}
           </div>
         </aside>
-
-        {/* --- END OF FIX --- */}
       </div>
     </div>
   );

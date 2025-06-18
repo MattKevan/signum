@@ -10,7 +10,8 @@ import { pagerHelper } from './pager.helper';
 import { SignumHelper } from './types';
 import { getUrlHelper } from './getUrl.helper';
 import { assignHelper } from './assign.helper';
-
+import { imageHelper } from './image.helper';
+import { concatHelper } from './concat.helper';
 
 export const coreHelpers: SignumHelper[] = [
   queryHelper,
@@ -21,5 +22,7 @@ export const coreHelpers: SignumHelper[] = [
   renderLayoutForItemHelper, 
   pagerHelper,
   getUrlHelper,
-  assignHelper
+  assignHelper,
+  imageHelper,
+  concatHelper
 ];

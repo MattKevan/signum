@@ -3,6 +3,7 @@ import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { LocalSiteData, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { loadSiteSecretsFromDb } from '@/core/services/siteSecrets.service';
 import { toast } from 'sonner';
 
 export interface SiteSlice {
@@ -31,13 +32,14 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
       const manifest = await localSiteFs.getManifestById(siteId);
       if (!manifest) throw new Error(`Failed to load manifest for siteId: ${siteId}`);
       
-      const [contentFiles, layoutFiles, themeFiles] = await Promise.all([
+      const [contentFiles, layoutFiles, themeFiles, secrets] = await Promise.all([
         localSiteFs.getSiteContentFiles(siteId),
         localSiteFs.getSiteLayoutFiles(siteId),
-        localSiteFs.getSiteThemeFiles(siteId)
+        localSiteFs.getSiteThemeFiles(siteId),
+        loadSiteSecretsFromDb(siteId)
       ]);
 
-      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles };
+      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles, secrets };
 
       set(produce((draft: SiteSlice) => {
         const siteIndex = draft.sites.findIndex(s => s.siteId === siteId);
@@ -57,6 +59,11 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
 
   addSite: async (newSiteData) => {
     await localSiteFs.saveSite(newSiteData);
+    const siteWithSecrets: LocalSiteData = {
+        ...newSiteData,
+        secrets: newSiteData.secrets || {}
+    };
+    await localSiteFs.saveSite(siteWithSecrets); // saveSite needs to be updated to handle secrets
     set(produce((draft: SiteSlice) => {
       if (!draft.sites.some(s => s.siteId === newSiteData.siteId)) {
         draft.sites.push(newSiteData);

@@ -1,6 +1,6 @@
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
@@ -8,6 +8,7 @@ import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
+import { getActiveImageService } from '@/core/services/images/images.service'; 
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
@@ -49,6 +50,34 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
     }
 }
 
+/**
+ * A helper function to recursively find all ImageRef objects within
+ * a site's content files' frontmatter.
+ */
+function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
+  const refs = new Set<ImageRef>(); // Use a Set to avoid duplicates
+  const visited = new Set();
+
+  function find(obj: any) {
+    if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
+    visited.add(obj);
+
+    if ('serviceId' in obj && 'src' in obj) {
+      refs.add(obj as ImageRef);
+      return;
+    }
+    if (Array.isArray(obj)) obj.forEach(item => find(item));
+    else Object.values(obj).forEach(value => find(value));
+  }
+
+  // 1. Search the root of the manifest for top-level assets
+  find(siteData.manifest);
+
+  // 2. Search all content file frontmatter
+  siteData.contentFiles?.forEach(file => find(file.frontmatter));
+  
+  return Array.from(refs);
+}
 
 /**
  * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
@@ -111,7 +140,18 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         });
     }
 
-    // --- THIS IS THE FIX: Gather ALL used layouts from frontmatter ---
+    const allImageRefs = findAllImageRefs(siteData);
+    if (allImageRefs.length > 0) {
+        const imageService = getActiveImageService(manifest);
+        const assetsToBundle = await imageService.getExportableAssets(siteData.siteId, allImageRefs);
+
+        for (const asset of assetsToBundle) {
+            zip.file(asset.path, asset.data);
+        }
+    }
+
+
+    // Gather ALL used layouts from frontmatter
     const layoutIds = new Set<string>();
     contentFiles.forEach(file => {
         // Add the main page layout
@@ -126,7 +166,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     });
 
     const uniqueLayoutIds = [...layoutIds];
-    // --- END OF FIX ---
 
     const activeThemeId = manifest.theme.name;
     await bundleAsset(zip, siteData, 'theme', activeThemeId);
@@ -174,6 +213,8 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
+
+    
 
     // --- 4. Generate the Final ZIP file ---
     return zip.generateAsync({ type: 'blob' });

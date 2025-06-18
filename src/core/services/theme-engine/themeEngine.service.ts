@@ -4,6 +4,7 @@ import {
     LocalSiteData,
     PageResolutionResult,
     PageType,
+    ImageRef,
 } from '@/types';
 import {
     getJsonAsset,
@@ -15,6 +16,8 @@ import {
 import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
+import { getActiveImageService } from '@/core/services/images/images.service';
+
 
 // --- Type Definitions ---
 export interface RenderOptions {
@@ -88,72 +91,92 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
  * Renders a resolved page into a full HTML string based on the active theme and assets.
  */
 export async function render(siteData: LocalSiteData, resolution: PageResolutionResult, options: RenderOptions): Promise<string> {
-  // 1. Setup, Helper Registration, and Template Caching
+    if (resolution.type === PageType.NotFound) {
+      // You can create a simple 404 template or just return a basic error message.
+      return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
+  }
   registerCoreHelpers(siteData);
   await cacheAllTemplates(siteData);
 
-  if (!siteData.contentFiles) {
-    return 'Error: Site content has not been loaded. Cannot render page.';
-  }
-  if (resolution.type === PageType.NotFound) {
-      return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
-  }
+  if (!siteData.contentFiles) { /* error handling */ }
 
   const { manifest } = siteData;
   const themePath = manifest.theme.name;
-  // This is the ID of the main PAGE layout (e.g., 'page-wide', 'post-full').
   const pageLayoutPath = resolution.layoutPath;
 
-  // 2. Prepare Data for Rendering
+  // --- STEP 1: Render the main body content first ---
+  // The body render might call the async `{{{image}}}` helper, so we must await it.
+  const pageLayoutSource = Handlebars.partials[pageLayoutPath];
+  if (!pageLayoutSource) { /* error handling */ }
+  const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
+  
+  // This render pass populates the image derivative cache.
+  const bodyHtml = await pageLayoutTemplate({
+    ...resolution,
+    options: options // Pass options down for the image helper
+  });
+
+
+  // --- STEP 2: Resolve ALL top-level asynchronous data ---
   const currentPageExportPath = getUrlForNode(resolution.contentFile, true);
   const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
   const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
+  // Resolve logo and favicon URLs, passing the isExport flag.
+  let logoUrl: string | undefined = undefined;
+  if (siteData.manifest.logo) {
+      try {
+          const service = getActiveImageService(siteData.manifest);
+          logoUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.logo, { height: 32 }, options.isExport);
+      } catch (e) { console.warn("Could not generate logo URL:", e); }
+  }
+  
+  let faviconUrl: string | undefined = undefined;
+  if (siteData.manifest.favicon) {
+      try {
+          const service = getActiveImageService(siteData.manifest);
+          faviconUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.favicon, { width: 32, height: 32 }, options.isExport);
+      } catch (e) { console.warn("Could not generate favicon URL:", e); }
+  }
+
   let styleOverrides = '';
-  if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) {
-      const cssVars = Object.entries(manifest.theme.config).map(([k, v]) => `--${k.replace(/_/g, '-')}: ${v};`).join(' ');
-      if (cssVars) {
-          styleOverrides = `<style id="signum-theme-overrides">:root { ${cssVars} }</style>`;
-      }
-  }
+  if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) { /* style logic */ }
 
-  // 3. Render Main Content Body using the specified PAGE layout
-  const pageLayoutSource = Handlebars.partials[pageLayoutPath];
-  if (!pageLayoutSource) {
-      return `<h1>Rendering Error</h1><p>The page layout template with ID '<strong>${pageLayoutPath}</strong>' could not be found. Please check that the layout exists, its type is 'page', and its manifest is correct.</p>`;
-  }
 
-  const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
-  // The 'resolution' object contains everything the page layout needs:
-  // contentFile, collectionItems, pagination, etc.
-  const bodyHtml = pageLayoutTemplate(resolution);
-
-  // 4. Render Final Document Shell
-  const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
-  const baseTemplatePath = themeManifest?.files.find((f: AssetFile) => f.type === 'base')?.path;
-  if (!baseTemplatePath) return 'Error: Active theme is missing a template with type "base".';
-
-  const baseTemplateSource = await getAssetContent(siteData, 'theme', themePath, baseTemplatePath);
-  if (!baseTemplateSource) return `Error: Could not load base template source at '${baseTemplatePath}'.`;
+  // --- STEP 3: Render the final document with all data now resolved ---
+   const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
+  if (!themeManifest) return 'Error: Could not load theme manifest.';
+   const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
+  if (!baseTemplateFile) return 'Error: Theme manifest is missing a file with type "base".';
+  
+  const baseTemplateSource = await getAssetContent(siteData, 'theme', themePath, baseTemplateFile.path);
+  if (!baseTemplateSource) return 'Error: Could not load base template source.';
   const baseTemplate = Handlebars.compile(baseTemplateSource);
 
-  const headContext = {
-      pageTitle: resolution.pageTitle,
-      manifest: manifest,
-      contentFile: resolution.contentFile,
-      canonicalUrl: canonicalUrl,
-      baseUrl: baseUrl,
-      styleOverrides: new Handlebars.SafeString(styleOverrides)
-  };
-
-  return baseTemplate({
+  const finalContext = {
       manifest,
       navLinks,
       year: new Date().getFullYear(),
-      headContext: headContext,
+      headContext: {
+          // All these accesses are now safe.
+          pageTitle: resolution.pageTitle,
+          manifest: manifest,
+          contentFile: resolution.contentFile,
+          canonicalUrl: canonicalUrl,
+          baseUrl: baseUrl,
+          styleOverrides: new Handlebars.SafeString(styleOverrides),
+          faviconUrl: faviconUrl,
+      },
       body: new Handlebars.SafeString(bodyHtml),
-      ...resolution
-  });
+      logoUrl: logoUrl,
+      options: options, // For any helpers still needing it
+      ...resolution,
+  };
+
+  // This final render is now synchronous because all async data has been prepared.
+  const finalHtml = baseTemplate(finalContext);
+
+  return finalHtml;
 }

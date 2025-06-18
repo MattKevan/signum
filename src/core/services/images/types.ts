@@ -1,3 +1,4 @@
+// src/core/services/theme-engine/helpers/types.ts
 import { LocalSiteData } from '@/types';
 import Handlebars from 'handlebars';
 
@@ -7,9 +8,9 @@ import Handlebars from 'handlebars';
  * `args` are the arguments passed to the helper in the template.
  */
 export type SignumHelperFunction = (
-  this: any,
-  ...args: any[]
-) => string | Handlebars.SafeString | boolean | Promise<Handlebars.SafeString>;
+  this: any, ...args: any[]
+// <-- FIX: The return type now includes a Promise, allowing for async helpers.
+) => string | Handlebars.SafeString | boolean | Promise<string | Handlebars.SafeString>;
 
 /**
  * Defines a "Helper Factory". It's a function that receives the full site data

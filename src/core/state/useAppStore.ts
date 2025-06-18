@@ -3,12 +3,13 @@ import { create } from 'zustand';
 import {  enableMapSet } from 'immer';
 import { SiteSlice, createSiteSlice } from './slices/siteSlice';
 import { ContentSlice, createContentSlice } from './slices/contentSlice';
+import { SecretsSlice, createSecretsSlice } from './slices/secretsSlice';
 
 // Enable Immer for Map and Set support
 enableMapSet();
 
 // The full store type is an intersection of all slice types
-type AppStore = SiteSlice & ContentSlice & {
+type AppStore = SiteSlice & ContentSlice & SecretsSlice & {
   isInitialized: boolean;
   initialize: () => void;
 };
@@ -23,4 +24,5 @@ export const useAppStore = create<AppStore>()((...a) => ({
   },
   ...createSiteSlice(...a),
   ...createContentSlice(...a),
+  ...createSecretsSlice(...a),
 }));

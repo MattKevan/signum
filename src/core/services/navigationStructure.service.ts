@@ -33,7 +33,7 @@ function buildNavLinks(nodes: StructureNode[], currentPagePath: string, options:
 
       return {
         href: href,
-        label: node.title,
+        label: node.menuTitle || node.title,
         children: children,
       };
     });

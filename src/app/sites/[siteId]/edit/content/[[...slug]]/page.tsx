@@ -14,6 +14,7 @@ import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar'
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import CollectionItemList from '@/features/editor/components/CollectionItemList';
+import SaveButton from '@/features/editor/components/SaveButton'; // Import the extracted button
 
 // --- Modular Hooks ---
 import { usePageIdentifier } from '@/features/editor/hooks/usePageIdentifier';
@@ -135,6 +136,7 @@ function EditContentPageInternal() {
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
         rightSidebar={rightSidebarContent}
+        headerActions={<SaveButton />}
     >
         {pageContent}
     </ThreeColumnLayout>

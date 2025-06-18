@@ -3,12 +3,21 @@
 
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm';
 import { Button } from '@/core/components/ui/button';
-import { Manifest } from '@/types';
+import { Manifest, ImageRef } from '@/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
-import Link from 'next/link';
+import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form
+
+// --- FIX: Define the complete form data shape in one place ---
+interface PageFormData {
+  title: string;
+  description: string;
+  author: string;
+  baseUrl: string;
+  logo: ImageRef | undefined;
+  favicon: ImageRef | undefined;
+}
 
 export default function SiteSettingsPage() {
   const params = useParams();
@@ -16,54 +25,52 @@ export default function SiteSettingsPage() {
 
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
-  const isStoreInitialized = useAppStore(state => state.isInitialized);
 
-  // Add baseUrl to the form state
-  const [formData, setFormData] = useState({ title: '', description: '', author: '', baseUrl: '' });
-  const [isLoading, setIsLoading] = useState(false);
+  // --- FIX: Manage the entire form's data in a single state object ---
+  const [formData, setFormData] = useState<PageFormData | null>(null);
+
+  const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
 
+  // Load all settings from the manifest into the single formData state
   useEffect(() => {
     if (site?.manifest) {
+      setIsLoading(true);
       setFormData({
         title: site.manifest.title,
         description: site.manifest.description,
         author: site.manifest.author || '',
         baseUrl: site.manifest.baseUrl || '',
+        logo: site.manifest.logo,
+        favicon: site.manifest.favicon,
       });
       setHasChanges(false);
+      setIsLoading(false);
     }
   }, [site]);
   
-  const handleFormChange = useCallback((newData: typeof formData) => {
+  // This single handler receives the complete, updated form data from the child component.
+  const handleFormChange = useCallback((newData: PageFormData) => {
     setFormData(newData);
     setHasChanges(true);
   }, []);
 
   const handleSave = async () => {
-    if (!site || !site.manifest) return;
-    if (!formData.title.trim()) {
-      toast.error("Site title cannot be empty.");
-      return;
-    }
-    
-    const trimmedBaseUrl = formData.baseUrl.trim();
-    if (trimmedBaseUrl) {
-      try {
-        new URL(trimmedBaseUrl);
-      } catch {
-        toast.error("The Base URL you entered is not a valid URL. Please include https://");
+    if (!site?.manifest || !formData) {
+        toast.error("Form data is not ready. Cannot save.");
         return;
-      }
     }
-    
     setIsLoading(true);
+    
+    // Construct the new manifest directly from the single formData object.
     const newManifest: Manifest = {
       ...site.manifest,
       title: formData.title.trim(),
       description: formData.description.trim(),
       author: formData.author.trim(),
-      baseUrl: trimmedBaseUrl,
+      baseUrl: formData.baseUrl.trim(),
+      logo: formData.logo,
+      favicon: formData.favicon,
     };
 
     try {
@@ -78,34 +85,26 @@ export default function SiteSettingsPage() {
     }
   };
 
-  if (!isStoreInitialized || (site && !formData.title && !site.manifest.title)) {
+  if (isLoading || !formData) {
     return <div className="p-6">Loading settings...</div>;
   }
-  
-  if (!site) {
-    return (
-      <div className="p-6 text-center">
-        <h2 className="text-xl font-semibold">Site Not Found</h2>
-        <Button asChild variant="outline" className="mt-4">
-          <Link href="/">Go to Dashboard</Link>
-        </Button>
-      </div>
-    );
-  }
 
-  // The component now only returns its content, not the layout.
   return (
     <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Site Settings</h1>
-        <p className="text-muted-foreground">Manage the core details of your website.</p>
+        <p className="text-muted-foreground">Manage the core details and identity of your website.</p>
       </div>
+
       <div className="border-t pt-6">
-        <SiteSettingsForm 
+        {/* --- FIX: Render the single, encapsulated form component --- */}
+        <SiteSettingsForm
+          siteId={siteId}
           formData={formData}
-          onFormChange={handleFormChange} 
+          onFormChange={handleFormChange}
         />
       </div>
+
       <div className="flex justify-end pt-4">
         <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
           {isLoading ? 'Saving...' : 'Save Settings'}
