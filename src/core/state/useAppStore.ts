@@ -12,6 +12,8 @@ enableMapSet();
 type AppStore = SiteSlice & ContentSlice & SecretsSlice & {
   isInitialized: boolean;
   initialize: () => void;
+  activeSiteId: string | null;
+  setActiveSiteId: (siteId: string | null) => void;
 };
 
 export const useAppStore = create<AppStore>()((...a) => ({
@@ -22,6 +24,12 @@ export const useAppStore = create<AppStore>()((...a) => ({
     console.log('[AppStore] Initializing application state...');
     set({ isInitialized: true });
   },
+
+  activeSiteId: null,
+  setActiveSiteId: (siteId) => {
+    a[0]({ activeSiteId: siteId });
+  },
+
   ...createSiteSlice(...a),
   ...createContentSlice(...a),
   ...createSecretsSlice(...a),

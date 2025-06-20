@@ -1,6 +1,6 @@
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, Manifest } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
@@ -8,19 +8,14 @@ import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
-import { getActiveImageService } from '@/core/services/images/images.service'; 
+import { getActiveImageService } from '@/core/services/images/images.service';
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
  */
 function escapeForXml(str: unknown): string {
     if (str === undefined || str === null) return '';
-    return String(str)
-        .replace(/&/g, '&')
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/"/g, '"')
-        .replace(/'/g, "'");
+    return String(str).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"').replace(/'/g, "'");
 }
 
 /**
@@ -28,18 +23,14 @@ function escapeForXml(str: unknown): string {
  * and add them to the ZIP archive.
  */
 async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'theme' | 'layout', assetId: string) {
-    // The asset folder path is now simpler, e.g., _signum/layouts/page/
     const assetFolder = zip.folder('_signum')?.folder(`${assetType}s`)?.folder(assetId);
     if (!assetFolder) return;
-
-    // Use the asset's ID to fetch its manifest.
-    const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetId, 'layout.json');
-
+    const manifestFileName = assetType === 'theme' ? 'theme.json' : 'layout.json';
+    const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetId, manifestFileName);
     if (!manifest || !manifest.files) {
         console.warn(`Asset manifest for ${assetType}/${assetId} is missing or has no 'files' array. Skipping bundle.`);
         return;
     }
-
     for (const file of manifest.files) {
         const content = await getAssetContent(siteData, assetType, assetId, file.path);
         if (content) {
@@ -51,31 +42,23 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
 }
 
 /**
- * A helper function to recursively find all ImageRef objects within
- * a site's content files' frontmatter.
+ * A helper function to recursively find all ImageRef objects within a site's data.
  */
 function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
-  const refs = new Set<ImageRef>(); // Use a Set to avoid duplicates
-  const visited = new Set();
+  const refs = new Set<ImageRef>();
+  const visited = new Set<object>();
 
   function find(obj: any) {
     if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
     visited.add(obj);
-
-    if ('serviceId' in obj && 'src' in obj) {
-      refs.add(obj as ImageRef);
-      return;
+    if (obj.serviceId && obj.src) {
+        refs.add(obj as ImageRef);
     }
-    if (Array.isArray(obj)) obj.forEach(item => find(item));
-    else Object.values(obj).forEach(value => find(value));
+    Object.values(obj).forEach(value => find(value));
   }
 
-  // 1. Search the root of the manifest for top-level assets
   find(siteData.manifest);
-
-  // 2. Search all content file frontmatter
   siteData.contentFiles?.forEach(file => find(file.frontmatter));
-  
   return Array.from(refs);
 }
 
@@ -93,40 +76,25 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
         const initialResolution = resolvePageContent(siteData, node.slug.split('/'));
-
         if (initialResolution.type === PageType.NotFound) continue;
-
         const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
 
         if (isPaginated) {
             const totalPages = initialResolution.pagination!.totalPages;
             for (let i = 1; i <= totalPages; i++) {
-                const pageNumber = i;
-                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), pageNumber);
-
+                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), i);
                 if (resolutionForPage.type === PageType.NotFound) continue;
-
-                const outputPath = getUrlForNode(node, true, pageNumber);
+                const outputPath = getUrlForNode(node, manifest, true, i);
                 const depth = (outputPath.match(/\//g) || []).length;
                 const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-
-                const finalHtml = await render(siteData, resolutionForPage, {
-                    siteRootPath: '/',
-                    isExport: true,
-                    relativeAssetPath: relativePrefix
-                });
+                const finalHtml = await render(siteData, resolutionForPage, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
                 zip.file(outputPath, finalHtml);
             }
         } else {
-            const outputPath = getUrlForNode(node, true);
+            const outputPath = getUrlForNode(node, manifest, true);
             const depth = (outputPath.match(/\//g) || []).length;
             const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-
-            const finalHtml = await render(siteData, initialResolution, {
-                siteRootPath: '/',
-                isExport: true,
-                relativeAssetPath: relativePrefix
-            });
+            const finalHtml = await render(siteData, initialResolution, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
             zip.file(outputPath, finalHtml);
         }
     }
@@ -144,34 +112,21 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     if (allImageRefs.length > 0) {
         const imageService = getActiveImageService(manifest);
         const assetsToBundle = await imageService.getExportableAssets(siteData.siteId, allImageRefs);
-
         for (const asset of assetsToBundle) {
             zip.file(asset.path, asset.data);
         }
     }
 
-
-    // Gather ALL used layouts from frontmatter
     const layoutIds = new Set<string>();
     contentFiles.forEach(file => {
-        // Add the main page layout
-        if (file.frontmatter.layout) {
-            layoutIds.add(file.frontmatter.layout);
-        }
-        // If it's a collection page, add its item layout
+        if (file.frontmatter.layout) layoutIds.add(file.frontmatter.layout);
         if (file.frontmatter.collection) {
-            // The line trying to access list_layout is REMOVED.
             layoutIds.add(file.frontmatter.collection.item_layout);
         }
     });
 
-    const uniqueLayoutIds = [...layoutIds];
-
-    const activeThemeId = manifest.theme.name;
-    await bundleAsset(zip, siteData, 'theme', activeThemeId);
-
-    // Bundle all the unique layouts that were found
-    for (const layoutId of uniqueLayoutIds) {
+    await bundleAsset(zip, siteData, 'theme', manifest.theme.name);
+    for (const layoutId of Array.from(layoutIds)) {
         await bundleAsset(zip, siteData, 'layout', layoutId);
     }
 
@@ -179,21 +134,19 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
 
-    // Exclude collection pages from RSS items
     const rssItems = allRenderableNodes
         .map((node): RssItemData | null => {
             const file = contentFiles.find(f => f.path === node.path);
             return file ? { node, file } : null;
         })
-        .filter((item): item is RssItemData =>
-            item !== null &&
-            !!item.file.frontmatter.date &&
-            !item.file.frontmatter.collection // <-- This is the key filter
-        )
+        .filter((item): item is RssItemData => {
+            if (!item || !item.file) return false;
+            return !!item.file.frontmatter.date && !item.file.frontmatter.collection;
+        })
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
         .slice(0, 20)
         .map((item) => {
-            const relativeUrl = getUrlForNode(item.node, false); // Use non-export URL for feed
+            const relativeUrl = getUrlForNode(item.node, manifest, false);
             const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
             const description = escapeForXml(item.file.frontmatter.description);
             const pubDate = new Date(item.file.frontmatter.date as string).toUTCString();
@@ -205,7 +158,7 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     const sitemapUrls = allRenderableNodes.map((node) => {
         const file = contentFiles.find(f => f.path === node.path);
-        const relativeUrl = getUrlForNode(node, false); // Use non-export URL
+        const relativeUrl = getUrlForNode(node, manifest, false);
         const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
         const lastMod = (file?.frontmatter.date as string || new Date().toISOString()).split('T')[0];
         return `<url><loc>${escapeForXml(absoluteUrl)}</loc><lastmod>${lastMod}</lastmod></url>`;
@@ -214,8 +167,5 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
 
-    
-
-    // --- 4. Generate the Final ZIP file ---
     return zip.generateAsync({ type: 'blob' });
 }

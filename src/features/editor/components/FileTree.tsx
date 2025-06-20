@@ -1,183 +1,131 @@
 // src/features/editor/components/FileTree.tsx
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useAppStore } from '@/core/state/useAppStore';
 import { type ParsedMarkdownFile, type StructureNode } from '@/types';
-import { toast } from 'sonner';
-import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Plus } from 'lucide-react';
+import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DndContext, closestCenter, DragEndEvent, DragStartEvent, useDroppable, DragOverlay } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
-import { Button } from '@/core/components/ui/button';
 
-// --- Type Definitions ---
+/**
+ * Props for the FileTree container and its nodes.
+ * This interface is now complete, including all necessary props for rendering and recursion.
+ */
 interface FileTreeProps {
   nodes: StructureNode[];
   contentFiles: ParsedMarkdownFile[];
   baseEditPath: string;
   activePath?: string;
-  onStructureChange: (nodes: StructureNode[]) => void;
-  className?: string;
+  nestingLevel?: number;
+  className?: string; // For applying styles to the container
+  // DND State Props
+  activeId: string | null;
+  overId: string | null;
+  dropZone: 'nest' | 'reorder-before' | 'reorder-after' | 'root' | null;
 }
 
-interface FileTreeNodeProps extends Omit<FileTreeProps, 'nodes' | 'onStructureChange' | 'className'> {
+/**
+ * Props for a single draggable node within the tree.
+ * It omits props that are specific to the container (`nodes`, `className`).
+ */
+interface DndNodeProps extends Omit<FileTreeProps, 'nodes' | 'className'> {
   node: StructureNode;
-  activeDragId: string | null;
-  onStructureChange: (reorderedChildren: StructureNode[]) => void;
+  isHomepage?: boolean; // Explicitly passed to the root node
 }
 
-// --- Draggable & Droppable Node Component ---
-const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath, activePath, activeDragId, onStructureChange }) => {
-    const { attributes, listeners, setNodeRef: setSortableNodeRef, transform, transition } = useSortable({
-        id: node.path,
-    });
-    
-    const [isOpen, setIsOpen] = useState(true);
-    const displayLabel = node.menuTitle || node.title || node.slug;
+/**
+ * Renders a single, draggable node in the file tree.
+ */
+const DndNode: React.FC<DndNodeProps> = ({ 
+  node, 
+  contentFiles, 
+  baseEditPath, 
+  activePath, 
+  isHomepage = false,
+  nestingLevel = 0,
+  activeId, 
+  overId, 
+  dropZone 
+}) => {
+  
+  const fileForNode = useMemo(() => contentFiles.find(f => f.path === node.path), [contentFiles, node.path]);
+  const hasChildren = useMemo(() => !!(node.children && node.children.length > 0), [node.children]);
 
-    // --- NEW: Determine if this node represents a Collection Page ---
-    const isCollectionPage = useMemo(() => {
-        const file = contentFiles.find(f => f.path === node.path);
-        return !!file?.frontmatter.collection;
-    }, [contentFiles, node.path]);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+      id: node.path,
+      disabled: isHomepage,
+  });
 
-    // A page is a valid drop target if it's NOT a collection page.
-    const isNestableTarget = !isCollectionPage && !!activeDragId;
-
-    const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
-        id: node.path,
-        disabled: !isNestableTarget,
-    });
-    
-    const setNodeRef = (el: HTMLElement | null) => {
-        setSortableNodeRef(el);
-        setDroppableNodeRef(el);
-    };
-
-    const style = { transform: CSS.Transform.toString(transform), transition };
-    const dropIndicatorStyle = isOver && isNestableTarget ? 'bg-blue-100 dark:bg-blue-900/50 outline outline-1 outline-blue-500' : '';
-    const hasChildren = node.children && node.children.length > 0;
-
-    // The editor link is the same for both page types
-    const href = `${baseEditPath}/content/${node.slug}`;
-    const newItemHref = `${href}/${NEW_FILE_SLUG_MARKER}`;
-
-    const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
-        const newParentNode = { ...node, children: reorderedChildren };
-        onStructureChange([newParentNode]);
-    };
-
-    return (
-        <div ref={setNodeRef} style={style} className="flex flex-col">
-            <div className={cn("flex items-center group w-full my-0.5 rounded-md transition-colors", dropIndicatorStyle)}>
-                <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none text-muted-foreground/50">
-                    <GripVertical className="h-4 w-4" />
-                </div>
-                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1 rounded-md hover:bg-muted", activePath === node.path && "bg-accent text-accent-foreground")}>
-                    <ChevronRight 
-                        className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", hasChildren && !isCollectionPage ? 'cursor-pointer' : 'invisible', isOpen && "rotate-90")} 
-                        onClick={() => hasChildren && setIsOpen(!isOpen)}
-                    />
-                    {isCollectionPage ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                        <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={displayLabel}>
-                                                {displayLabel}
-                                            </Link>
-                    {isCollectionPage && (
-                        <Button asChild variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Link href={newItemHref} title={`New item in ${node.title}`}>
-                                <Plus className="h-4 w-4" />
-                            </Link>
-                        </Button>
-                    )}
-                </div>
-            </div>
-            {hasChildren && !isCollectionPage && isOpen && (
-                <div className="pl-6 border-l ml-4">
-                    <FileTree
-                        nodes={node.children!}
-                        contentFiles={contentFiles}
-                        baseEditPath={baseEditPath}
-                        activePath={activePath}
-                        onStructureChange={handleChildrenStructureChange}
-                        className="py-1"
-                    />
-                </div>
-            )}
-        </div>
-    );
-};
-
-// --- Main FileTree Component ---
-export default function FileTree({ nodes, contentFiles, baseEditPath, activePath, onStructureChange, className }: FileTreeProps) {
-  const { moveNode } = useAppStore.getState();
-  const siteId = useParams().siteId as string;
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const nodeIds = useMemo(() => nodes.map(n => n.path), [nodes]);
-
-  const handleDragStart = (event: DragStartEvent) => {
-      setActiveDragId(event.active.id as string);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragId(null);
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) return;
-
-    // --- NEW: Find if the target is a collection page ---
-    const overNodeFile = contentFiles.find(f => f.path === over.id);
-    const isOverNodeCollection = !!overNodeFile?.frontmatter.collection;
-
-    if (isOverNodeCollection) {
-        toast.error("Cannot nest pages under a Collection Page.");
-        return;
-    }
-    
-    // If over.id exists, it's a nesting attempt.
-    if (nodes.some(n => n.path === over.id)) {
-        moveNode(siteId, active.id as string, over.id as string);
-    } else {
-        // Otherwise, it's a reordering attempt.
-        const oldIndex = nodeIds.indexOf(active.id as string);
-        const newIndex = nodeIds.indexOf(over.id as string);
-        if (oldIndex !== -1 && newIndex !== -1) {
-            onStructureChange(arrayMove(nodes, oldIndex, newIndex));
-        }
-    }
-  };
+  const isOverThisNode = overId === node.path;
+  const showDropLineBefore = isOverThisNode && dropZone === 'reorder-before' && !isHomepage;
+  const showDropLineAfter = isOverThisNode && dropZone === 'reorder-after';
+  const showNestingHighlight = isOverThisNode && dropZone === 'nest' && !isHomepage;
+  
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 };
+  const editorSlug = node.path.replace(/^content\//, '').replace(/\.md$/, '');
+  const href = `${baseEditPath}/content/${editorSlug}`;
 
   return (
-    <div className={cn("w-full", className)}>
-        <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
-            <SortableContext items={nodeIds} strategy={verticalListSortingStrategy}>
-                <div className="space-y-0.5">
-                    {nodes.map(node => (
-                        <DndNode 
-                            key={node.path} 
-                            node={node} 
-                            contentFiles={contentFiles}
-                            baseEditPath={baseEditPath} 
-                            activePath={activePath} 
-                            onStructureChange={(updatedChildList) => {
-                                const newNodes = nodes.map(n => 
-                                    n.path === updatedChildList[0].path ? updatedChildList[0] : n
-                                );
-                                onStructureChange(newNodes);
-                            }}
-                            activeDragId={activeDragId}
-                        />
-                    ))}
-                </div>
-            </SortableContext>
-            <DragOverlay>
-                {activeDragId ? <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-md shadow-lg text-sm">Moving page...</div> : null}
-            </DragOverlay>
-        </DndContext>
+    <div ref={setNodeRef} style={style} className="relative group text-sm">
+      {/* Drop Zones for DND interaction */}
+      <div data-dnd-zone="reorder-before" data-dnd-target={node.path} className={cn("absolute top-0 left-0 right-0 h-[30%] z-10", isHomepage && "hidden")} />
+      <div data-dnd-zone="nest" data-dnd-target={node.path} data-dnd-disabled={isHomepage} className={cn("absolute top-[30%] left-0 right-0 h-[40%] z-10", isHomepage && "cursor-not-allowed")} />
+      <div data-dnd-zone="reorder-after" data-dnd-target={node.path} className="absolute bottom-0 left-0 right-0 h-[30%] z-10" />
+      
+      {/* Visual Feedback for DND */}
+      {showDropLineBefore && <div className="absolute -top-0.5 left-6 right-0 h-1 bg-blue-500 rounded-full z-20" />}
+      
+      <div className={cn("relative flex items-center w-full my-0.5 rounded-md transition-colors", showNestingHighlight ? "bg-blue-100 ring-2 ring-blue-500 ring-inset" : "bg-background")}>
+        <div {...attributes} {...listeners} className={cn("p-1 touch-none text-muted-foreground/50", isHomepage ? "cursor-default" : "cursor-grab")}>
+          <GripVertical className="h-4 w-4" />
+        </div>
+        <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1", activePath === node.path && "font-semibold text-primary")}>
+          <ChevronRight className={cn("h-4 w-4 mr-1 shrink-0", !hasChildren && "invisible")} />
+          {isHomepage ? <Home className="h-4 w-4 shrink-0 text-primary" /> : (fileForNode?.frontmatter.collection ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />)}
+          <Link href={href} className="truncate flex-grow mx-1.5 hover:underline">{node.menuTitle || node.title}</Link>
+        </div>
+      </div>
+
+      {showDropLineAfter && <div className="absolute -bottom-0.5 left-6 right-0 h-1 bg-blue-500 rounded-full z-20" />}
+
+      {/* Recursive Rendering for Child Nodes */}
+      {hasChildren && (
+        <div className="pl-6 border-l ml-4">
+          <FileTree
+             nodes={node.children!}
+             contentFiles={contentFiles}
+             baseEditPath={baseEditPath}
+             activePath={activePath}
+             nestingLevel={nestingLevel + 1}
+             activeId={activeId}
+             overId={overId}
+             dropZone={dropZone}
+             className="py-1" // Pass className for consistent styling
+          />
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * The main container component that recursively renders the site's file structure.
+ */
+export default function FileTree(props: FileTreeProps) {
+  const { nodes, ...rest } = props;
+  return (
+    <div className={cn("w-full", props.className)}>
+      <div className="space-y-0.5">
+        {nodes.map(node => (
+          <DndNode 
+            key={node.path} 
+            node={node} 
+            {...rest} // Pass all props down to each node
+          />
+        ))}
+      </div>
     </div>
   );
 }

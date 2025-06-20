@@ -3,20 +3,24 @@
 
 import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
-import { slugify } from '@/lib/utils';
 import type { LocalSiteData } from '@/types';
 
-// --- Component Imports ---
+// Component Imports
+import { Button } from '@/core/components/ui/button';
+import { FilePlus, LayoutGrid } from 'lucide-react';
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import LeftSidebar from '@/components/publishing/LeftSidebar';
+import NewPageDialog from '@/features/editor/components/NewPageDialog';
+import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
 import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
-import LeftSidebar from '@/components/publishing/LeftSidebar';
 import CollectionItemList from '@/features/editor/components/CollectionItemList';
-import SaveButton from '@/features/editor/components/SaveButton'; // Import the extracted button
+import SaveButton from '@/features/editor/components/SaveButton';
 
-// --- Modular Hooks ---
+// Modular Hooks
 import { usePageIdentifier } from '@/features/editor/hooks/usePageIdentifier';
 import { useFileContent } from '@/features/editor/hooks/useFileContent';
 import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
@@ -24,122 +28,78 @@ import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 function EditContentPageInternal() {
   const editorRef = useRef<BlocknoteEditorRef>(null);
 
-  // 1. Identify the page from the URL
-  const { siteId, isNewFileMode, filePath } = usePageIdentifier();
+  // --- FIX: Use the new `activeSiteId` to get the correct site data ---
+  const activeSiteId = useAppStore(state => state.activeSiteId);
+  const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
+  
+  const { siteId, isNewFileMode, filePath } = usePageIdentifier({ site });
+  
+  const { status, frontmatter, initialBlocks, slug, setSlug, handleFrontmatterChange, onContentModified } = useFileContent(siteId, filePath, isNewFileMode);
+  const { handleDelete } = useFilePersistence({ siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent: () => editorRef.current?.getBlocks() ?? [] });
+  const { leftSidebarContent, rightSidebarContent, setLeftAvailable, setRightAvailable, setLeftSidebarContent, setRightSidebarContent } = useUIStore(state => state.sidebar);
 
-  // 2. Manage the file's content state (this hook no longer provides hasUnsavedChanges)
-  const {
-    status,
-    site,
-    frontmatter,
-    initialBlocks,
-    slug,
-    setSlug,
-    handleFrontmatterChange,
-    onContentModified,
-  } = useFileContent(siteId, filePath, isNewFileMode);
-
-
-  // 3. Manage file persistence. It now gets its state from the context, so we pass fewer props.
-  const { handleDelete } = useFilePersistence({
-    siteId,
-    filePath,
-    isNewFileMode,
-    frontmatter,
-    slug,
-    // This function now correctly gets the Block[] array from the editor's ref.
-    getEditorContent: () => editorRef.current?.getBlocks() ?? [],
-  });
-
-  // 4. Manage UI state (sidebars)
-  const {
-    leftSidebarContent, rightSidebarContent,
-    setLeftAvailable, setRightAvailable,
-    setLeftSidebarContent, setRightSidebarContent
-  } = useUIStore(state => state.sidebar);
-
-  // Determine if the current page is a collection page
   const isCollectionPage = useMemo(() => !!frontmatter?.collection, [frontmatter]);
 
-  // Effect to manage the Left Sidebar (File Tree)
+  const rightSidebarComponent = useMemo(() => {
+    if (status !== 'ready' || !frontmatter || !site) return null;
+    return <FrontmatterSidebar siteId={siteId} filePath={filePath} site={site as LocalSiteData} frontmatter={frontmatter} onFrontmatterChange={handleFrontmatterChange} isNewFileMode={isNewFileMode} slug={slug} onSlugChange={setSlug} onDelete={handleDelete} />;
+  }, [status, site, frontmatter, siteId, filePath, isNewFileMode, slug, handleFrontmatterChange, setSlug, handleDelete]);
+
   useEffect(() => {
     setLeftAvailable(true);
     setLeftSidebarContent(<LeftSidebar />);
-    return () => {
-        setLeftAvailable(false);
-        setLeftSidebarContent(null);
-    }
+    return () => { setLeftAvailable(false); setLeftSidebarContent(null); };
   }, [setLeftAvailable, setLeftSidebarContent]);
 
-  // Effect to manage the Right Sidebar (Settings)
   useEffect(() => {
-    if (status === 'ready' && frontmatter && site) {
+    if (rightSidebarComponent) {
       setRightAvailable(true);
-      setRightSidebarContent(
-        <FrontmatterSidebar
-          siteId={siteId}
-          site={site as LocalSiteData}
-          frontmatter={frontmatter}
-          onFrontmatterChange={handleFrontmatterChange}
-          isNewFileMode={isNewFileMode}
-          slug={slug}
-          onSlugChange={(newSlug) => setSlug(slugify(newSlug))}
-          onDelete={handleDelete}
-        />
-      );
+      setRightSidebarContent(rightSidebarComponent);
     } else {
       setRightAvailable(false);
       setRightSidebarContent(null);
     }
-    return () => { setRightAvailable(false); }
-  }, [status, site, frontmatter, isNewFileMode, slug, siteId, handleFrontmatterChange, handleDelete, setSlug, setRightAvailable, setRightSidebarContent]);
+    return () => { setRightAvailable(false); setRightSidebarContent(null); };
+  }, [rightSidebarComponent, setRightAvailable, setRightSidebarContent]);
 
-
-  // --- Main Content Rendering Logic ---
-  const pageContent = useMemo(() => {
-    if (status !== 'ready' || !frontmatter) {
-      return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
-    }
-
-    return (
-      <div className='flex h-full w-full flex-col'>
-        <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
-            {/* Title and Description are ALWAYS shown */}
-            <div className="shrink-0">
-                <PrimaryContentFields
-                    frontmatter={frontmatter}
-                    onFrontmatterChange={handleFrontmatterChange}
-                />
-            </div>
-            <div className="mt-6 flex-grow min-h-0">
-              {isCollectionPage ? (
-                // If it's a collection, show the item list table.
-                <CollectionItemList
-                  siteId={siteId}
-                  collectionPagePath={filePath}
-                />
-              ) : (
-                // Otherwise, show the Markdown editor for the body.
-                <BlocknoteEditor
-                  ref={editorRef}
-                  key={filePath} // Use key to force re-mount on file change
-                  initialContent={initialBlocks}
-                  onContentChange={onContentModified}
-                />
-              )}
-            </div>
-        </div>
-      </div>
-    );
-  }, [status, frontmatter, initialBlocks, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+  const isSiteEmpty = site && site.manifest.structure.length === 0 && !isNewFileMode;
 
   return (
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
-        rightSidebar={rightSidebarContent}
-        headerActions={<SaveButton />}
+        rightSidebar={isSiteEmpty ? null : rightSidebarContent}
+        headerActions={isSiteEmpty ? null : <SaveButton />}
     >
-        {pageContent}
+      {isSiteEmpty ? (
+        <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-background">
+          <h2 className="text-2xl font-bold mb-2">Create Your Homepage</h2>
+          <p className="text-muted-foreground mb-6 max-w-md">Your site is empty. The first page you create will become your site's permanent homepage.</p>
+          <div className="flex gap-4">
+            <NewPageDialog siteId={siteId}><Button size="lg"><FilePlus className="mr-2 h-5 w-5" /> Create Content Page</Button></NewPageDialog>
+            <CreateCollectionPageDialog siteId={siteId}><Button size="lg" variant="outline"><LayoutGrid className="mr-2 h-5 w-5" /> Create Collection Page</Button></CreateCollectionPageDialog>
+          </div>
+        </div>
+      ) : (
+        (() => {
+          if (status !== 'ready' || !frontmatter || !filePath) {
+            return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
+          }
+          return (
+            <div className='flex h-full w-full flex-col'>
+              <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
+                <div className="shrink-0"><PrimaryContentFields frontmatter={frontmatter} onFrontmatterChange={handleFrontmatterChange} /></div>
+                <div className="mt-6 flex-grow min-h-0">
+                  {isCollectionPage ? (
+                    <CollectionItemList siteId={siteId} collectionPagePath={filePath} />
+                  ) : (
+                    <BlocknoteEditor ref={editorRef} key={filePath} initialContent={initialBlocks} onContentChange={onContentModified} />
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
     </ThreeColumnLayout>
   );
 }

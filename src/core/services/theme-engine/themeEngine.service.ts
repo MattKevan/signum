@@ -118,8 +118,8 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
 
 
   // --- STEP 2: Resolve ALL top-level asynchronous data ---
-  const currentPageExportPath = getUrlForNode(resolution.contentFile, true);
-  const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
+    const currentPageExportPath = getUrlForNode(resolution.contentFile, siteData.manifest, true);
+    const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
   const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');

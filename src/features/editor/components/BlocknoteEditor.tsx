@@ -1,7 +1,7 @@
 // src/features/editor/components/BlocknoteEditor.tsx
 'use client';
 
-import { useMemo, forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
 import { Block } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';

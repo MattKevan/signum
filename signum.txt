@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: node_modules, ios, public
+Excluded Directories: public, ios, node_modules
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -549,50 +549,18 @@ import { toast } from 'sonner';
 import { SiteSlice } from '@/core/state/slices/siteSlice';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 
-// The ContentSlice now only focuses on page/file operations.
 export interface ContentSlice {
-  /**
-   * Creates a new content file or updates an existing one, and updates the manifest structure.
-   * @param siteId - The ID of the site.
-   * @param filePath - The full path of the file to save (e.g., 'content/about.md').
-   * @param rawMarkdownContent - The full string content of the file, including frontmatter.
-   * @returns {Promise<boolean>} True if the operation was successful.
-   */
   addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
-
-  /**
-   * Deletes a content file from storage and its node from the manifest structure.
-   * @param {string} siteId - The ID of the site.
-   * @param {string} filePath - The full path of the file to delete.
-   * @returns {Promise<void>}
-   */
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
-
-  /**
-   * Moves a page node (and all its children) to a new parent in the site structure.
-   * @param {string} siteId - The ID of the site.
-   * @param {string} draggedNodePath - The path of the page being moved.
-   * @param {string | null} targetNodePath - The path of the target page to nest under, or null to un-nest to the root.
-   * @returns {Promise<void>}
-   */
   moveNode: (siteId: string, draggedNodePath: string, targetNodePath: string | null) => Promise<void>;
-
-  /**
-   * Updates only the content of a file in storage and state. Used for fast autosaving.
-   * @param siteId - The ID of the site.
-   * @param savedFile - The parsed markdown file object to save.
-   * @returns {Promise<void>}
-   */
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
 }
 
 export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], ContentSlice> = (set, get) => ({
 
     updateContentFileOnly: async (siteId, savedFile) => {
-        // This function now just calls the saveContentFile which handles parsing and slug generation
         await localSiteFs.saveContentFile(siteId, savedFile.path, stringifyToMarkdown(savedFile.frontmatter, savedFile.content));
 
-        // The state update remains the same, but the data is now more consistent
         set(produce((draft: SiteSlice) => {
             const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
             if (siteToUpdate?.contentFiles) {
@@ -606,20 +574,32 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
         }));
     },
 
-  addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
-    // The file system service now handles parsing and slug generation, returning the complete object.
+ addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
     const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
     const site = get().getSiteById(siteId);
     if (!site || !site.contentFiles) return false;
 
     const isNewFile = !site.contentFiles.some(f => f.path === filePath);
 
+    // --- FIX: Safely extract menuTitle with a type check ---
+    const menuTitle = typeof savedFile.frontmatter.menuTitle === 'string'
+      ? savedFile.frontmatter.menuTitle
+      : undefined;
+
     const newManifest = produce(site.manifest, draft => {
         let parentFound = false;
         const parentPath = getParentPath(filePath);
 
-        const findAndUpdateParent = (nodes: StructureNode[]): StructureNode[] => {
+        const findAndUpdateNode = (nodes: StructureNode[]): StructureNode[] => {
             return nodes.map(node => {
+                if (!isNewFile && node.path === filePath) {
+                    return { 
+                        ...node, 
+                        title: savedFile.frontmatter.title,
+                        menuTitle: menuTitle, // Use the safe, typed variable
+                    };
+                }
+
                 const nodeAsDir = node.path.replace(/\.md$/, '');
                 if (isNewFile && parentPath === nodeAsDir) {
                     parentFound = true;
@@ -630,33 +610,29 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
                             {
                                 type: 'page',
                                 title: savedFile.frontmatter.title,
+                                menuTitle: menuTitle, // Use the safe, typed variable
                                 path: filePath,
-                                // This slug is now correct because it was generated by the file service
                                 slug: savedFile.slug,
                             }
                         ]
                     };
                 }
-
-                if (!isNewFile && node.path === filePath && node.title !== savedFile.frontmatter.title) {
-                    return { ...node, title: savedFile.frontmatter.title };
-                }
-
+                
                 if (node.children) {
-                    return { ...node, children: findAndUpdateParent(node.children) };
+                    return { ...node, children: findAndUpdateNode(node.children) };
                 }
                 return node;
             });
         };
 
-        draft.structure = findAndUpdateParent(draft.structure);
+        draft.structure = findAndUpdateNode(draft.structure);
 
         if (isNewFile && !parentFound && parentPath === 'content') {
           draft.structure.push({
               type: 'page',
               title: savedFile.frontmatter.title,
+              menuTitle: menuTitle, // Use the safe, typed variable
               path: filePath,
-              // This slug is also now correct
               slug: savedFile.slug,
               navOrder: draft.structure.length
           });
@@ -669,7 +645,6 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
         const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
         if (siteToUpdate) {
             siteToUpdate.manifest = newManifest;
-            // The file was already updated in the store by saveContentFile, but this ensures consistency
             if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
             const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === filePath);
             if (fileIndex !== -1) {
@@ -717,18 +692,6 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const site = get().getSiteById(siteId);
     if (!site) {
       toast.error("Site data not found.");
-      return;
-    }
-
-    const draggedNodeInfo = findNodeByPath(site.manifest.structure, draggedNodePath);
-    if (!draggedNodeInfo) {
-      toast.error("The page to move could not be found.");
-      return;
-    }
-
-    const targetNodeInfo = targetNodePath ? findNodeByPath(site.manifest.structure, targetNodePath) : null;
-    if (targetNodePath && !targetNodeInfo) {
-      toast.error("The target destination could not be found.");
       return;
     }
 
@@ -5362,19 +5325,18 @@ File: app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
-import { slugify } from '@/lib/utils';
 import type { LocalSiteData } from '@/types';
 
-// --- Component Imports ---
+// Component Imports
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
 import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
 import LeftSidebar from '@/components/publishing/LeftSidebar';
 import CollectionItemList from '@/features/editor/components/CollectionItemList';
-import SaveButton from '@/features/editor/components/SaveButton'; // Import the extracted button
+import SaveButton from '@/features/editor/components/SaveButton';
 
-// --- Modular Hooks ---
+// Modular Hooks
 import { usePageIdentifier } from '@/features/editor/hooks/usePageIdentifier';
 import { useFileContent } from '@/features/editor/hooks/useFileContent';
 import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
@@ -5382,10 +5344,8 @@ import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 function EditContentPageInternal() {
   const editorRef = useRef<BlocknoteEditorRef>(null);
 
-  // 1. Identify the page from the URL
   const { siteId, isNewFileMode, filePath } = usePageIdentifier();
 
-  // 2. Manage the file's content state (this hook no longer provides hasUnsavedChanges)
   const {
     status,
     site,
@@ -5397,39 +5357,36 @@ function EditContentPageInternal() {
     onContentModified,
   } = useFileContent(siteId, filePath, isNewFileMode);
 
-
-  // 3. Manage file persistence. It now gets its state from the context, so we pass fewer props.
   const { handleDelete } = useFilePersistence({
     siteId,
     filePath,
     isNewFileMode,
     frontmatter,
     slug,
-    // This function now correctly gets the Block[] array from the editor's ref.
     getEditorContent: () => editorRef.current?.getBlocks() ?? [],
   });
 
-  // 4. Manage UI state (sidebars)
+  // Get the state variables and setters from the global UI store
   const {
     leftSidebarContent, rightSidebarContent,
     setLeftAvailable, setRightAvailable,
     setLeftSidebarContent, setRightSidebarContent
   } = useUIStore(state => state.sidebar);
 
-  // Determine if the current page is a collection page
   const isCollectionPage = useMemo(() => !!frontmatter?.collection, [frontmatter]);
 
-  // Effect to manage the Left Sidebar (File Tree)
+  // This effect tells the UI store WHAT to render in the left sidebar slot.
   useEffect(() => {
     setLeftAvailable(true);
-    setLeftSidebarContent(<LeftSidebar />);
+    setLeftSidebarContent(<LeftSidebar />); // The page only knows about LeftSidebar, not FileTree.
+    
     return () => {
         setLeftAvailable(false);
         setLeftSidebarContent(null);
     }
   }, [setLeftAvailable, setLeftSidebarContent]);
 
-  // Effect to manage the Right Sidebar (Settings)
+  // This effect tells the UI store WHAT to render in the right sidebar slot.
   useEffect(() => {
     if (status === 'ready' && frontmatter && site) {
       setRightAvailable(true);
@@ -5441,7 +5398,7 @@ function EditContentPageInternal() {
           onFrontmatterChange={handleFrontmatterChange}
           isNewFileMode={isNewFileMode}
           slug={slug}
-          onSlugChange={(newSlug) => setSlug(slugify(newSlug))}
+          onSlugChange={setSlug}
           onDelete={handleDelete}
         />
       );
@@ -5453,7 +5410,7 @@ function EditContentPageInternal() {
   }, [status, site, frontmatter, isNewFileMode, slug, siteId, handleFrontmatterChange, handleDelete, setSlug, setRightAvailable, setRightSidebarContent]);
 
 
-  // --- Main Content Rendering Logic ---
+  // This memo renders the main content area (the editor or the collection list).
   const pageContent = useMemo(() => {
     if (status !== 'ready' || !frontmatter) {
       return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
@@ -5462,7 +5419,6 @@ function EditContentPageInternal() {
     return (
       <div className='flex h-full w-full flex-col'>
         <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
-            {/* Title and Description are ALWAYS shown */}
             <div className="shrink-0">
                 <PrimaryContentFields
                     frontmatter={frontmatter}
@@ -5471,16 +5427,14 @@ function EditContentPageInternal() {
             </div>
             <div className="mt-6 flex-grow min-h-0">
               {isCollectionPage ? (
-                // If it's a collection, show the item list table.
                 <CollectionItemList
                   siteId={siteId}
                   collectionPagePath={filePath}
                 />
               ) : (
-                // Otherwise, show the Markdown editor for the body.
                 <BlocknoteEditor
                   ref={editorRef}
-                  key={filePath} // Use key to force re-mount on file change
+                  key={filePath}
                   initialContent={initialBlocks}
                   onContentChange={onContentModified}
                 />
@@ -5489,9 +5443,12 @@ function EditContentPageInternal() {
         </div>
       </div>
     );
-  }, [status, frontmatter, initialBlocks, filePath, editorRef, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+  }, [status, frontmatter, initialBlocks, filePath, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
 
   return (
+    // --- FIX: The ThreeColumnLayout now correctly receives the state variables. ---
+    // It will render whatever component is currently in `leftSidebarContent`,
+    // which the useEffect hook has set to be `<LeftSidebar />`.
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
         rightSidebar={rightSidebarContent}
@@ -6991,14 +6948,10 @@ File: features/editor/components/FileTree.tsx
 
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useAppStore } from '@/core/state/useAppStore';
 import { type ParsedMarkdownFile, type StructureNode } from '@/types';
-import { toast } from 'sonner';
 import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Plus } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { DndContext, closestCenter, DragEndEvent, DragStartEvent, useDroppable, DragOverlay } from '@dnd-kit/core';
-import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove } from '@dnd-kit/sortable';
+import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
 import { Button } from '@/core/components/ui/button';
@@ -7009,90 +6962,80 @@ interface FileTreeProps {
   contentFiles: ParsedMarkdownFile[];
   baseEditPath: string;
   activePath?: string;
-  onStructureChange: (nodes: StructureNode[]) => void;
+  nestingLevel?: number;
   className?: string;
+  // New props to render the drop indicator
+  activeId: string | null;
+  overId: string | null;
 }
 
-interface FileTreeNodeProps extends Omit<FileTreeProps, 'nodes' | 'onStructureChange' | 'className'> {
+interface FileTreeNodeProps {
   node: StructureNode;
-  activeDragId: string | null;
-  onStructureChange: (reorderedChildren: StructureNode[]) => void;
+  contentFiles: ParsedMarkdownFile[];
+  baseEditPath: string;
+  activePath?: string;
+  nestingLevel: number;
+  // New props for drop indicator
+  isOver: boolean;
+  isDragging: boolean;
 }
 
-// --- Draggable & Droppable Node Component ---
-const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath, activePath, activeDragId, onStructureChange }) => {
-    const { attributes, listeners, setNodeRef: setSortableNodeRef, transform, transition } = useSortable({
+// --- Draggable Node Component ---
+const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath, activePath, nestingLevel, isOver, isDragging }) => {
+    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
         id: node.path,
     });
     
     const [isOpen, setIsOpen] = useState(true);
+    const displayLabel = node.menuTitle || node.title || node.slug;
 
-    // --- NEW: Determine if this node represents a Collection Page ---
     const isCollectionPage = useMemo(() => {
         const file = contentFiles.find(f => f.path === node.path);
         return !!file?.frontmatter.collection;
     }, [contentFiles, node.path]);
 
-    // A page is a valid drop target if it's NOT a collection page.
-    const isNestableTarget = !isCollectionPage && !!activeDragId;
-
-    const { isOver, setNodeRef: setDroppableNodeRef } = useDroppable({
-        id: node.path,
-        disabled: !isNestableTarget,
-    });
-    
-    const setNodeRef = (el: HTMLElement | null) => {
-        setSortableNodeRef(el);
-        setDroppableNodeRef(el);
+    const style = {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.5 : 1, // Make the original item semi-transparent while dragging
     };
 
-    const style = { transform: CSS.Transform.toString(transform), transition };
-    const dropIndicatorStyle = isOver && isNestableTarget ? 'bg-blue-100 dark:bg-blue-900/50 outline outline-1 outline-blue-500' : '';
     const hasChildren = node.children && node.children.length > 0;
-
-    // The editor link is the same for both page types
+    const shouldRenderChildren = hasChildren && !isCollectionPage && nestingLevel < 1;
+    
     const href = `${baseEditPath}/content/${node.slug}`;
-    const newItemHref = `${href}/${NEW_FILE_SLUG_MARKER}`;
-
-    const handleChildrenStructureChange = (reorderedChildren: StructureNode[]) => {
-        const newParentNode = { ...node, children: reorderedChildren };
-        onStructureChange([newParentNode]);
-    };
 
     return (
-        <div ref={setNodeRef} style={style} className="flex flex-col">
-            <div className={cn("flex items-center group w-full my-0.5 rounded-md transition-colors", dropIndicatorStyle)}>
+        <div ref={setNodeRef} style={style} className="relative">
+            {/* --- FIX: Drop Line Indicator --- */}
+            {isOver && <div className="absolute -top-1 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />}
+            
+            <div className="flex items-center group w-full my-0.5 rounded-md transition-colors relative bg-background">
                 <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none text-muted-foreground/50">
                     <GripVertical className="h-4 w-4" />
                 </div>
-                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1 rounded-md hover:bg-muted", activePath === node.path && "bg-accent text-accent-foreground")}>
+                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1", activePath === node.path && "font-semibold")}>
                     <ChevronRight 
-                        className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", hasChildren && !isCollectionPage ? 'cursor-pointer' : 'invisible', isOpen && "rotate-90")} 
-                        onClick={() => hasChildren && setIsOpen(!isOpen)}
+                        className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", shouldRenderChildren ? 'cursor-pointer' : 'invisible', isOpen && "rotate-90")} 
+                        onClick={() => shouldRenderChildren && setIsOpen(!isOpen)}
                     />
                     {isCollectionPage ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm" title={node.title}>{node.title}</Link>
-
-                    {/* NEW: Show "New Item" button for collections */}
-                    {isCollectionPage && (
-                        <Button asChild variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Link href={newItemHref} title={`New item in ${node.title}`}>
-                                <Plus className="h-4 w-4" />
-                            </Link>
-                        </Button>
-                    )}
+                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm">{displayLabel}</Link>
+                    {/* ... New Item Button ... */}
                 </div>
             </div>
-            {/* NEW: Conditionally render children only for standard pages */}
-            {hasChildren && !isCollectionPage && isOpen && (
+
+            {shouldRenderChildren && isOpen && (
                 <div className="pl-6 border-l ml-4">
                     <FileTree
                         nodes={node.children!}
                         contentFiles={contentFiles}
                         baseEditPath={baseEditPath}
                         activePath={activePath}
-                        onStructureChange={handleChildrenStructureChange}
+                        nestingLevel={nestingLevel + 1}
                         className="py-1"
+                        activeId={null} // Indicators only shown at the level being dragged
+                        overId={null}
                     />
                 </div>
             )}
@@ -7101,71 +7044,23 @@ const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath
 };
 
 // --- Main FileTree Component ---
-export default function FileTree({ nodes, contentFiles, baseEditPath, activePath, onStructureChange, className }: FileTreeProps) {
-  const { moveNode } = useAppStore.getState();
-  const siteId = useParams().siteId as string;
-  const [activeDragId, setActiveDragId] = useState<string | null>(null);
-  const nodeIds = useMemo(() => nodes.map(n => n.path), [nodes]);
-
-  const handleDragStart = (event: DragStartEvent) => {
-      setActiveDragId(event.active.id as string);
-  };
-
-  const handleDragEnd = (event: DragEndEvent) => {
-    setActiveDragId(null);
-    const { active, over } = event;
-
-    if (!over || active.id === over.id) return;
-
-    // --- NEW: Find if the target is a collection page ---
-    const overNodeFile = contentFiles.find(f => f.path === over.id);
-    const isOverNodeCollection = !!overNodeFile?.frontmatter.collection;
-
-    if (isOverNodeCollection) {
-        toast.error("Cannot nest pages under a Collection Page.");
-        return;
-    }
-    
-    // If over.id exists, it's a nesting attempt.
-    if (nodes.some(n => n.path === over.id)) {
-        moveNode(siteId, active.id as string, over.id as string);
-    } else {
-        // Otherwise, it's a reordering attempt.
-        const oldIndex = nodeIds.indexOf(active.id as string);
-        const newIndex = nodeIds.indexOf(over.id as string);
-        if (oldIndex !== -1 && newIndex !== -1) {
-            onStructureChange(arrayMove(nodes, oldIndex, newIndex));
-        }
-    }
-  };
-
+export default function FileTree({ nodes, contentFiles, baseEditPath, activePath, nestingLevel = 0, activeId, overId, className }: FileTreeProps) {
   return (
     <div className={cn("w-full", className)}>
-        <DndContext onDragStart={handleDragStart} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
-            <SortableContext items={nodeIds} strategy={verticalListSortingStrategy}>
-                <div className="space-y-0.5">
-                    {nodes.map(node => (
-                        <DndNode 
-                            key={node.path} 
-                            node={node} 
-                            contentFiles={contentFiles}
-                            baseEditPath={baseEditPath} 
-                            activePath={activePath} 
-                            onStructureChange={(updatedChildList) => {
-                                const newNodes = nodes.map(n => 
-                                    n.path === updatedChildList[0].path ? updatedChildList[0] : n
-                                );
-                                onStructureChange(newNodes);
-                            }}
-                            activeDragId={activeDragId}
-                        />
-                    ))}
-                </div>
-            </SortableContext>
-            <DragOverlay>
-                {activeDragId ? <div className="p-2 bg-blue-100 dark:bg-blue-900 rounded-md shadow-lg text-sm">Moving page...</div> : null}
-            </DragOverlay>
-        </DndContext>
+        <div className="space-y-0.5">
+            {nodes.map(node => (
+                <DndNode 
+                    key={node.path} 
+                    node={node} 
+                    contentFiles={contentFiles}
+                    baseEditPath={baseEditPath} 
+                    activePath={activePath}
+                    nestingLevel={nestingLevel}
+                    isDragging={activeId === node.path}
+                    isOver={overId === node.path}
+                />
+            ))}
+        </div>
     </div>
   );
 }
@@ -7717,7 +7612,7 @@ export default function FrontmatterSidebar({
     };
     loadSchema();
   }, [site, frontmatter.layout]);
-
+ const menuTitleValue = typeof frontmatter.menuTitle === 'string' ? frontmatter.menuTitle : '';
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
   };
@@ -7729,6 +7624,19 @@ export default function FrontmatterSidebar({
         <AccordionItem value="general">
           <AccordionTrigger>General</AccordionTrigger>
           <AccordionContent className="space-y-4 pt-4">
+
+            <div className="space-y-2">
+              <Label htmlFor="menu-title-input">Menu Title (Optional)</Label>
+               <Input
+                  id="menu-title-input"
+                  placeholder="e.g., Home, About"
+                  value={menuTitleValue}
+                  onChange={(e) => onFrontmatterChange({ menuTitle: e.target.value })}
+              />
+              
+              <p className="text-xs text-muted-foreground">A short label for navigation menus. If left blank, the page title will be used.</p>
+            </div>
+
           
             <div className="space-y-2">
               <Label htmlFor="page-layout-select">Layout</Label>
@@ -7885,6 +7793,158 @@ export function usePageIdentifier() {
 
 ================================================================================
 
+File: features/editor/hooks/useFileTreeDnd.ts
+// src/features/editor/hooks/useFileTreeDnd.ts
+'use client';
+
+import { useState, useCallback } from 'react';
+import { useAppStore } from '@/core/state/useAppStore';
+import type { LocalSiteData, StructureNode } from '@/types';
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core';
+import { arrayMove } from '@dnd-kit/sortable';
+import { toast } from 'sonner';
+
+// Helper functions can be co-located or moved to a service
+function findNodeByPath(nodes: StructureNode[], path: string): StructureNode | undefined {
+  for (const node of nodes) {
+    if (node.path === path) return node;
+    if (node.children) {
+      const found = findNodeByPath(node.children, path);
+      if (found) return found;
+    }
+  }
+  return undefined;
+}
+
+function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
+    for (const node of nodes) {
+        if (node.path === path) return parent;
+        if (node.children) {
+            const found = findParentOfNode(node.children, path, node);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
+    return nodes.map(node => {
+        if (node.path === parentPath) {
+            return { ...node, children: newChildren };
+        }
+        if (node.children) {
+            return { ...node, children: updateNodeInChildren(node.children, parentPath, newChildren) };
+        }
+        return node;
+    });
+}
+
+/**
+ * A custom hook to manage all drag-and-drop logic for the site's file tree.
+ */
+export function useFileTreeDnd(site: LocalSiteData | undefined) {
+  const { updateManifest, moveNode } = useAppStore.getState();
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  const handleDragStart = useCallback((event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveDragId(null);
+    const { active, over, delta } = event;
+
+    if (!site || !over || active.id === over.id) return;
+    const siteId = site.siteId;
+    const structure = site.manifest.structure;
+
+    const activePath = active.id as string;
+    const overPath = over.id as string;
+
+    // --- SCENARIO 1: UN-NESTING ---
+    // This is the most definite action, so we check it first.
+    if (over.id === '__sidebar_root_droppable__') {
+      const parent = findParentOfNode(structure, activePath);
+      if (parent) { // Ensure it was actually nested
+        moveNode(siteId, activePath, null);
+      }
+      return;
+    }
+
+    const parentOfActive = findParentOfNode(structure, activePath);
+    const parentOfOver = findParentOfNode(structure, overPath);
+    const targetNode = findNodeByPath(structure, overPath);
+
+    // --- INTENT-BASED LOGIC ---
+    // `delta.y` is the vertical distance the mouse moved.
+    // `over.rect` is the bounding box of the target item.
+    const isDroppingInTopHalf = delta.y < over.rect.height / 2;
+    const isDroppingInBottomHalf = delta.y >= over.rect.height / 2;
+    
+    // --- SCENARIO 2: NESTING (User dropped squarely on a valid target) ---
+    // A nesting action is now more explicit. We check if the dragged item is being
+    // dropped somewhere in the middle of the target, not near the edges.
+    const isNestingAttempt = over.rect.height > 30 && delta.y > 10 && delta.y < (over.rect.height - 10);
+
+    if (isNestingAttempt) {
+        if (!parentOfActive && targetNode && !parentOfOver) { // Dragging a root item onto another root item
+            const isTargetCollection = !!site.contentFiles?.find(f => f.path === targetNode.path)?.frontmatter.collection;
+            if (isTargetCollection) {
+                toast.error("Cannot nest pages under a Collection Page.");
+                return;
+            }
+            moveNode(siteId, activePath, overPath);
+            return;
+        }
+    }
+    
+    // --- SCENARIO 3: REORDERING ---
+    // This now covers all other cases. The user is dropping near the top or bottom
+    // edge of an item, indicating they want to reorder.
+    if (parentOfActive?.path === parentOfOver?.path) {
+        const listToReorder = parentOfActive ? parentOfActive.children! : structure;
+        const oldIndex = listToReorder.findIndex(n => n.path === activePath);
+        let newIndex = listToReorder.findIndex(n => n.path === overPath);
+
+        if (oldIndex === -1 || newIndex === -1) return;
+        
+        // Adjust index for dropping before/after
+        if (isDroppingInBottomHalf && oldIndex < newIndex) {
+            // No change needed when dragging down past an item
+        } else if (isDroppingInTopHalf && oldIndex > newIndex) {
+            // No change needed when dragging up past an item
+        } else if (isDroppingInTopHalf) {
+            newIndex = newIndex;
+        } else if (isDroppingInBottomHalf) {
+            newIndex = newIndex + 1;
+        }
+
+        const reorderedList = arrayMove(listToReorder, oldIndex, newIndex);
+        let newStructure: StructureNode[];
+
+        if (parentOfActive) {
+            newStructure = updateNodeInChildren(structure, parentOfActive.path, reorderedList);
+        } else {
+            newStructure = reorderedList;
+        }
+        updateManifest(siteId, { ...site.manifest, structure: newStructure });
+    } else {
+        // This handles moving an item from nested to root, or root to another list (if we allowed it).
+        // For un-nesting, the user must drop on the dedicated root zone.
+        // This prevents accidental un-nesting when trying to reorder.
+    }
+
+  }, [site, moveNode, updateManifest]);
+
+  return {
+    activeDragId,
+    handleDragStart,
+    handleDragEnd,
+  };
+}
+
+================================================================================
+
 File: features/editor/hooks/useFileContent.ts
 // src/features/editor/hooks/useFileContent.ts
 'use client';
@@ -7906,6 +7966,9 @@ import { markdownToBlocks } from '@/core/services/blocknote.service';
 
 export type FileStatus = 'initializing' | 'loading' | 'ready' | 'not_found';
 
+interface PageFrontmatter extends MarkdownFrontmatter {
+    menuTitle?: string;
+}
 /**
  * Manages the state of a single content file for the editor.
  * It handles loading the raw Markdown, parsing it, converting the body
@@ -7917,7 +7980,7 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
   const { setHasUnsavedChanges } = useEditor();
 
   const [status, setStatus] = useState<FileStatus>('initializing');
-  const [frontmatter, setFrontmatter] = useState<MarkdownFrontmatter | null>(null);
+  const [frontmatter, setFrontmatter] = useState<PageFrontmatter | null>(null);
   const [slug, setSlug] = useState('');
   
   // This state now holds the Blocknote-compatible JSON for the editor.
@@ -7981,7 +8044,7 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
    * local frontmatter state and also auto-generates the slug if the title
    * is changed on a new file.
    */
-  const handleFrontmatterChange = useCallback((update: Partial<MarkdownFrontmatter>) => {
+const handleFrontmatterChange = useCallback((update: Partial<PageFrontmatter>) => {
     setFrontmatter(prev => {
       if (!prev) return null;
       const newFm = { ...prev, ...update };
@@ -8193,143 +8256,194 @@ File: components/publishing/LeftSidebar.tsx
 
 import { useParams, usePathname } from 'next/navigation';
 import { useMemo, useCallback, useEffect, useState } from 'react';
-
 import { useAppStore } from '@/core/state/useAppStore';
 import { useUIStore } from '@/core/state/uiStore';
 import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
-// Import the renamed dialog for creating collection pages
 import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
-
 import type { StructureNode } from '@/types';
 import { cn } from '@/lib/utils';
 import { Home, FilePlus, LayoutGrid } from 'lucide-react';
-import { DndContext, DragEndEvent, useDroppable } from '@dnd-kit/core';
+import { DndContext, DragEndEvent, useDroppable, DragOverlay, DragStartEvent, closestCenter } from '@dnd-kit/core';
+import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import { Link } from '@/core/components/ui/link';
+import { toast } from 'sonner';
+
+// HELPER FUNCTIONS
+const flattenTreeIds = (nodes: StructureNode[]): string[] => {
+    let ids: string[] = [];
+    for (const node of nodes) {
+        ids.push(node.path);
+        if (node.children) {
+            ids = ids.concat(flattenTreeIds(node.children));
+        }
+    }
+    return ids;
+};
+
+function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
+    for (const node of nodes) {
+        if (node.path === path) return parent;
+        if (node.children) {
+            const found = findParentOfNode(node.children, path, node);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
+    return nodes.map(node => {
+        if (node.path === parentPath) {
+            return { ...node, children: newChildren };
+        }
+        if (node.children) {
+            return { ...node, children: updateNodeInChildren(node.children, parentPath, newChildren) };
+        }
+        return node;
+    });
+}
 
 export default function LeftSidebar() {
   const params = useParams();
   const pathname = usePathname();
   const siteId = params.siteId as string;
 
-  // --- UI State Hooks ---
-  const isLeftOpen = useUIStore((state) => state.sidebar.isLeftOpen);
-  const toggleLeftSidebar = useUIStore((state) => state.sidebar.toggleLeftSidebar);
-  const isDesktop = useUIStore((state) => state.screen.isDesktop);
-
-  // --- App State Hooks ---
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { updateManifest, moveNode } = useAppStore.getState();
+  
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [overId, setOverId] = useState<string | null>(null);
 
-  // --- Local State for Active Path ---
+  // --- FIX: Select state from the correct slices using separate selectors ---
+  const { isLeftOpen, toggleLeftSidebar } = useUIStore((state) => state.sidebar);
+  const isDesktop = useUIStore((state) => state.screen.isDesktop);
+
   const [activePath, setActivePath] = useState<string | undefined>();
 
-  // This memoized value now gets ALL top-level pages. The old 'collection' filter is gone.
-  const topLevelPages = useMemo(() => {
-    return site?.manifest.structure.filter((node: StructureNode) => !node.path.includes('/', 'content/'.length)) || [];
-  }, [site?.manifest.structure]);
+  const flattenedIds = useMemo(() => site ? flattenTreeIds(site.manifest.structure) : [], [site]);
 
-  // Determine the currently active file path from the URL
   useEffect(() => {
     if (!site?.manifest) return;
     const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
     setActivePath(`content/${contentSlug}.md`);
   }, [pathname, site?.manifest]);
 
-  // Callback for when the FileTree component reports a reordering
-  const handleStructureChange = useCallback((reorderedPages: StructureNode[]) => {
-      if (!site) return;
-      // We rebuild the manifest from the reordered top-level pages.
-      // This is simpler as we no longer need to merge back a separate collections array.
-      const newManifest = { ...site.manifest, structure: reorderedPages };
-      updateManifest(siteId, newManifest);
-  }, [site, siteId, updateManifest]);
+  const handleDragStart = useCallback((event: DragStartEvent) => setActiveId(event.active.id as string), []);
+  const handleDragOver = useCallback((event: DragEndEvent) => setOverId(event.over?.id as string | null), []);
 
-  // Callback for when a drag operation ends over the root droppable area (for un-nesting)
-  const handleDragEndInSidebar = (event: DragEndEvent) => {
-    const { over, active } = event;
-    if (over && over.id === '__sidebar_root_droppable__') {
-      const draggedNodePath = active.id as string;
-      moveNode(siteId, draggedNodePath, null);
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    setActiveId(null);
+    setOverId(null);
+    
+    const { active, over } = event;
+    if (!site || !over || active.id === over.id) return;
+
+    const activePath = active.id as string;
+    const overPath = over.id as string;
+
+    // SCENARIO 1: UN-NESTING
+    if (over.id === '__sidebar_root_droppable__') {
+      const parent = findParentOfNode(site.manifest.structure, activePath);
+      if (parent) {
+        moveNode(siteId, activePath, null);
+      }
+      return;
     }
-  };
+
+    const parentOfActive = findParentOfNode(site.manifest.structure, activePath);
+    const parentOfOver = findParentOfNode(site.manifest.structure, overPath);
+    
+    // SCENARIO 2: REORDERING
+    if (parentOfActive?.path === parentOfOver?.path) {
+        const listToReorder = parentOfActive ? parentOfActive.children! : site.manifest.structure;
+        const oldIndex = listToReorder.findIndex(item => item.path === activePath);
+        const newIndex = listToReorder.findIndex(item => item.path === overPath);
+
+        if (oldIndex !== -1 && newIndex !== -1) {
+            const reorderedList = arrayMove(listToReorder, oldIndex, newIndex);
+            let newStructure: StructureNode[];
+
+            if (parentOfActive) {
+                newStructure = updateNodeInChildren(site.manifest.structure, parentOfActive.path, reorderedList);
+            } else {
+                newStructure = reorderedList;
+            }
+            updateManifest(siteId, { ...site.manifest, structure: newStructure });
+        }
+        return;
+    }
+    
+    // SCENARIO 3: NESTING
+    if (!parentOfActive && !parentOfOver) {
+        const isTargetCollection = !!site.contentFiles?.find(f => f.path === overPath)?.frontmatter.collection;
+        if (isTargetCollection) {
+            toast.error("Cannot nest under a collection page.");
+            return;
+        }
+        moveNode(siteId, activePath, overPath);
+        return;
+    }
+    
+  }, [site, siteId, moveNode, updateManifest]);
 
   const onCreationComplete = () => {
     if (!isDesktop) toggleLeftSidebar();
   };
 
-  const { setNodeRef: setRootDroppableRef, isOver } = useDroppable({
-    id: '__sidebar_root_droppable__',
-  });
-
-  const unnestDropZoneStyle = isOver ? 'bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500 ring-inset' : '';
+  const { setNodeRef: setRootDroppableRef, isOver } = useDroppable({ id: '__sidebar_root_droppable__'});
+  const unnestDropZoneStyle = isOver && activeId && findParentOfNode(site?.manifest.structure || [], activeId) ? 'bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500 ring-inset' : '';
 
   if (!site) return null;
 
   return (
     <>
-      {/* Mobile overlay */}
-      {!isDesktop && (
-        <div
-          onClick={toggleLeftSidebar}
-          className={cn('fixed inset-0 z-40 bg-black/60 transition-opacity', isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0')}
-        />
-      )}
+      {!isDesktop && ( <div onClick={toggleLeftSidebar} className={cn('fixed inset-0 z-40 bg-black/60 transition-opacity', isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} /> )}
 
-      <DndContext onDragEnd={handleDragEndInSidebar}>
+      <DndContext onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
         <div className="flex h-full flex-col">
-          {/* --- Header with Create Buttons --- */}
           <div className="flex shrink-0 items-center justify-between border-b p-2">
-            <h3 className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">
-              Site Content
-            </h3>
+            <h3 className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Site Content</h3>
             <div className="flex items-center gap-1">
-              {/* Button to create a new Collection Page */}
               <CreateCollectionPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                  <Button variant="ghost" className='size-7 p-1' title="New Collection Page">
-                      <LayoutGrid className="h-4 w-4" />
-                  </Button>
+                  <Button variant="ghost" className='size-7 p-1' title="New Collection Page"><LayoutGrid className="h-4 w-4" /></Button>
               </CreateCollectionPageDialog>
-              {/* Button to create a new Standard Page */}
               <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                  <Button variant="ghost" className='size-7 p-1' title="New Standard Page">
-                      <FilePlus className="h-4 w-4" />
-                  </Button>
+                  <Button variant="ghost" className='size-7 p-1' title="New Standard Page"><FilePlus className="h-4 w-4" /></Button>
               </NewPageDialog>
             </div>
           </div>
 
-          {/* --- Main File Tree Area --- */}
-          <div
-            ref={setRootDroppableRef}
-            className={cn("flex-grow overflow-y-auto p-2 transition-colors", unnestDropZoneStyle)}
-          >
-            {topLevelPages.length > 0 ? (
-              <FileTree
-                  nodes={topLevelPages}
-                  contentFiles={site.contentFiles || []}
-                  baseEditPath={`/sites/${siteId}/edit`}
-                  activePath={activePath}
-                  onStructureChange={handleStructureChange}
-              />
-            ) : (
+          <div ref={setRootDroppableRef} className={cn("flex-grow overflow-y-auto p-2 transition-colors", unnestDropZoneStyle)}>
+            {site.manifest.structure.length > 0 ? (
+              <SortableContext items={flattenedIds} strategy={verticalListSortingStrategy}>
+                  <FileTree
+                      nodes={site.manifest.structure}
+                      contentFiles={site.contentFiles || []}
+                      baseEditPath={`/sites/${siteId}/edit`}
+                      activePath={activePath}
+                      activeId={activeId}
+                      overId={overId}
+                  />
+              </SortableContext>
+            ) : ( 
               <div className="px-2 py-4 text-xs text-center text-muted-foreground italic">
                 <p>No pages created yet.</p>
-                <p className="mt-2">Drag a nested page here to make it top-level.</p>
+                <p>Drag a nested page here to make it top-level.</p>
               </div>
             )}
           </div>
 
-          {/* --- Footer Link --- */}
           <div className="mt-auto shrink-0 border-t p-2">
               <Button variant="ghost" asChild className="w-full justify-start gap-2">
-                  <Link href="/sites">
-                      <Home className="h-4 w-4" /> App Dashboard
-                  </Link>
+                  <Link href="/sites"><Home className="h-4 w-4" /> App Dashboard</Link>
               </Button>
           </div>
         </div>
+        <DragOverlay>
+            {activeId ? <div className="p-2 bg-background border rounded-md shadow-lg text-sm">Moving page...</div> : null}
+        </DragOverlay>
       </DndContext>
     </>
   );

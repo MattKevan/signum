@@ -135,7 +135,7 @@ export default function ImageSettingsPage() {
                     <SelectItem value="cloudinary">Upload to Cloudinary</SelectItem>
                 </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">"Local" is best for portability. "Cloudinary" is best for performance.</p>
+            <p className="text-xs text-muted-foreground">&quot;Local&quot; is best for portability. &quot;Cloudinary&quot; is best for performance.</p>
         </div>
         
         {selectedService === 'cloudinary' && (
@@ -149,7 +149,7 @@ export default function ImageSettingsPage() {
                         onChange={(e) => handleInputChange(setCloudinaryCloudName, e.target.value)}
                         placeholder="e.g., your-cloud-name"
                     />
-                     <p className="text-xs text-muted-foreground">This is public and stored in your site's manifest.</p>
+                     <p className="text-xs text-muted-foreground">This is public and stored in your site&apos;s manifest.</p>
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="upload-preset">Cloudinary Upload Preset (Secret)</Label>

@@ -1,7 +1,7 @@
 // src/features/editor/hooks/useFilePersistence.ts
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useEditor } from '@/features/editor/contexts/EditorContext';
@@ -10,8 +10,6 @@ import { AUTOSAVE_DELAY } from '@/config/editorConfig';
 import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
 import { useUnloadPrompt } from './useUnloadPrompt';
-
-// Import the necessary types
 import { Block } from '@blocknote/core';
 import { blocksToMarkdown } from '@/core/services/blocknote.service';
 
@@ -24,46 +22,48 @@ interface PersistenceParams {
   getEditorContent: () => Block[]; 
 }
 
-/**
- * Handles all "write" operations for a file: saving, autosaving, and deleting.
- */
 export function useFilePersistence({
-  siteId,
-  filePath,
-  isNewFileMode,
-  frontmatter,
-  slug,
-  getEditorContent,
+  siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent,
 }: PersistenceParams) {
   const router = useRouter();
-  const { addOrUpdateContentFile, deleteContentFileAndState } = useAppStore.getState();
+  const { addOrUpdateContentFile, deleteContentFileAndState, getSiteById } = useAppStore.getState();
   const { hasUnsavedChanges, setHasUnsavedChanges, setSaveState, registerSaveAction } = useEditor();
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [isInitialSaveCompleted, setInitialSaveCompleted] = useState(!isNewFileMode);
-  
+
   const handleSave = useCallback(async () => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
-
     if (!frontmatter) throw new Error("Frontmatter not ready for saving.");
-    if (!frontmatter.title.trim()) {
-        toast.error("A title is required before saving.");
-        throw new Error("A title is required.");
-    }
+    if (!frontmatter.title.trim()) throw new Error("A title is required before saving.");
 
     const currentBlocks = getEditorContent();
     const markdownBody = await blocksToMarkdown(currentBlocks);
     
-    const finalPath = isNewFileMode ? `${filePath}/${slug.trim()}.md`.replace('//', '/') : filePath;
-    const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+    // --- FIX: Logic is now split for Create vs. Update ---
+    if (isNewFileMode) {
+      // --- CREATION LOGIC (First Save) ---
+      if (!slug.trim()) throw new Error("A URL slug is required for a new page.");
+      
+      const site = getSiteById(siteId);
+      const finalPath = `${filePath}/${slug.trim()}.md`.replace('//', '/');
 
-    await addOrUpdateContentFile(siteId, finalPath, rawMarkdown);
+      // Check for path conflicts before saving
+      if (site?.contentFiles?.some(f => f.path === finalPath)) {
+        throw new Error(`A page with the path "${slug}" already exists.`);
+      }
 
-    if (isNewFileMode && !isInitialSaveCompleted) {
-      setInitialSaveCompleted(true);
+      const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+      await addOrUpdateContentFile(siteId, finalPath, rawMarkdown);
+
+      // Transition from "creation mode" to "editing mode" by updating the URL
       const newEditPath = finalPath.replace(/^content\//, '').replace(/\.md$/, '');
       router.replace(`/sites/${siteId}/edit/content/${newEditPath}`);
+
+    } else {
+      // --- UPDATE LOGIC (Subsequent Saves) ---
+      const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+      await addOrUpdateContentFile(siteId, filePath, rawMarkdown);
     }
-  }, [frontmatter, getEditorContent, isNewFileMode, filePath, slug, addOrUpdateContentFile, siteId, isInitialSaveCompleted, router]);
+  }, [siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent, addOrUpdateContentFile, getSiteById, router]);
 
   const handleDelete = useCallback(async () => {
     if (isNewFileMode || !frontmatter) return;
@@ -76,16 +76,14 @@ export function useFilePersistence({
     }
   }, [isNewFileMode, frontmatter, deleteContentFileAndState, siteId, filePath, router]);
 
-  // Register the save action with the EditorContext
   useEffect(() => {
     registerSaveAction(handleSave);
   }, [handleSave, registerSaveAction]);
 
-  // Autosave effect
   useEffect(() => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
-    const canAutosave = !isNewFileMode || isInitialSaveCompleted;
-    if (hasUnsavedChanges && canAutosave) {
+    // Autosave is disabled in new file mode until the first manual save.
+    if (hasUnsavedChanges && !isNewFileMode) {
       autosaveTimeoutRef.current = setTimeout(async () => {
         setSaveState('saving');
         try {
@@ -93,17 +91,13 @@ export function useFilePersistence({
           setHasUnsavedChanges(false);
           setSaveState('saved');
           setTimeout(() => setSaveState('no_changes'), 2000);
-        } catch (error) {
-          console.error("Autosave failed:", error);
-          setSaveState('idle');
-        }
+        } catch (error) { console.error("Autosave failed:", error); setSaveState('idle'); }
       }, AUTOSAVE_DELAY);
     }
     return () => { if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current); };
-  }, [hasUnsavedChanges, isNewFileMode, isInitialSaveCompleted, handleSave, setSaveState, setHasUnsavedChanges]);
+  }, [hasUnsavedChanges, isNewFileMode, handleSave, setSaveState, setHasUnsavedChanges]);
 
-  // Hook to prompt user before unload
-  useUnloadPrompt(isNewFileMode && hasUnsavedChanges && !isInitialSaveCompleted);
+  useUnloadPrompt(hasUnsavedChanges);
 
   return { handleDelete };
 }

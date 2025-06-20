@@ -75,8 +75,9 @@ export interface CollectionConfig {
  */
 export interface MarkdownFrontmatter {
   title: string;
-  layout: string; // The layout for this specific page's content.
+  layout: string; 
   collection?: CollectionConfig;
+  homepage?: boolean;
   [key: string]: unknown;
 }
 

@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: ios, node_modules, public
+Excluded Directories: public, node_modules, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 

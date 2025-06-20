@@ -14,6 +14,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
+import { slugify } from '@/lib/utils';
+
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
@@ -35,11 +37,36 @@ export default function CreateSitePage() {
     const newSiteId = generateSiteId(siteTitle);
     const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
 
+    // 1. Create a slug from the site's title for the first page.
+    // This gives it a meaningful, non-special name.
+    const firstPageTitle = DEFAULT_HOMEPAGE_CONFIG.TITLE;
+    const firstPageSlug = slugify(firstPageTitle); // e.g., 'welcome-to-your-new-site'
+
+    // 2. Define the frontmatter with the `homepage: true` flag.
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: DEFAULT_HOMEPAGE_CONFIG.TITLE,
-        layout: homepageLayoutPath,
+        title: firstPageTitle,
+        layout: DEFAULT_PAGE_LAYOUT_PATH,
         date: new Date().toISOString().split('T')[0],
+        homepage: true, // This is the ONLY thing that makes it the homepage.
     };
+    
+    // 3. Create the ParsedMarkdownFile object using the normal slug and path.
+    const defaultIndexFile: ParsedMarkdownFile = {
+        slug: firstPageSlug,
+        path: `content/${firstPageSlug}.md`, // e.g., content/welcome-to-your-new-site.md
+        frontmatter: defaultFrontmatter,
+        content: `## ${firstPageTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
+    };
+
+    // 4. Create the corresponding StructureNode for the manifest.
+    const indexStructureNode: StructureNode = {
+        type: 'page',
+        title: firstPageTitle,
+        path: defaultIndexFile.path, // Path uses the real filename
+        slug: firstPageSlug,          // Slug uses the real slug
+        navOrder: 0,
+    };
+
 
     const mockSiteData: LocalSiteData = { 
         siteId: 'mock-id', 
@@ -74,22 +101,6 @@ export default function CreateSitePage() {
     }
 }
 
-    const defaultIndexFile: ParsedMarkdownFile = {
-        slug: 'index',
-        path: 'content/index.md',
-        frontmatter: defaultFrontmatter,
-        content: `# Welcome to ${siteTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
-    };
-    
-    const indexStructureNode: StructureNode = {
-        type: 'page',
-        title: 'Home',
-        path: 'content/index.md',
-        slug: 'index',
-        navOrder: 0,
-        layout: homepageLayoutPath,
-    };
-
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
       manifest: {
@@ -97,21 +108,19 @@ export default function CreateSitePage() {
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: {
-          name: selectedTheme.path,
-          config: {},
-        },
-        structure: [indexStructureNode],
+        theme: { name: selectedTheme.path, config: {} },
+        structure: [],
       },
-      contentFiles: [defaultIndexFile],
+      contentFiles: [],
       themeFiles: [],
       layoutFiles: [],
     };
 
+
     try {
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
-      router.push(`/sites/${newSiteId}/edit/content/index`);
+      router.push(`/sites/${newSiteId}/edit`);
     } catch (error) {
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
