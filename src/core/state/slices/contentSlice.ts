@@ -149,7 +149,6 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     }
 
     const nodeToMove = findNodeByPath(structure, activeNodePath);
-    // --- FIX: Add validation for nesting a page that already has children. ---
     if (newParentPath && nodeToMove?.children && nodeToMove.children.length > 0) {
       toast.error("Cannot nest a page that already has its own child pages.", {
         description: "This would create too many levels of nesting."
@@ -163,11 +162,15 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
         toast.error("Target parent page for nesting not found.");
         return;
       }
+      
+      // --- FIX: Update depth check to allow nesting up to 3 levels total. ---
+      // A parent can be at depth 0 or 1. A page at depth 2 cannot be a parent.
       const parentDepth = getNodeDepth(structure, newParentPath);
-      if (parentDepth > 0) {
-        toast.error("Nesting is limited to one level deep for now.");
+      if (parentDepth >= 2) {
+        toast.error("Nesting is limited to two levels deep (3 levels total).");
         return;
       }
+      
       const parentFile = site.contentFiles.find(f => f.path === newParentPath);
       if (parentFile?.frontmatter.collection) {
         toast.error("Pages cannot be nested under a Collection Page.");

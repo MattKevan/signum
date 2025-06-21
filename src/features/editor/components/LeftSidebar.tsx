@@ -70,13 +70,14 @@ export default function LeftSidebar() {
   
   const activeItem = activeId ? flattenedItems.find(i => i.path === activeId) : null;
 
-  /**
-   * Filter the items to render based on the collapsed state.
-   */
   const itemsToRender = useMemo(() => {
+    // This logic correctly filters children of collapsed parents.
     return flattenedItems.filter(item => {
         if (item.depth === 0) return true;
         if (item.parentId && collapsedIds.has(item.parentId)) return false;
+        // Also check grandparents for level 2 items
+        const parent = flattenedItems.find(p => p.path === item.parentId);
+        if (parent?.parentId && collapsedIds.has(parent.parentId)) return false;
         return true;
     });
   }, [flattenedItems, collapsedIds]);
@@ -94,7 +95,12 @@ export default function LeftSidebar() {
     const maxDepth = previousItem ? previousItem.depth + 1 : 0;
     const minDepth = nextItem ? nextItem.depth : 0;
     let depth = Math.max(minDepth, Math.min(projectedDepth, maxDepth));
-    if (depth > 1) depth = 1;
+
+    // --- FIX: Update the hard cap on visual depth to allow up to level 2. ---
+    if (depth > 2) {
+      depth = 2;
+    }
+    
     let parentId = null;
     if (depth > 0 && previousItem) {
         if (depth === previousItem.depth) parentId = previousItem.parentId;
@@ -183,16 +189,15 @@ export default function LeftSidebar() {
         </div>
         
         <div className="flex-grow overflow-y-auto p-2" ref={setRootDroppableRef}>
-          {itemsToRender.length > 0 ? (
+          {homepageItem && itemsToRender.length > 0 ? (
             <FileTree 
-              itemsToRender={itemsToRender}
+              itemsToRender={itemsToRender.map(item => ({...item, collapsed: collapsedIds.has(item.path)}))}
               sortableIds={sortableIds}
               activeId={activeId}
               projected={projected}
               baseEditPath={`/sites/${siteId}/edit`}
               activePath={activePathForFileTree}
-              homepagePath={homepageItem?.path}
-              // --- FIX: The `onCollapse` handler is now correctly passed to the child component. ---
+              homepagePath={homepageItem.path}
               onCollapse={handleCollapse}
             />
           ) : (

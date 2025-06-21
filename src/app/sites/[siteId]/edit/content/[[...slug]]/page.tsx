@@ -11,7 +11,7 @@ import type { LocalSiteData } from '@/types';
 import { Button } from '@/core/components/ui/button';
 import { FilePlus, LayoutGrid } from 'lucide-react';
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
-import LeftSidebar from '@/components/publishing/LeftSidebar';
+import LeftSidebar from '@/features/editor/components/LeftSidebar';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
 import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
