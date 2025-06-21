@@ -73,7 +73,7 @@ function EditContentPageInternal() {
       {isSiteEmpty ? (
         <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-background">
           <h2 className="text-2xl font-bold mb-2">Create Your Homepage</h2>
-          <p className="text-muted-foreground mb-6 max-w-md">Your site is empty. The first page you create will become your site's permanent homepage.</p>
+          <p className="text-muted-foreground mb-6 max-w-md">Your site is empty. The first page you create will become your site&apos;s permanent homepage.</p>
           <div className="flex gap-4">
             <NewPageDialog siteId={siteId}><Button size="lg"><FilePlus className="mr-2 h-5 w-5" /> Create Content Page</Button></NewPageDialog>
             <CreateCollectionPageDialog siteId={siteId}><Button size="lg" variant="outline"><LayoutGrid className="mr-2 h-5 w-5" /> Create Collection Page</Button></CreateCollectionPageDialog>

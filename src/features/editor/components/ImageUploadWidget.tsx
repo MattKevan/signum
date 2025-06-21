@@ -1,6 +1,8 @@
+// src/features/editor/components/ImageUploadWidget.tsx
 'use client';
 
 import { useState } from 'react';
+import Image from 'next/image'; // FIX: Import the optimized Image component
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
 import { ImageRef } from '@/types';
@@ -8,7 +10,7 @@ import { Button } from '@/core/components/ui/button';
 
 interface ImageUploadWidgetProps {
   siteId: string;
-  value: string; // The current src value from frontmatter
+  value: string;
   onImageSelect: (imageRef: ImageRef) => void;
 }
 
@@ -24,22 +26,17 @@ export default function ImageUploadWidget({ siteId, value, onImageSelect }: Imag
     try {
       const imageService = getActiveImageService(site.manifest);
       const imageRef = await imageService.upload(file, siteId);
-      onImageSelect(imageRef); // Pass the full reference back to the parent form
+      onImageSelect(imageRef);
     } catch (error) {
       console.error("Image upload failed:", error);
-      // Show a toast message to the user
     } finally {
       setIsLoading(false);
     }
   };
 
-  const imageService = site ? getActiveImageService(site.manifest) : null;
-  // This logic would need to be expanded for the Cloudinary widget,
-  // which brings its own button/UI.
-  
   return (
     <div>
-      {value && <img src={value} alt="Current image" className="w-full h-auto rounded-md mb-2" />}
+      {value && <Image src={value} alt="Current image" width={200} height={150} className="w-full h-auto rounded-md mb-2 object-cover" />}
       <input
         type="file"
         id="image-upload"

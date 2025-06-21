@@ -4,7 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import { LocalSiteData, ParsedMarkdownFile, MarkdownFrontmatter, StructureNode, ThemeInfo } from '@/types';
+import { LocalSiteData, MarkdownFrontmatter, ThemeInfo } from '@/types';
 import { Button } from '@/core/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
@@ -14,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
-import { slugify } from '@/lib/utils';
 
 export default function CreateSitePage() {
   const router = useRouter();
@@ -40,7 +39,6 @@ export default function CreateSitePage() {
     // 1. Create a slug from the site's title for the first page.
     // This gives it a meaningful, non-special name.
     const firstPageTitle = DEFAULT_HOMEPAGE_CONFIG.TITLE;
-    const firstPageSlug = slugify(firstPageTitle); // e.g., 'welcome-to-your-new-site'
 
     // 2. Define the frontmatter with the `homepage: true` flag.
     const defaultFrontmatter: MarkdownFrontmatter = {
@@ -49,24 +47,6 @@ export default function CreateSitePage() {
         date: new Date().toISOString().split('T')[0],
         homepage: true, // This is the ONLY thing that makes it the homepage.
     };
-    
-    // 3. Create the ParsedMarkdownFile object using the normal slug and path.
-    const defaultIndexFile: ParsedMarkdownFile = {
-        slug: firstPageSlug,
-        path: `content/${firstPageSlug}.md`, // e.g., content/welcome-to-your-new-site.md
-        frontmatter: defaultFrontmatter,
-        content: `## ${firstPageTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
-    };
-
-    // 4. Create the corresponding StructureNode for the manifest.
-    const indexStructureNode: StructureNode = {
-        type: 'page',
-        title: firstPageTitle,
-        path: defaultIndexFile.path, // Path uses the real filename
-        slug: firstPageSlug,          // Slug uses the real slug
-        navOrder: 0,
-    };
-
 
     const mockSiteData: LocalSiteData = { 
         siteId: 'mock-id', 

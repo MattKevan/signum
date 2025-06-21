@@ -1,8 +1,7 @@
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, Manifest } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
-// --- FIX: Import the renamed 'flattenTree' utility. ---
 import { flattenTree } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
 import { PageType } from '@/types';
@@ -49,10 +48,12 @@ function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
   const refs = new Set<ImageRef>();
   const visited = new Set<object>();
 
-  function find(obj: any) {
+  function find(obj: unknown) {
     if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
     visited.add(obj);
-    if (obj.serviceId && obj.src) {
+
+    // Type guard to check if obj has the properties of an ImageRef
+    if ('serviceId' in obj && 'src' in obj) {
         refs.add(obj as ImageRef);
     }
     Object.values(obj).forEach(value => find(value));

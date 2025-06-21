@@ -152,21 +152,21 @@ export default function HomePageDashboard() {
           </Link>
           <div className="flex items-center gap-2">
             <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={isImporting}>
-              <Upload className="mr-2 h-4 w-4" /> {isImporting ? 'Importing...' : 'Import Site'}
+              <Upload className="mr-2 h-4 w-4" /> {isImporting ? 'Importing...' : 'Import site'}
             </Button>
             <Button asChild>
-              <Link href="/create-site"><FilePlus2 className="mr-2 h-4 w-4" /> Create New Site</Link>
+              <Link href="/create-site"><FilePlus2 className="mr-2 h-4 w-4" /> Create new site</Link>
             </Button>
           </div>
         </div>
       </header>
       
       <main className="container mx-auto p-4 sm:p-6 lg:p-8">
-        <h1 className="text-3xl font-bold text-foreground mb-8">My Signum Sites</h1>
+        <h1 className="text-3xl font-bold text-foreground mb-8">My sites</h1>
         {validSites.length === 0 ? (
           <div className="text-center py-10 border-2 border-dashed border-muted rounded-lg">
             <h2 className="text-xl font-semibold text-muted-foreground mb-2">No Sites Yet!</h2>
-            <p className="text-muted-foreground mb-4">Click "Create New Site" or "Import Site" to get started.</p>
+            <p className="text-muted-foreground mb-4">Click &quot;Create New Site&quot; or &quot;Import Site&quot; to get started.</p>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -190,18 +190,18 @@ export default function HomePageDashboard() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
                       <DropdownMenuItem asChild><Link href={`/sites/${site.siteId}/view`} target="_blank" rel="noopener noreferrer"><Eye className="mr-2 h-4 w-4" /> View Live Preview</Link></DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleExportBackup(site.siteId)}><Archive className="mr-2 h-4 w-4" /> Export Backup</DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => handleExportBackup(site.siteId)}><Archive className="mr-2 h-4 w-4" /> Export backup</DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <DropdownMenuItem onSelect={(e: Event) => e.preventDefault()} className="text-destructive focus:bg-destructive/10 focus:text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" /> Delete Site
+                            <Trash2 className="mr-2 h-4 w-4" /> Delete site
                           </DropdownMenuItem>
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
-                            <AlertDialogDescription>This action will permanently delete "{site.manifest.title}" and cannot be undone.</AlertDialogDescription>
+                            <AlertDialogDescription>This action will permanently delete &quot;{site.manifest.title}&quot; and cannot be undone.</AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -225,7 +225,7 @@ export default function HomePageDashboard() {
           <AlertDialogHeader>
             <AlertDialogTitle>Site Already Exists</AlertDialogTitle>
             <AlertDialogDescription>
-              A site with the ID "{importedData?.siteId}" already exists. Do you want to overwrite it with the data from the backup file?
+              A site with the ID &quot;{importedData?.siteId}&quot; already exists. Do you want to overwrite it with the data from the backup file?
               <br/><br/>
               <strong>This action cannot be undone.</strong>
             </AlertDialogDescription>

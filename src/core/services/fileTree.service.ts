@@ -67,6 +67,24 @@ export function buildTree(flattenedNodes: FlattenedNode[]): StructureNode[] {
   return root.children ?? [];
 }
 
+// --- NEW FUNCTION: A simple utility to get a flat list of all nodes ---
+/**
+ * Recursively traverses a tree of StructureNodes and returns a simple flat array.
+ * This is used when only the node data is needed, without depth or parent context.
+ * @param {StructureNode[]} nodes - The tree of nodes to flatten.
+ * @returns {StructureNode[]} A flat array of all nodes in the tree.
+ */
+export function flattenStructure(nodes: StructureNode[]): StructureNode[] {
+  let allNodes: StructureNode[] = [];
+  for (const node of nodes) {
+    allNodes.push(node);
+    if (node.children) {
+      allNodes = allNodes.concat(flattenStructure(node.children));
+    }
+  }
+  return allNodes;
+}
+
 /**
  * Finds a node in a structure tree by its exact `path`.
  */

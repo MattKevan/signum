@@ -1,47 +1,42 @@
-// src/lib/theme-helpers/query.helper.ts
+// src/core/services/theme-engine/helpers/query.helper.ts
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
-import { PageResolutionResult } from '@/types';
 
+// The helper factory receives the full siteData object, which it can use.
 export const queryHelper: SignumHelper = (siteData) => ({
   /**
    * Fetches, filters, and sorts a list of content items from a collection.
    * The resulting array is made available to the inner block of the helper.
-   * @param {HelperOptions} options - The Handlebars options object.
-   * @returns The rendered block content.
    *
    * @example
    * {{#query source_collection="blog" limit=5 as |posts|}}
    *   {{#each posts}} ... {{/each}}
    * {{/query}}
    */
-  query: function(this: PageResolutionResult, options: Handlebars.HelperOptions) {
+  // --- FIX: The function signature now correctly matches SignumHelperFunction ---
+  // The 'this' context is now 'unknown' and is not used.
+  query: function(this: unknown, ...args: unknown[]): string {
+    const options = args[args.length - 1] as Handlebars.HelperOptions;
     const config = options.hash;
 
-    // 1. Validate that a source collection was provided.
     const sourceCollectionSlug = config.source_collection;
-    if (!sourceCollectionSlug) {
-      console.warn("Query helper called without a 'source_collection'.");
-      return options.inverse(this); // Render the {{else}} block if it exists.
+    if (!sourceCollectionSlug || typeof sourceCollectionSlug !== 'string') {
+      console.warn("Query helper called without a valid 'source_collection' string.");
+      return options.inverse ? options.inverse(this) : '';
     }
 
-    // 2. Find the source collection node in the site's structure.
+    // Find the source collection node in the site's structure.
     const collectionNode = siteData.manifest.structure.find(
         n => n.slug === sourceCollectionSlug
     );
     if (!collectionNode || !collectionNode.children) {
       console.warn(`Query could not find collection with slug: "${sourceCollectionSlug}"`);
-      return options.inverse(this);
+      return options.inverse ? options.inverse(this) : '';
     }
     
-    // 3. Get all content files associated with that collection.
     const childPaths = new Set(collectionNode.children.map(c => c.path));
     let items = (siteData.contentFiles ?? []).filter(f => childPaths.has(f.path));
 
-    // 4. (Future) Apply any filters here.
-    // e.g., if (config.filter_by_tag) { ... }
-
-    // 5. Sort the resulting items.
     const sortBy = config.sort_by || 'date';
     const sortOrder = config.sort_order || 'desc';
     const orderModifier = sortOrder === 'desc' ? -1 : 1;
@@ -49,7 +44,6 @@ export const queryHelper: SignumHelper = (siteData) => ({
     items.sort((a, b) => {
       const valA = a.frontmatter[sortBy];
       const valB = b.frontmatter[sortBy];
-
       if (sortBy === 'date') {
         const dateA = valA ? new Date(valA as string).getTime() : 0;
         const dateB = valB ? new Date(valB as string).getTime() : 0;
@@ -65,7 +59,6 @@ export const queryHelper: SignumHelper = (siteData) => ({
       return 0;
     });
 
-    // 6. Limit the number of results.
     if (config.limit) {
       const limit = parseInt(config.limit, 10);
       if (!isNaN(limit)) {
@@ -73,8 +66,7 @@ export const queryHelper: SignumHelper = (siteData) => ({
       }
     }
 
-    // 7. Render the inner block, passing the queried items as a block parameter.
-    // This makes the `as |posts|` syntax work.
+    // Render the inner block, passing the queried items as a block parameter.
     if (options.data && options.fn) {
         const data = Handlebars.createFrame(options.data);
         const blockParamName = options.data.blockParams?.[0];
@@ -84,7 +76,6 @@ export const queryHelper: SignumHelper = (siteData) => ({
         return options.fn(items, { data });
     }
     
-    // Fallback if no block parameter is used.
     return options.fn(items);
   }
 });

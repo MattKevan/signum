@@ -2,8 +2,6 @@
 'use client';
 
 import { useParams, usePathname } from 'next/navigation';
-import Link from 'next/link';
-
 import { useMemo, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/core/state/useAppStore';
@@ -11,7 +9,7 @@ import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
-import { FilePlus, LayoutGrid, GripVertical, Archive, Home } from 'lucide-react';
+import { FilePlus, LayoutGrid, GripVertical, Archive } from 'lucide-react';
 import {
   DndContext,
   DragEndEvent,
@@ -123,7 +121,6 @@ export default function LeftSidebar() {
     const minDepth = nextItem ? nextItem.depth : 0;
     let depth = Math.max(minDepth, Math.min(projectedDepth, maxDepth));
 
-    // --- FIX: Update the hard cap on visual depth to allow up to level 2. ---
     if (depth > 2) {
       depth = 2;
     }
@@ -153,7 +150,13 @@ export default function LeftSidebar() {
 
   const handleDragMove = useCallback((event: DragMoveEvent) => setOffsetLeft(event.delta.x), []);
   const handleDragOver = useCallback((event: DragOverEvent) => setOverId(event.over?.id as string ?? null), []);
-  
+
+  const resetState = useCallback(() => {
+    setActiveId(null);
+    setOverId(null);
+    setOffsetLeft(0);
+  }, []);
+
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     if (!projected) {
         resetState();
@@ -168,15 +171,11 @@ export default function LeftSidebar() {
         }
     }
     resetState();
-  }, [projected, site, siteId, repositionNode, flattenedItems.length]);
+  }, [projected, site, siteId, repositionNode, flattenedItems.length, resetState]);
 
   
   
-  const resetState = useCallback(() => {
-    setActiveId(null);
-    setOverId(null);
-    setOffsetLeft(0);
-  }, []);
+
 
   const activePathForFileTree = useMemo(() => {
     if (!site?.manifest) return undefined;
@@ -201,8 +200,8 @@ export default function LeftSidebar() {
       onDragCancel={resetState}
     >
       <div className="flex h-full flex-col">
-        <div className="flex shrink-0 items-center justify-between border-b p-2">
-          <h3 className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Site Content</h3>
+        <div className="flex shrink-0 items-center justify-between border-b px-2 py-0.5">
+          <h3 className="px-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">Content</h3>
           <div className="flex items-center gap-1">
             <CreateCollectionPageDialog siteId={siteId}>
                 <Button variant="ghost" className='size-7 p-1' title="New Collection">

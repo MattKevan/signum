@@ -1,3 +1,4 @@
+// src/core/services/theme-engine/helpers/types.ts
 import { LocalSiteData } from '@/types';
 import Handlebars from 'handlebars';
 
@@ -7,8 +8,18 @@ import Handlebars from 'handlebars';
  * `args` are the arguments passed to the helper in the template.
  */
 export type SignumHelperFunction = (
-  this: any,
-  ...args: any[]
+  /**
+   * FIX: Replaced 'any' with 'unknown' for the 'this' context.
+   * The context within a Handlebars helper is dynamic. 'unknown' is the
+   * type-safe equivalent of 'any', requiring type checks before use.
+   */
+  this: unknown,
+  /**
+   * FIX: Replaced 'any[]' with 'unknown[]' for the helper arguments.
+   * Helpers can receive a variable number of arguments of any type.
+   * 'unknown[]' safely represents this contract.
+   */
+  ...args: unknown[]
 ) => string | Handlebars.SafeString | boolean | Promise<Handlebars.SafeString>;
 
 /**

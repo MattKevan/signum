@@ -13,10 +13,19 @@ interface RootTemplateContext {
 }
 
 export const imageHelper: SignumHelper = (siteData: LocalSiteData) => ({
-  image: async function(this: any, options: Handlebars.HelperOptions): Promise<Handlebars.SafeString> {
+  /**
+   * An async Handlebars helper to generate image URLs with transformations.
+   * It reads parameters from the helper's hash.
+   * @example {{{image src=logo width=100 height=100}}}
+   */
+  image: async function(this: unknown, ...args: unknown[]): Promise<Handlebars.SafeString> {
+    // The actual options object from Handlebars is always the last argument.
+    const options = args[args.length - 1] as Handlebars.HelperOptions;
+    
     const rootContext = options.data.root as RootTemplateContext;
     const isExport = rootContext.options?.isExport || false;
 
+    // Destructure properties from the hash object within options.
     const { src, width, height, crop, gravity, alt, lazy = true, class: className = '' } = options.hash;
 
     if (!src || typeof src !== 'object' || !('serviceId' in src)) {
@@ -28,12 +37,7 @@ export const imageHelper: SignumHelper = (siteData: LocalSiteData) => ({
     try {
       const imageService = getActiveImageService(siteData.manifest);
       
-      const transformOptions: ImageTransformOptions = {
-        width: width,
-        height: height,
-        crop: crop,
-        gravity: gravity,
-      };
+      const transformOptions: ImageTransformOptions = { width, height, crop, gravity };
 
       const displayUrl = await imageService.getDisplayUrl(siteData.manifest, imageRef, transformOptions, isExport);
       

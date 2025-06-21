@@ -52,11 +52,6 @@ export default function ImageSettingsPage() {
     }
   }, [site]); // Re-run this effect if the `site` object in the store is updated
   
-  // Generic handler to simplify state updates and track changes
-  const handleStateChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
-    setter(value);
-    setHasChanges(true);
-  };
   const handleServiceChange = (value: string) => {
     // The value from the Select is a string, which we cast to our specific type.
     setSelectedService(value as ImageServiceId);

@@ -1,7 +1,8 @@
-// src/features/site-settings/components/SiteAssetUploader.tsx
+// src/features/site-settings/components/SiteAssetsUploader.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
+import Image from 'next/image'; // FIX: Import the optimized Next.js Image component
 import { ImageRef } from '@/types';
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
@@ -12,7 +13,7 @@ import { toast } from 'sonner';
 interface SiteAssetUploaderProps {
   siteId: string;
   label: string;
-  value: ImageRef | undefined; // The current ImageRef from the manifest
+  value: ImageRef | undefined;
   onChange: (newRef: ImageRef) => void;
   onRemove: () => void;
 }
@@ -22,16 +23,18 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isUploading, setIsUploading] = useState(false);
 
-  // Effect to generate a preview URL whenever the `value` prop changes
   useEffect(() => {
     let objectUrl: string | null = null;
     const generatePreview = async () => {
       if (value && site?.manifest) {
         try {
           const service = getActiveImageService(site.manifest);
-             const url = await service.getDisplayUrl(site.manifest, value, { width: 128, height: 128, crop: 'fit' }, false);
+          const url = await service.getDisplayUrl(site.manifest, value, { width: 128, height: 128, crop: 'fit' }, false);
           setPreviewUrl(url);
-          objectUrl = url;
+          // Only store blob URLs for later revocation to prevent memory leaks
+          if (url.startsWith('blob:')) {
+            objectUrl = url;
+          }
         } catch (error) {
           console.error(`Could not generate preview for ${label}:`, error);
           setPreviewUrl(null);
@@ -42,9 +45,8 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
     };
     generatePreview();
     
-    // Cleanup function to revoke blob URLs and prevent memory leaks
     return () => {
-      if (objectUrl && objectUrl.startsWith('blob:')) {
+      if (objectUrl) {
         URL.revokeObjectURL(objectUrl);
       }
     };
@@ -58,24 +60,24 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
     try {
       const service = getActiveImageService(site.manifest);
       const newRef = await service.upload(file, siteId);
-      onChange(newRef); // Pass the new ImageRef up to the parent form state
+      onChange(newRef);
       toast.success(`${label} uploaded successfully.`);
     } catch (error) {
       toast.error(`Failed to upload ${label}: ${(error as Error).message}`);
     } finally {
       setIsUploading(false);
+      event.target.value = '';
     }
-    // Reset the input so the same file can be selected again
-    event.target.value = '';
   };
 
-  const inputId = `uploader-${label.toLowerCase().replace(' ', '-')}`;
+  const inputId = `uploader-${label.toLowerCase().replace(/\s/g, '-')}`;
 
   return (
     <div className="flex items-center gap-4">
-      <div className="w-16 h-16 bg-muted rounded-md flex items-center justify-center overflow-hidden flex-shrink-0">
+      <div className="w-16 h-16 bg-muted rounded-md flex items-center justify-center overflow-hidden flex-shrink-0 relative">
         {previewUrl ? (
-          <img src={previewUrl} alt={`${label} preview`} className="max-w-full max-h-full object-contain" />
+          // FIX: Replaced `<img>` with the optimized <Image /> component
+          <Image src={previewUrl} alt={`${label} preview`} fill className="object-contain" />
         ) : (
           <UploadCloud className="w-8 h-8 text-muted-foreground" />
         )}
@@ -89,7 +91,6 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
             </label>
           </Button>
           <input type="file" id={inputId} className="hidden" onChange={handleFileSelect} accept="image/png, image/jpeg, image/svg+xml, image/x-icon" />
-
           {value && (
             <Button size="sm" variant="ghost" className="text-destructive" onClick={onRemove}>
               <XCircle className="w-4 h-4 mr-1" />

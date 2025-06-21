@@ -8,7 +8,6 @@ import { useAppStore } from '@/core/state/useAppStore';
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 
 interface ViewEditorProps {
   siteId: string;

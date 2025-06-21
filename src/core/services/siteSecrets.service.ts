@@ -1,6 +1,6 @@
 // src/core/services/siteSecrets.service.ts
 import localforage from 'localforage';
-import { SiteSecrets } from '@/types';
+
 const DB_NAME = 'SignumDB';
 
 // This store is NEVER included in the site export.
@@ -9,7 +9,16 @@ const siteSecretsStore = localforage.createInstance({
   storeName: 'siteSecrets',
 });
 
-
+// --- FIX: Add the 'export' keyword to make the interface available for import ---
+/**
+ * Defines the shape of the sensitive, non-public data for a site.
+ * This data is stored separately and is not included in public site exports.
+ */
+export interface SiteSecrets {
+  cloudinary?: {
+    uploadPreset?: string;
+  };
+}
 
 /**
  * Loads the secrets object for a specific site from the database.

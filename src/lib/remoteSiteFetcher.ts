@@ -1,7 +1,7 @@
 // src/lib/remoteSiteFetcher.ts
 import { LocalSiteData, ParsedMarkdownFile, Manifest } from '@/types';
 import { parseMarkdownString } from './markdownParser';
-import { flattenStructureToPages } from '../core/services/fileTree.service';
+import { flattenStructure } from '../core/services/fileTree.service';
 
 async function fetchRemoteFile(baseUrl: string, filePath: string): Promise<string> {
   const url = new URL(filePath, baseUrl).href;
@@ -34,7 +34,7 @@ export async function fetchRemoteSiteData(remoteSiteUrl: string): Promise<LocalS
     }
     
     // 2. Collect all unique file paths from the manifest structure.
-    const allPageNodes = flattenStructureToPages(manifest.structure);
+    const allPageNodes = flattenStructure(manifest.structure);
     const contentFilePaths = [...new Set(allPageNodes.map(node => node.path))];
 
     // 3. Fetch all content files in parallel.

@@ -8,9 +8,11 @@ import Handlebars from 'handlebars';
  * `args` are the arguments passed to the helper in the template.
  */
 export type SignumHelperFunction = (
-  this: any, ...args: any[]
-// <-- FIX: The return type now includes a Promise, allowing for async helpers.
-) => string | Handlebars.SafeString | boolean | Promise<string | Handlebars.SafeString>;
+  // FIX: Using 'unknown' is a safer alternative to 'any' for the 'this' context.
+  this: unknown,
+  // FIX: Using 'unknown[]' ensures arguments are type-checked if used.
+  ...args: unknown[]
+) => string | Handlebars.SafeString | boolean | Promise<Handlebars.SafeString>;
 
 /**
  * Defines a "Helper Factory". It's a function that receives the full site data

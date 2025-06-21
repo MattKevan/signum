@@ -15,25 +15,20 @@ export interface SecretsSlice {
   updateSiteSecrets: (siteId: string, secrets: SiteSecrets) => Promise<void>;
 }
 
-export const createSecretsSlice: StateCreator<SiteSlice & SecretsSlice, [], [], SecretsSlice> = (set, get) => ({
+export const createSecretsSlice: StateCreator<SiteSlice & SecretsSlice, [], [], SecretsSlice> = (set) => ({
   updateSiteSecrets: async (siteId, newSecrets) => {
     try {
-      // 1. Persist the secrets to the database first.
       await saveSiteSecretsToDb(siteId, newSecrets);
-
-      // 2. If successful, update the in-memory state.
       set(produce((draft: SiteSlice) => {
         const site = draft.sites.find(s => s.siteId === siteId);
         if (site) {
           site.secrets = newSecrets;
         }
       }));
-
       toast.success("Secret settings saved successfully!");
     } catch (error) {
       console.error("Failed to save site secrets:", error);
       toast.error("Could not save secret settings.");
-      // Re-throw the error if you want the calling component to handle it
       throw error;
     }
   },

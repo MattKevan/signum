@@ -1,5 +1,4 @@
 // src/core/services/images/localImage.service.ts
-
 import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { slugify } from '@/lib/utils';
@@ -9,6 +8,25 @@ import imageCompression from 'browser-image-compression';
 const sourceImageCache = new Map<string, Blob>();
 const processingPromises = new Map<string, Promise<Blob>>();
 
+/**
+ * A strongly-typed interface for the options passed to the browser-image-compression library.
+ * This eliminates the need for `any` and improves type safety.
+ */
+interface CompressionOptions {
+  maxSizeMB: number;
+  initialQuality: number;
+  useWebWorker: boolean;
+  exifOrientation: number;
+  maxWidthOrHeight?: number;
+  maxWidth?: number;
+  maxHeight?: number;
+}
+
+/**
+ * A utility function to get the dimensions of an image from its Blob data.
+ * @param blob The image Blob.
+ * @returns A promise that resolves to the image's width and height.
+ */
 const getImageDimensions = (blob: Blob): Promise<{ width: number; height: number }> => {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(blob);
@@ -25,11 +43,15 @@ const getImageDimensions = (blob: Blob): Promise<{ width: number; height: number
   });
 };
 
+/**
+ * Implements the ImageService interface for handling images stored locally
+ * within the site's data in the browser (IndexedDB).
+ */
 class LocalImageService implements ImageService {
   id = 'local';
   name = 'Store in Site Bundle';
 
-  async upload(file: File, siteId: string): Promise<ImageRef> {
+  public async upload(file: File, siteId: string): Promise<ImageRef> {
     const extIndex = file.name.lastIndexOf('.');
     if (extIndex === -1) {
       throw new Error("Uploaded file is missing an extension.");
@@ -52,11 +74,7 @@ class LocalImageService implements ImageService {
     };
   }
 
-  /**
-   * Main method to get a displayable URL for an image.
-   * This has been refactored into a single, unified pipeline to prevent deadlocks.
-   */
-  async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
+  public async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
     const { width, height, crop = 'scale', gravity = 'center' } = options;
     const extIndex = ref.src.lastIndexOf('.');
     if (extIndex === -1) throw new Error("Source image has no extension.");
@@ -65,10 +83,8 @@ class LocalImageService implements ImageService {
     const ext = ref.src.substring(extIndex);
     const derivativePath = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
 
-    // The core logic is now in a separate, private method.
     const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, derivativePath, options);
     
-    // After getting the blob, simply decide what to return based on the context.
     return isExport ? derivativePath : URL.createObjectURL(finalBlob);
   }
 
@@ -77,28 +93,23 @@ class LocalImageService implements ImageService {
    * only if absolutely necessary, preventing race conditions.
    */
   private async getOrProcessDerivative(siteId: string, srcPath: string, cacheKey: string, options: ImageTransformOptions): Promise<Blob> {
-    // 1. Check persistent cache for a completed job.
     const cachedBlob = await getCachedDerivative(cacheKey);
-    if (cachedBlob) {
-      return cachedBlob;
-    }
+    if (cachedBlob) return cachedBlob;
 
-    // 2. Check in-memory cache for an in-progress job.
-    if (processingPromises.has(cacheKey)) {
-      return processingPromises.get(cacheKey)!;
-    }
+    if (processingPromises.has(cacheKey)) return processingPromises.get(cacheKey)!;
     
-    // 3. If no cache hit, create and store a new processing promise.
     const processingPromise = (async (): Promise<Blob> => {
       try {
         const sourceBlob = await this.getSourceBlob(siteId, srcPath);
 
-        const compressionOptions: any = {
+        // --- FIX: Using the strongly-typed `CompressionOptions` interface instead of `any`. ---
+        const compressionOptions: CompressionOptions = {
             maxSizeMB: 1.5,
             initialQuality: 0.8,
             useWebWorker: true,
-            exifOrientation: -1,
+            exifOrientation: -1, // Use -1 to respect the original orientation
         };
+
         const { width, height, crop } = options;
         if (crop === 'fill' && width && height) {
           compressionOptions.maxWidth = width;
@@ -133,10 +144,9 @@ class LocalImageService implements ImageService {
     return sourceBlob;
   }
 
-  async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
+  public async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
     const exportableMap = new Map<string, Blob>();
     
-    // Add all original source images
     for (const ref of allImageRefs) {
       if (ref.serviceId === 'local' && !exportableMap.has(ref.src)) {
         const sourceBlob = await localSiteFs.getImageAsset(siteId, ref.src);
@@ -146,7 +156,6 @@ class LocalImageService implements ImageService {
       }
     }
     
-    // Add all derivatives from the persistent cache
     const derivativeKeys = await getAllCacheKeys();
     for (const key of derivativeKeys) {
       if (!exportableMap.has(key)) {

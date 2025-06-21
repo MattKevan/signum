@@ -2,7 +2,7 @@
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { toast } from 'sonner';
-import { ParsedMarkdownFile, StructureNode, MarkdownFrontmatter } from '@/types';
+import { ParsedMarkdownFile, StructureNode } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import {
   findAndRemoveNode,
@@ -52,7 +52,8 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     if (!site) return false;
 
     const isFirstFile = site.manifest.structure.length === 0 && !site.contentFiles?.some(f => f.path === filePath);
-    let { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+    let { frontmatter } = parseMarkdownString(rawMarkdownContent);
+    const { content } = parseMarkdownString(rawMarkdownContent);
 
     if (isFirstFile) {
         toast.info("First page created. It has been set as the permanent homepage.");

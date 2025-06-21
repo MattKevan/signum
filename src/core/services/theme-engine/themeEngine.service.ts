@@ -4,7 +4,6 @@ import {
     LocalSiteData,
     PageResolutionResult,
     PageType,
-    ImageRef,
 } from '@/types';
 import {
     getJsonAsset,
@@ -141,7 +140,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       } catch (e) { console.warn("Could not generate favicon URL:", e); }
   }
 
-  let styleOverrides = '';
+  const styleOverrides = '';
   if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) { /* style logic */ }
 
 

@@ -35,7 +35,7 @@ interface FrontmatterSidebarProps {
  * and settings for the current page (frontmatter).
  */
 export default function FrontmatterSidebar({
-  siteId, site, frontmatter, filePath, onFrontmatterChange,
+  siteId, site, frontmatter, onFrontmatterChange,
   isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
 
@@ -87,7 +87,7 @@ export default function FrontmatterSidebar({
           </AccordionItem>
         )}
         <AccordionItem value="page">
-          <AccordionTrigger>Page</AccordionTrigger>
+          <AccordionTrigger>Page meta</AccordionTrigger>
           <AccordionContent className="space-y-6 ">
 
             {layoutSchema && (
@@ -156,7 +156,7 @@ export default function FrontmatterSidebar({
                   <AlertDialogHeader>
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This action will permanently delete the file for "{frontmatter?.title || 'this content'}" and cannot be undone.
+                        This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot; and cannot be undone.
                       </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>

@@ -130,7 +130,10 @@ export interface Manifest {
   favicon?: ImageRef;
   settings?: {
     imageService?: 'local' | 'cloudinary';
-    [key: string]: any; // Allow for other future settings
+    cloudinary?: {
+      cloudName?: string;
+    },
+    [key: string]: unknown; 
   };
 }
 

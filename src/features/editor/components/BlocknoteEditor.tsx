@@ -37,7 +37,7 @@ const BlocknoteEditor = forwardRef<BlocknoteEditorRef, BlocknoteEditorProps>(
         <Label htmlFor="content-body" className="text-[10px] font-medium uppercase text-gray-400 shrink-0">
           Content
         </Label>
-        <div className="flex-grow min-h-0 overflow-y-auto rounded-md border p-2">
+        <div className="flex-grow min-h-0 overflow-y-auto border p-2">
             <BlockNoteView
                 editor={editor}
                 theme="light" // Or use a theme provider to make it dynamic
