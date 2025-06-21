@@ -26,7 +26,6 @@ const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldP
     });
 };
 
-// Interface is updated to remove the now-obsolete setHomepageAction
 export interface ContentSlice {
   addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
@@ -42,11 +41,8 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
       const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
       if (siteToUpdate?.contentFiles) {
         const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === savedFile.path);
-        if (fileIndex !== -1) {
-          siteToUpdate.contentFiles[fileIndex] = savedFile;
-        } else {
-          siteToUpdate.contentFiles.push(savedFile);
-        }
+        if (fileIndex !== -1) siteToUpdate.contentFiles[fileIndex] = savedFile;
+        else siteToUpdate.contentFiles.push(savedFile);
       }
     }));
   },
@@ -78,13 +74,7 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
           navOrder: draft.structure.length,
           children: [],
         };
-        
-        // --- HIERARCHY FIX: This reverts to the correct logic. ---
-        // All new pages, including the first, are added to the root of the structure array.
-        // This makes them siblings, all at depth 0, which correctly allows
-        // non-homepage pages to become parents for nested pages (depth 1).
         draft.structure.push(newNode);
-
       } else {
         const findAndUpdate = (nodes: StructureNode[]): void => {
           for (const node of nodes) {
@@ -103,29 +93,25 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     await get().updateManifest(siteId, newManifest);
 
     set(produce((draft: SiteSlice) => {
-      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-      if (siteToUpdate) {
-        if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
-        const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === filePath);
-        if (fileIndex !== -1) siteToUpdate.contentFiles[fileIndex] = savedFile;
-        else siteToUpdate.contentFiles.push(savedFile);
-      }
-    }));
+        const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+        if (siteToUpdate) {
+          if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
+          const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === savedFile.path);
+          if (fileIndex !== -1) siteToUpdate.contentFiles[fileIndex] = savedFile;
+          else siteToUpdate.contentFiles.push(savedFile);
+        }
+      }));
     return true;
   },
     
   deleteContentFileAndState: async (siteId, filePath) => {
     const site = get().getSiteById(siteId);
     if (!site) return;
-
     const fileToDelete = site.contentFiles?.find(f => f.path === filePath);
     if (fileToDelete?.frontmatter.homepage === true) {
-      toast.error("Cannot delete the homepage.", {
-        description: "The first page of a site is permanent.",
-      });
+      toast.error("Cannot delete the homepage.", { description: "The first page of a site is permanent." });
       return;
     }
-
     const newManifest = produce(site.manifest, draft => {
       const filterStructure = (nodes: StructureNode[]): StructureNode[] => nodes.filter(node => {
         if (node.path === filePath) return false;
@@ -134,19 +120,16 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
       });
       draft.structure = filterStructure(draft.structure);
     });
-
     await Promise.all([
       localSiteFs.deleteContentFile(siteId, filePath),
       get().updateManifest(siteId, newManifest),
     ]);
-
     set(produce((draft: SiteSlice) => {
-      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-      if (siteToUpdate?.contentFiles) {
-        siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
-      }
-    }));
-
+        const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+        if (siteToUpdate?.contentFiles) {
+          siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
+        }
+      }));
     toast.success(`Page "${fileToDelete?.frontmatter.title || 'file'}" deleted.`);
   },
     
@@ -164,21 +147,27 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
       toast.error("The homepage cannot be moved.");
       return;
     }
+
+    const nodeToMove = findNodeByPath(structure, activeNodePath);
+    // --- FIX: Add validation for nesting a page that already has children. ---
+    if (newParentPath && nodeToMove?.children && nodeToMove.children.length > 0) {
+      toast.error("Cannot nest a page that already has its own child pages.", {
+        description: "This would create too many levels of nesting."
+      });
+      return;
+    }
     
-    // This validation logic is now correct with the restored data structure.
     if (newParentPath) {
       const parentNode = findNodeByPath(structure, newParentPath);
       if (!parentNode) {
         toast.error("Target parent page for nesting not found.");
         return;
       }
-      
       const parentDepth = getNodeDepth(structure, newParentPath);
       if (parentDepth > 0) {
         toast.error("Nesting is limited to one level deep for now.");
         return;
       }
-      
       const parentFile = site.contentFiles.find(f => f.path === newParentPath);
       if (parentFile?.frontmatter.collection) {
         toast.error("Pages cannot be nested under a Collection Page.");
@@ -226,7 +215,7 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
       toast.success("Site structure updated successfully.");
     } catch (error) {
       console.error("Failed to reposition node:", error);
-      toast.error("An error occurred. Reverting changes.");
+      toast.error("An error occurred while updating the site structure. Reverting changes.");
       get().loadSite(siteId);
     }
   },

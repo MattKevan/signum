@@ -1,7 +1,7 @@
 // src/features/editor/components/FileTree.tsx
 'use client';
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
 import FileTreeNode from './FileTreeNode';
 import type { FlattenedNode } from '@/core/services/fileTree.service';
@@ -17,53 +17,42 @@ interface DndProjection {
 
 /**
  * Defines the props accepted by the FileTree component.
- * It now receives the homepage and sortable items as separate collections.
+ * It now receives a pre-filtered list of items to render, and a separate
+ * list of IDs that are valid sortable targets.
  */
 interface FileTreeProps {
-  homepageItem: FlattenedNode;
-  sortableItems: FlattenedNode[];
+  itemsToRender: FlattenedNode[];
+  sortableIds: string[];
   activeId: string | null;
   projected: DndProjection | null;
   baseEditPath: string;
   activePath: string | undefined;
+  homepagePath: string | undefined;
   onCollapse: (id: string) => void;
 }
 
 /**
- * The main container for the sortable file tree.
- * It now renders the homepage separately and wraps only the sortable items
- * in the dnd-kit context, making the homepage inert to DND interactions.
+ * Renders the sortable list of pages.
+ * This component is now a "dumb" presenter; all filtering and state management
+ * is handled by its parent (LeftSidebar).
  */
 export default function FileTree({
-  homepageItem,
-  sortableItems,
+  itemsToRender,
+  sortableIds,
   activeId,
   projected,
   baseEditPath,
   activePath,
+  homepagePath,
   onCollapse,
 }: FileTreeProps) {
-  /**
-   * Memoize the list of sortable IDs to provide to `SortableContext`.
-   */
-  const sortedIds = useMemo(() => sortableItems.map(({ path }) => path), [sortableItems]);
-
   return (
-    <ul className="space-y-0.5">
-      {/* Render the homepage statically, OUTSIDE of the SortableContext. */}
-      <FileTreeNode
-        item={homepageItem}
-        activeId={activeId}
-        projected={projected}
-        baseEditPath={baseEditPath}
-        activePath={activePath}
-        homepagePath={homepageItem.path}
-        onCollapse={onCollapse}
-      />
-
-      {/* The SortableContext only contains items that are actually sortable. */}
-      <SortableContext items={sortedIds} strategy={verticalListSortingStrategy}>
-        {sortableItems.map((item) => (
+    // The SortableContext is given only the IDs of items that can be dragged.
+    // The homepage ID is excluded by the parent component.
+    <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+      <ul className="space-y-0.5">
+        {/* It maps over the pre-filtered list of items to render each node. */}
+        {itemsToRender.map((item) => (
           <FileTreeNode
             key={item.path}
             item={item}
@@ -71,11 +60,11 @@ export default function FileTree({
             projected={projected}
             baseEditPath={baseEditPath}
             activePath={activePath}
-            homepagePath={homepageItem.path}
+            homepagePath={homepagePath}
             onCollapse={onCollapse}
           />
         ))}
-      </SortableContext>
-    </ul>
+      </ul>
+    </SortableContext>
   );
 }

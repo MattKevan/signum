@@ -54,6 +54,7 @@ export default function LeftSidebar() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [offsetLeft, setOffsetLeft] = useState(0);
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const { setNodeRef: setRootDroppableRef } = useDroppable({ id: '__root_droppable__' });
@@ -63,12 +64,23 @@ export default function LeftSidebar() {
     return flattenTree(site.manifest.structure, site.contentFiles);
   }, [site?.manifest.structure, site?.contentFiles]);
   
-  // --- FIX: Split the items into two distinct groups ---
   const homepageItem = useMemo(() => flattenedItems.find(item => item.frontmatter?.homepage === true), [flattenedItems]);
   const sortableItems = useMemo(() => flattenedItems.filter(item => item.frontmatter?.homepage !== true), [flattenedItems]);
-
+  const sortableIds = useMemo(() => sortableItems.map(i => i.path), [sortableItems]);
+  
   const activeItem = activeId ? flattenedItems.find(i => i.path === activeId) : null;
 
+  /**
+   * Filter the items to render based on the collapsed state.
+   */
+  const itemsToRender = useMemo(() => {
+    return flattenedItems.filter(item => {
+        if (item.depth === 0) return true;
+        if (item.parentId && collapsedIds.has(item.parentId)) return false;
+        return true;
+    });
+  }, [flattenedItems, collapsedIds]);
+  
   const projected = useMemo((): DndProjection | null => {
     if (!activeItem || !overId) return null;
     const indentationWidth = 24;
@@ -82,9 +94,7 @@ export default function LeftSidebar() {
     const maxDepth = previousItem ? previousItem.depth + 1 : 0;
     const minDepth = nextItem ? nextItem.depth : 0;
     let depth = Math.max(minDepth, Math.min(projectedDepth, maxDepth));
-    if (depth > 1) {
-        depth = 1;
-    }
+    if (depth > 1) depth = 1;
     let parentId = null;
     if (depth > 0 && previousItem) {
         if (depth === previousItem.depth) parentId = previousItem.parentId;
@@ -94,18 +104,22 @@ export default function LeftSidebar() {
     return { depth, parentId, index: overItemIndex };
   }, [activeId, overId, offsetLeft, flattenedItems, activeItem]);
 
+  const handleCollapse = useCallback((id: string) => {
+    setCollapsedIds(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        return newSet;
+    });
+  }, []);
+
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setActiveId(event.active.id as string);
     setOverId(event.active.id as string);
   }, []);
 
-  const handleDragMove = useCallback((event: DragMoveEvent) => {
-    setOffsetLeft(event.delta.x);
-  }, []);
-
-  const handleDragOver = useCallback((event: DragOverEvent) => {
-    setOverId(event.over?.id as string ?? null);
-  }, []);
+  const handleDragMove = useCallback((event: DragMoveEvent) => setOffsetLeft(event.delta.x), []);
+  const handleDragOver = useCallback((event: DragOverEvent) => setOverId(event.over?.id as string ?? null), []);
   
   const handleDragEnd = useCallback((event: DragEndEvent) => {
     if (!projected) {
@@ -139,7 +153,7 @@ export default function LeftSidebar() {
     return undefined;
   }, [pathname, site, siteId, homepageItem]);
 
-  if (!site || !homepageItem) return null; // Wait for the homepage to be available
+  if (!site) return null;
 
   return (
     <DndContext
@@ -169,19 +183,21 @@ export default function LeftSidebar() {
         </div>
         
         <div className="flex-grow overflow-y-auto p-2" ref={setRootDroppableRef}>
-          {flattenedItems.length > 0 ? (
+          {itemsToRender.length > 0 ? (
             <FileTree 
-              homepageItem={homepageItem}
-              sortableItems={sortableItems}
+              itemsToRender={itemsToRender}
+              sortableIds={sortableIds}
               activeId={activeId}
               projected={projected}
               baseEditPath={`/sites/${siteId}/edit`}
               activePath={activePathForFileTree}
-              onCollapse={() => {}} // Pass a dummy function for now or implement collapse logic
+              homepagePath={homepageItem?.path}
+              // --- FIX: The `onCollapse` handler is now correctly passed to the child component. ---
+              onCollapse={handleCollapse}
             />
           ) : (
             <div className="px-2 py-4 text-xs text-center text-muted-foreground italic">
-              <p>No pages created yet.</p>
+              <p>No pages created yet. Click the buttons above to add one.</p>
             </div>
           )}
         </div>
