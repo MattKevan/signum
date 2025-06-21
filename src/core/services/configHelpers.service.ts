@@ -16,8 +16,8 @@ export type StrictUiSchema = UiSchema & { 'ui:groups'?: { title: string; fields:
 
 export type AssetFileType =
   | 'manifest'
-  | 'base'      // A theme's main HTML shell
-  | 'template'  // A generic template (used by all Layouts)
+  | 'base'
+  | 'template'
   | 'partial'
   | 'stylesheet'
   | 'script'
@@ -26,7 +26,7 @@ export type AssetFileType =
 export interface AssetFile {
   path: string;
   type: AssetFileType;
-  name?: string; // User-friendly name for UI selectors
+  name?: string;
 }
 
 /** The base properties shared by all asset manifests. */
@@ -46,21 +46,31 @@ export interface ThemeManifest extends BaseAssetManifest {
 /** The structure of a layout.json file. */
 export interface LayoutManifest extends BaseAssetManifest {
   id: string;
-  // Use the new, clearer layout types
   layoutType: 'page' | 'list' | 'item';
-  schema?: RJSFSchema; // Optional schema for a layout's own settings.
+  schema?: RJSFSchema;
   uiSchema?: StrictUiSchema;
 }
 
-// SiteDataForAssets no longer needs `viewFiles`
 export type SiteDataForAssets = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
 // --- Helper Functions ---
 
 const fileContentCache = new Map<string, Promise<string | null>>();
 
-const isCoreTheme = (path: string) => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
-const isCoreLayout = (path: string) => CORE_LAYOUTS.some((l: LayoutInfo) => l.path === path);
+// --- FIX: Exported the helper functions for use in siteBackup.service ---
+/**
+ * Checks if a given theme path corresponds to a core (built-in) theme.
+ * @param path The path/ID of the theme (e.g., 'default').
+ * @returns {boolean} True if the theme is a core theme.
+ */
+export const isCoreTheme = (path: string) => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
+
+/**
+ * Checks if a given layout path corresponds to a core (built-in) layout.
+ * @param path The path/ID of the layout (e.g., 'page', 'listing').
+ * @returns {boolean} True if the layout is a core layout.
+ */
+export const isCoreLayout = (path: string) => CORE_LAYOUTS.some((l: LayoutInfo) => l.id === path);
 
 /**
  * Provides a base schema for all content, ensuring common fields are available.
@@ -151,21 +161,19 @@ export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath:
     if (!layoutManifest) {
       // Fallback for a missing layout.json.
       return {
-          id: layoutPath, // Satisfy the required 'id' property
+          id: layoutPath,
           name: layoutPath,
           version: '1.0.0',
-          layoutType: 'page', // Default to 'page' type
+          layoutType: 'page',
           files: [],
           schema: baseSchemaData.schema,
           uiSchema: baseSchemaData.uiSchema,
       }
     }
 
-    // Merge the layout's schema and uiSchema with the base schemas.
     layoutManifest.schema = mergeSchemas(baseSchemaData.schema, layoutManifest.schema);
     layoutManifest.uiSchema = { ...baseSchemaData.uiSchema, ...(layoutManifest.uiSchema || {}) };
 
-    // Clean up properties that are handled by dedicated UI fields, not the generic form.
     if (layoutManifest.schema?.properties) {
       delete layoutManifest.schema.properties.title;
       delete layoutManifest.schema.properties.description;

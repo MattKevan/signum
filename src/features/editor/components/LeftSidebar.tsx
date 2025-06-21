@@ -2,6 +2,8 @@
 'use client';
 
 import { useParams, usePathname } from 'next/navigation';
+import Link from 'next/link';
+
 import { useMemo, useCallback, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAppStore } from '@/core/state/useAppStore';
@@ -9,7 +11,7 @@ import { Button } from '@/core/components/ui/button';
 import FileTree from '@/features/editor/components/FileTree';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
-import { FilePlus, LayoutGrid, GripVertical } from 'lucide-react';
+import { FilePlus, LayoutGrid, GripVertical, Archive, Home } from 'lucide-react';
 import {
   DndContext,
   DragEndEvent,
@@ -25,6 +27,9 @@ import {
 } from '@dnd-kit/core';
 import { flattenTree, FlattenedNode } from '@/core/services/fileTree.service';
 import { arrayMove } from '@dnd-kit/sortable';
+import { toast } from 'sonner';
+import { exportSiteBackup } from '@/core/services/siteBackup.service';
+import { slugify } from '@/lib/utils';
 
 interface DndProjection {
   parentId: string | null;
@@ -47,6 +52,7 @@ export default function LeftSidebar() {
   const params = useParams();
   const pathname = usePathname();
   const siteId = params.siteId as string;
+  const { getSiteById, loadSite } = useAppStore();
 
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { repositionNode } = useAppStore.getState();
@@ -69,6 +75,27 @@ export default function LeftSidebar() {
   const sortableIds = useMemo(() => sortableItems.map(i => i.path), [sortableItems]);
   
   const activeItem = activeId ? flattenedItems.find(i => i.path === activeId) : null;
+
+  const handleExportBackup = async () => {
+    toast.info("Preparing site backup...");
+    try {
+        await loadSite(siteId);
+        const siteToExport = getSiteById(siteId);
+        if (!siteToExport) throw new Error("Could not load site data for export.");
+        const blob = await exportSiteBackup(siteToExport);
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = `${slugify(siteToExport.manifest.title || 'signum-backup')}.zip`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(link.href);
+        toast.success("Site backup downloaded!");
+    } catch (error) {
+        console.error("Failed to export site:", error);
+        toast.error(`Export failed: ${(error as Error).message}`);
+    }
+  };
 
   const itemsToRender = useMemo(() => {
     // This logic correctly filters children of collapsed parents.
@@ -142,6 +169,8 @@ export default function LeftSidebar() {
     }
     resetState();
   }, [projected, site, siteId, repositionNode, flattenedItems.length]);
+
+  
   
   const resetState = useCallback(() => {
     setActiveId(null);
@@ -205,6 +234,13 @@ export default function LeftSidebar() {
               <p>No pages created yet. Click the buttons above to add one.</p>
             </div>
           )}
+        </div>
+
+        <div className="mt-auto shrink-0 border-t p-2 space-y-1">
+            <Button variant="ghost" onClick={handleExportBackup} className="w-full justify-start gap-2">
+                <Archive className="h-4 w-4" /> Export site backup
+            </Button>
+            
         </div>
       </div>
       

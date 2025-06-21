@@ -182,3 +182,22 @@ export async function getImageAsset(siteId: string, imagePath: string): Promise<
   // 2. Return the image from the map, or null if it doesn't exist.
   return imageMap[imagePath] || null;
 }
+
+/**
+ * Retrieves the entire map of image paths to image Blobs for a given site.
+ * @param siteId The ID of the site.
+ * @returns A promise that resolves to a record mapping image paths to their Blob data.
+ */
+export async function getAllImageAssetsForSite(siteId: string): Promise<Record<string, Blob>> {
+    return await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId) || {};
+}
+
+/**
+ * Saves a complete map of image assets for a site.
+ * This is used during the site import process to restore all images at once.
+ * @param siteId The ID of the site to save images for.
+ * @param assets A record mapping image paths to their Blob data.
+ */
+export async function saveAllImageAssetsForSite(siteId: string, assets: Record<string, Blob>): Promise<void> {
+  await siteImageAssetsStore.setItem(siteId, assets);
+}

@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
-import ViewEditor from '@/features/editor/components/ViewEditor'; 
+import ViewEditor from '@/features/editor/components/CollectionSettings'; 
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; 
 
 /**
@@ -74,18 +74,36 @@ export default function FrontmatterSidebar({
   };
 
   return (
-    <div className="p-4 space-y-6 h-full flex flex-col">
-      <h2 className="text-lg font-semibold border-b pb-3">Page Settings</h2>
+    <div className="space-y-6 h-full flex flex-col">
       
       {/* Settings are organized into accordions for clarity */}
-      <Accordion type="multiple" defaultValue={['general', 'advanced']} className="w-full flex-grow overflow-y-auto">
-        <AccordionItem value="general">
-          <AccordionTrigger>General</AccordionTrigger>
-          <AccordionContent className="space-y-6 pt-4">
-            
+      <Accordion type="multiple" defaultValue={['page', 'collection']} className="w-full flex-grow overflow-y-auto">
+        {isCollectionPage && (
+          <AccordionItem value="collection">
+            <AccordionTrigger>Collection settings</AccordionTrigger>
+            <AccordionContent className="pt-2">
+              <ViewEditor siteId={siteId} frontmatter={frontmatter} onFrontmatterChange={onFrontmatterChange} />
+            </AccordionContent>
+          </AccordionItem>
+        )}
+        <AccordionItem value="page">
+          <AccordionTrigger>Page</AccordionTrigger>
+          <AccordionContent className="space-y-6 ">
 
-            <div className="space-y-2">
-              <Label htmlFor="menu-title-input">Menu Title (Optional)</Label>
+            {layoutSchema && (
+                <div className="">
+                    <SchemaDrivenForm schema={layoutSchema} formData={frontmatter} onFormChange={(data) => onFrontmatterChange(data as Partial<MarkdownFrontmatter>)} />
+                </div>
+            )}
+          </AccordionContent>
+        </AccordionItem>
+
+        
+        <AccordionItem value='menu'>
+        <AccordionTrigger>Menu settings</AccordionTrigger>
+          <AccordionContent>
+ <div className="space-y-2">
+              <Label htmlFor="menu-title-input">Menu title (Optional)</Label>
               <Input
                 id="menu-title-input"
                 placeholder="e.g., Home, About Us"
@@ -94,37 +112,27 @@ export default function FrontmatterSidebar({
               />
               <p className="text-xs text-muted-foreground">A short label for navigation menus. If left blank, the page title will be used.</p>
             </div>
-           
-            <div className="space-y-2">
+          </AccordionContent>
+
+        </AccordionItem>
+
+        <AccordionItem value='layout'>
+          <AccordionTrigger>Layout settings</AccordionTrigger>
+          <AccordionContent>
+<div className="space-y-2">
               <Label htmlFor="page-layout-select">Layout</Label>
               <Select value={frontmatter.layout} onValueChange={handleLayoutChange}>
-                  <SelectTrigger id="page-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
+                  <SelectTrigger id="page-layout-select" className='w-full'><SelectValue placeholder="Select a layout..." /></SelectTrigger>
                   <SelectContent>{availableLayouts.map(layout => <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>)}</SelectContent>
               </Select>
                <p className="text-xs text-muted-foreground">Controls the appearance of this page.</p>
             </div>
-
-            {layoutSchema && (
-                <div className="border-t pt-4">
-                     <h4 className="text-sm font-medium mb-2">Layout Options</h4>
-                    <SchemaDrivenForm schema={layoutSchema} formData={frontmatter} onFormChange={(data) => onFrontmatterChange(data as Partial<MarkdownFrontmatter>)} />
-                </div>
-            )}
           </AccordionContent>
         </AccordionItem>
 
-        {isCollectionPage && (
-          <AccordionItem value="collection">
-            <AccordionTrigger>Collection Display</AccordionTrigger>
-            <AccordionContent className="pt-2">
-              <ViewEditor siteId={siteId} frontmatter={frontmatter} onFrontmatterChange={onFrontmatterChange} />
-            </AccordionContent>
-          </AccordionItem>
-        )}
-
         <AccordionItem value="advanced">
           <AccordionTrigger>Advanced</AccordionTrigger>
-          <AccordionContent className="space-y-4 pt-4">
+          <AccordionContent className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="slug-input">URL Slug</Label>
                 <Input
@@ -136,17 +144,12 @@ export default function FrontmatterSidebar({
                 />
                 <p className="text-xs text-muted-foreground">The unique filename for this page. Can only be set on creation.</p>
               </div>
-          </AccordionContent>
-        </AccordionItem>
-      </Accordion>
-
-      {/* The Delete button is only available for existing pages */}
-      {!isNewFileMode && (
-        <div className="mt-auto pt-6 border-t shrink-0">
+              {!isNewFileMode && (
+        <div className="">
           <AlertDialog>
               <AlertDialogTrigger asChild>
                   <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive">
-                      <Trash2 className="h-4 w-4 mr-2" /> Delete This Page
+                      <Trash2 className="h-4 w-4 mr-2" /> Delete page
                   </Button>
               </AlertDialogTrigger>
               <AlertDialogContent>
@@ -166,6 +169,12 @@ export default function FrontmatterSidebar({
           </AlertDialog>
         </div>
       )}
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
+
+      {/* The Delete button is only available for existing pages */}
+      
     </div>
   );
 }

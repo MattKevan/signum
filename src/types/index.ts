@@ -1,5 +1,4 @@
 // src/types/index.ts
-import { SiteSecrets } from '@/core/services/siteSecrets.service';
 
 /**
  * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
@@ -210,4 +209,12 @@ export interface ImageService {
   upload(file: File, siteId: string): Promise<ImageRef>;
   getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string>;
   getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]>;
+}
+
+// Define the shape of the secrets object for a site.
+
+export interface SiteSecrets {
+  cloudinary?: {
+    uploadPreset?: string;
+  };
 }

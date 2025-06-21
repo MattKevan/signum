@@ -1,4 +1,4 @@
-// src/features/editor/components/ViewEditor.tsx
+// src/features/editor/components/CollectionSettings.tsx
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
@@ -62,42 +62,47 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
   }
 
   return (
-    <div className="p-4 border rounded-lg bg-background space-y-6">
-      <h3 className="text-lg font-semibold">Collection Settings</h3>
+    <div className="space-y-6">
+             <h4 className='font-bold'>Collection layouts</h4>
+
       <p className="text-sm text-muted-foreground -mt-4">
         Configure how the list of child pages is displayed on this page.
       </p>
 
       {/* --- Layout Selection --- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="gap-4">
        
         <div className="space-y-2">
-            <Label htmlFor="item-layout">Item Layout (in list)</Label>
-            <Select value={collectionConfig.item_layout} onValueChange={(v) => handleCollectionConfigChange('item_layout', v)}>
-                <SelectTrigger id="item-layout"><SelectValue placeholder="Select..." /></SelectTrigger>
-                <SelectContent>{itemLayouts.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
-            </Select>
-            <p className="text-xs text-muted-foreground">Appearance of each item teaser.</p>
-        </div>
+  <Label htmlFor="item-layout">Item layout (in list)</Label>
+  <div className="w-full">
+    <Select value={collectionConfig.item_layout} onValueChange={(v) => handleCollectionConfigChange('item_layout', v)}>
+      <SelectTrigger id="item-layout" className="!w-full">
+        <SelectValue placeholder="Select..." />
+      </SelectTrigger>
+      <SelectContent>
+        {itemLayouts.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+      </SelectContent>
+    </Select>
+  </div>
+  <p className="text-xs text-muted-foreground">Appearance of each item teaser.</p>
+</div>
       </div>
       <div className="space-y-2">
-        <Label htmlFor="item-page-layout">Full Page Layout (for items)</Label>
+        <Label htmlFor="item-page-layout">Full page layout (for items)</Label>
         <Select value={collectionConfig.item_page_layout} onValueChange={(v) => handleCollectionConfigChange('item_page_layout', v)}>
-            <SelectTrigger id="item-page-layout"><SelectValue placeholder="Select..." /></SelectTrigger>
+            <SelectTrigger id="item-page-layout" className='!w-full'><SelectValue placeholder="Select..." /></SelectTrigger>
             <SelectContent>{pageLayouts.map(l => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}</SelectContent>
         </Select>
          <p className="text-xs text-muted-foreground">The default layout when a user clicks to view a single item from this collection.</p>
       </div>
 
       {/* --- Sorting & Pagination --- */}
-       <Accordion type='single' collapsible className="w-full" defaultValue='item-1'>
-          <AccordionItem value="item-1">
-              <AccordionTrigger>Sorting & Pagination</AccordionTrigger>
-              <AccordionContent className="pt-4 grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-6">
+       <h4 className='font-bold'>Sorting & pagination</h4>
+              <div className="flex flex-col gap-4">
                   <div className="space-y-2">
-                      <Label htmlFor="sort-by">Sort Items By</Label>
+                      <Label htmlFor="sort-by">Sort items by</Label>
                       <Select value={collectionConfig.sort_by} onValueChange={(v) => handleCollectionConfigChange('sort_by', v)}>
-                        <SelectTrigger id="sort-by"><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger id="sort-by" className='!w-full'><SelectValue placeholder="Select..." /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="date">Date</SelectItem>
                             <SelectItem value="title">Title</SelectItem>
@@ -105,28 +110,27 @@ export default function ViewEditor({ siteId, frontmatter, onFrontmatterChange }:
                       </Select>
                   </div>
                   <div className="space-y-2">
-                      <Label htmlFor="sort-order">Sort Order</Label>
+                      <Label htmlFor="sort-order">Sort order</Label>
                        <Select value={collectionConfig.sort_order} onValueChange={(v) => handleCollectionConfigChange('sort_order', v)}>
-                        <SelectTrigger id="sort-order"><SelectValue placeholder="Select..." /></SelectTrigger>
+                        <SelectTrigger id="sort-order"  className='!w-full'><SelectValue placeholder="Select..." /></SelectTrigger>
                         <SelectContent>
                             <SelectItem value="desc">Descending</SelectItem>
                             <SelectItem value="asc">Ascending</SelectItem>
                         </SelectContent>
                       </Select>
                   </div>
-                   <div className="flex items-center space-x-2 pt-2">
+                   <div className="space-y-2">
                         <Label htmlFor="items-per-page">Items Per Page</Label>
                         <Input
                             id="items-per-page"
                             type="number"
                             value={collectionConfig.items_per_page || 10}
                             onChange={(e) => handleCollectionConfigChange('items_per_page', parseInt(e.target.value, 10) || 10)}
-                            className="w-20"
+                            className="w-full block"
                         />
                     </div>
-              </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+                    </div>
+           
     </div>
   );
 }
