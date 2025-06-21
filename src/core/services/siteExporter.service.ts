@@ -2,7 +2,8 @@
 import JSZip from 'jszip';
 import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, Manifest } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
-import { flattenStructureToRenderableNodes } from './fileTree.service';
+// --- FIX: Import the renamed 'flattenTree' utility. ---
+import { flattenTree } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
 import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
@@ -71,7 +72,9 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     if (!contentFiles) {
         throw new Error("Cannot export site: content files are not loaded.");
     }
-    const allRenderableNodes = flattenStructureToRenderableNodes(manifest.structure);
+    
+    // --- FIX: Call the updated 'flattenTree' function with both required arguments. ---
+    const allRenderableNodes = flattenTree(manifest.structure, contentFiles);
 
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
@@ -141,10 +144,11 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
         })
         .filter((item): item is RssItemData => {
             if (!item || !item.file) return false;
+            // Only include items that have a date and are not collection landing pages
             return !!item.file.frontmatter.date && !item.file.frontmatter.collection;
         })
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
-        .slice(0, 20)
+        .slice(0, 20) // Limit to the 20 most recent items
         .map((item) => {
             const relativeUrl = getUrlForNode(item.node, manifest, false);
             const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;

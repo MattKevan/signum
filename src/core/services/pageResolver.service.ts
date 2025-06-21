@@ -9,6 +9,7 @@ import {
     PageType,
     StructureNode,
 } from '@/types';
+// --- FIX: The import is now valid as findChildNodes exists in the target module ---
 import { findNodeByPath, findChildNodes } from './fileTree.service';
 import { getUrlForNode } from './urlUtils.service';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
@@ -17,7 +18,6 @@ import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
  * Executes a declarative query for a Collection Page.
  * This pure function takes the config and site data, finds all child pages
  * in the structure, fetches their content, and returns a fully sorted array.
- * Pagination is handled by the main resolver.
  *
  * @param {CollectionConfig} collectionConfig - The configuration object from the page's frontmatter.
  * @param {StructureNode} collectionNode - The structure node for the Collection Page itself.
@@ -40,12 +40,10 @@ function executeCollectionQuery(
     // Filter the site's content files to get only the ones that are children.
     const items = siteData.contentFiles.filter(file => childPaths.has(file.path));
 
-    // --- Sorting Logic ---
     const sortBy = collectionConfig.sort_by || 'date';
     const sortOrder = collectionConfig.sort_order || 'desc';
     const orderModifier = sortOrder === 'desc' ? -1 : 1;
 
-    // Create a copy of the array before sorting to avoid mutating the original.
     return [...items].sort((a, b) => {
         const valA = a.frontmatter[sortBy];
         const valB = b.frontmatter[sortBy];
@@ -83,15 +81,28 @@ export function resolvePageContent(
     slugArray: string[],
     pageNumber: number = 1,
 ): PageResolutionResult {
-    const pathSuffix = slugArray.length > 0 ? slugArray.join('/') : 'index';
-    const potentialPagePath = `content/${pathSuffix}.md`;
+    // Determine the homepage by finding the file with `homepage: true`.
+    const homepageFile = siteData.contentFiles?.find(f => f.frontmatter.homepage === true);
+    
+    // If the slug is empty, we are trying to render the homepage.
+    const isHomepageRequest = slugArray.length === 0 || (slugArray.length === 1 && slugArray[0] === '');
+    const pathFromSlug = `content/${slugArray.join('/')}.md`;
 
-    const targetNode = findNodeByPath(siteData.manifest.structure, potentialPagePath);
+    // Determine the target path. If it's a homepage request, use the homepage file's path.
+    const targetNodePath = isHomepageRequest ? homepageFile?.path : pathFromSlug;
+    
+    if (!targetNodePath) {
+        return {
+            type: PageType.NotFound,
+            errorMessage: "No homepage has been designated for this site.",
+        };
+    }
 
+    const targetNode = findNodeByPath(siteData.manifest.structure, targetNodePath);
     if (!targetNode) {
         return {
             type: PageType.NotFound,
-            errorMessage: `No page found at the path: /${slugArray.join('/')}`,
+            errorMessage: `No page found in site structure for path: ${targetNodePath}`,
         };
     }
 
@@ -112,33 +123,30 @@ export function resolvePageContent(
         const itemsPerPage = collectionConfig.items_per_page;
 
         if (itemsPerPage && itemsPerPage > 0) {
-            // Handle pagination if configured
             const totalItems = allItems.length;
             const totalPages = Math.ceil(totalItems / itemsPerPage);
             const currentPage = Math.max(1, Math.min(pageNumber, totalPages));
-
             const startIndex = (currentPage - 1) * itemsPerPage;
             collectionItems = allItems.slice(startIndex, startIndex + itemsPerPage);
 
-            const pageUrlSegment = getUrlForNode(targetNode, false);
-            const baseUrl = pageUrlSegment ? `/${pageUrlSegment}` : '/';
-
+            const pageUrlSegment = getUrlForNode(targetNode, siteData.manifest, false);
+            const baseUrl = pageUrlSegment ? `/${pageUrlSegment}` : '';
+            
             pagination = {
                 currentPage,
                 totalPages,
                 totalItems,
                 hasPrevPage: currentPage > 1,
                 hasNextPage: currentPage < totalPages,
-                prevPageUrl: currentPage > 1 ? `${baseUrl}?page=${currentPage - 1}` : undefined,
-                nextPageUrl: currentPage < totalPages ? `${baseUrl}?page=${currentPage + 1}` : undefined,
+                prevPageUrl: currentPage > 1 ? (currentPage === 2 ? baseUrl || '/' : `${baseUrl}/page/${currentPage - 1}`) : undefined,
+                nextPageUrl: currentPage < totalPages ? `${baseUrl}/page/${currentPage + 1}` : undefined,
             };
+
         } else {
-            // If no pagination, just return all items
             collectionItems = allItems;
         }
     }
 
-    // The result object has been renamed for clarity ('viewItems' -> 'collectionItems')
     return {
         type: PageType.SinglePage,
         pageTitle: contentFile.frontmatter.title,

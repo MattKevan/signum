@@ -14,7 +14,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 import ViewEditor from '@/features/editor/components/ViewEditor'; 
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; 
-import HomepageSwitch from './HomepageSwitch'; 
 
 /**
  * Props for the FrontmatterSidebar component.
@@ -84,14 +83,6 @@ export default function FrontmatterSidebar({
           <AccordionTrigger>General</AccordionTrigger>
           <AccordionContent className="space-y-6 pt-4">
             
-            {/* The Homepage switch is only visible for existing pages */}
-            {!isNewFileMode && (
-              <HomepageSwitch
-                siteId={siteId}
-                pagePath={filePath}
-                isHomepage={!!frontmatter.homepage}
-              />
-            )}
 
             <div className="space-y-2">
               <Label htmlFor="menu-title-input">Menu Title (Optional)</Label>

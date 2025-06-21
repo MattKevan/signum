@@ -4,18 +4,24 @@
 import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
-import { LocalSiteData } from '@/types'; // Import the site data type
+import type { LocalSiteData } from '@/types';
 
-/**
- * The hook now accepts the site data as an argument to make it smarter.
- */
 interface PageIdentifierParams {
+  /** The fully loaded site data object from the Zustand store. */
   site: LocalSiteData | undefined;
 }
 
 /**
- * Parses the URL to identify the site and the specific file being targeted for editing.
- * It is now data-aware and can correctly identify the homepage file from the root editor URL.
+ * A data-aware hook that parses the URL to identify the site and the specific
+ * file path being targeted for editing.
+ *
+ * Its primary responsibilities are:
+ * 1.  Identifying when the user is creating a new file.
+ * 2.  Resolving a URL with a slug (e.g., `/edit/content/about-us`) to a file path (`content/about-us.md`).
+ * 3.  **Crucially, resolving the editor's root URL (`/edit/content`) to the site's designated homepage file path.**
+ *
+ * @param {PageIdentifierParams} props - Contains the loaded site data.
+ * @returns An object containing the resolved `siteId`, `filePath`, and other contextual flags.
  */
 export function usePageIdentifier({ site }: PageIdentifierParams) {
   const params = useParams();
@@ -31,24 +37,29 @@ export function usePageIdentifier({ site }: PageIdentifierParams) {
       return parentSlug ? `content/${parentSlug}` : 'content';
     }
 
-    // --- NEW LOGIC FOR EXISTING FILES ---
-    if (slugSegments.length > 0) {
-      // If the URL has a slug, derive the path directly from it.
-      const slug = slugSegments.join('/');
+    // --- Logic for an existing file ---
+    const slug = slugSegments.join('/');
+    
+    // If the URL has a specific slug, the file path is derived directly from it.
+    if (slug) {
       return `content/${slug}.md`;
-    } else {
-      // If the URL has NO slug, it means we are at the editor root.
-      // We must find the designated homepage file from the site data.
-      if (site?.contentFiles) {
-        const homepageFile = site.contentFiles.find(f => f.frontmatter.homepage === true);
-        // Return the actual path of the homepage file.
-        if (homepageFile) {
-          return homepageFile.path;
-        }
-      }
-      // Fallback while data is loading or if no homepage is set.
-      return '';
     }
+
+    // **Homepage Resolution Logic**
+    // If the URL has NO slug, we are at the editor's root. We must find the
+    // designated homepage file from the loaded site data.
+    if (site?.contentFiles) {
+      const homepageFile = site.contentFiles.find(f => f.frontmatter.homepage === true);
+      // Return the actual path of the homepage file.
+      if (homepageFile) {
+        return homepageFile.path;
+      }
+    }
+    
+    // Fallback: If data is not yet loaded or if the site is brand new and has no
+    // pages (and therefore no homepage), return an empty path. The UI will handle this state.
+    return '';
+
   }, [slugSegments, isNewFileMode, site]);
 
   return { siteId, slugSegments, isNewFileMode, filePath };

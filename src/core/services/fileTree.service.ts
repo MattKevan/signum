@@ -1,5 +1,71 @@
 // src/core/services/fileTree.service.ts
-import { StructureNode } from '@/types';
+import type { ParsedMarkdownFile, StructureNode } from '@/types';
+
+/**
+ * A flattened representation of a StructureNode, including its depth and parent.
+ * It also includes the frontmatter for easier access in UI components.
+ */
+export interface FlattenedNode extends StructureNode {
+  parentId: string | null;
+  depth: number;
+  index: number;
+  collapsed?: boolean;
+  frontmatter?: ParsedMarkdownFile['frontmatter'];
+}
+
+/**
+ * Recursively traverses a tree of StructureNodes and flattens it into an array.
+ * It now also merges frontmatter data into each node.
+ */
+function flatten(
+  nodes: StructureNode[],
+  contentFiles: ParsedMarkdownFile[],
+  parentId: string | null = null,
+  depth = 0
+): FlattenedNode[] {
+  return nodes.reduce<FlattenedNode[]>((acc, item, index) => {
+    const file = contentFiles.find(f => f.path === item.path);
+    return [
+      ...acc,
+      { ...item, parentId, depth, index, frontmatter: file?.frontmatter },
+      ...(item.children ? flatten(item.children, contentFiles, item.path, depth + 1) : []),
+    ];
+  }, []);
+}
+
+/**
+ * Public facing function to flatten the entire site structure tree.
+ */
+export function flattenTree(nodes: StructureNode[], contentFiles: ParsedMarkdownFile[]): FlattenedNode[] {
+  return flatten(nodes, contentFiles);
+}
+
+/**
+ * Reconstructs a nested tree structure from a flat array of nodes.
+ */
+export function buildTree(flattenedNodes: FlattenedNode[]): StructureNode[] {
+  const root: StructureNode & { children: StructureNode[] } = {
+    path: 'root', slug: 'root', title: 'root', type: 'page', children: []
+  };
+  const nodes: Record<string, StructureNode> = { [root.path]: root };
+
+  const items = flattenedNodes.map(item => ({ ...item, children: [] as StructureNode[] }));
+
+  for (const item of items) {
+    const { path } = item;
+    const parentId = item.parentId ?? root.path;
+    
+    nodes[path] = item;
+    const parent = nodes[parentId];
+
+    if (parent) {
+      parent.children = parent.children ?? [];
+      parent.children.push(item);
+    }
+  }
+  
+  return root.children ?? [];
+}
 
 /**
  * Finds a node in a structure tree by its exact `path`.
@@ -15,110 +81,84 @@ export function findNodeByPath(nodes: StructureNode[], path: string): StructureN
   return undefined;
 }
 
-/**
- * Recursively traverses the structure tree and collects all nodes.
- */
-export function flattenStructureToRenderableNodes(nodes: StructureNode[]): StructureNode[] {
-  let renderableNodes: StructureNode[] = [];
-  for (const node of nodes) {
-    renderableNodes.push(node);
-    if (node.children) {
-      renderableNodes = renderableNodes.concat(flattenStructureToRenderableNodes(node.children));
-    }
-  }
-  return renderableNodes;
-}
-
-/**
- * Gets the parent directory path for a given file path.
- */
-export function getParentPath(path: string): string {
-  if (!path.includes('/')) return 'content';
-  return path.substring(0, path.lastIndexOf('/'));
-}
-
-/**
- * Finds and removes a node from a tree structure.
- */
-export function findAndRemoveNode(nodes: StructureNode[], path: string): { found: StructureNode | null, tree: StructureNode[] } {
-  let found: StructureNode | null = null;
-  const filterRecursively = (currentNodes: StructureNode[]): StructureNode[] => currentNodes.reduce((acc: StructureNode[], node) => {
-    if (node.path === path) {
-      found = node;
-      return acc;
-    }
-    if (node.children) node.children = filterRecursively(node.children);
-    acc.push(node);
-    return acc;
-  }, []);
-  const newTree = filterRecursively(nodes);
-  return { found, tree: newTree };
-}
-
-/**
- * Recursively updates the path of a node and all of its descendants.
- */
-export function updatePathsRecursively(node: StructureNode, newParentPath: string): StructureNode {
-  const oldFileName = node.path.substring(node.path.lastIndexOf('/'));
-  const newPath = `${newParentPath}${oldFileName}`;
-  const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
-  const updatedNode: StructureNode = { ...node, path: newPath, slug: newSlug };
-  if (updatedNode.children) {
-    const newChildsParentPath = newPath.replace(/\.md$/, '');
-    updatedNode.children = updatedNode.children.map(child => updatePathsRecursively(child, newChildsParentPath));
-  }
-  return updatedNode;
-}
-
+// --- FIX: Re-added the exported findChildNodes function ---
 /**
  * Finds all direct child nodes of a given parent node path.
+ * This is a simple utility used by the page resolver for collection pages.
+ * @param {StructureNode[]} nodes - The entire site structure tree.
+ * @param {string} parentPath - The path of the parent node whose children are needed.
+ * @returns {StructureNode[]} An array of child nodes, or an empty array if not found.
  */
 export function findChildNodes(nodes: StructureNode[], parentPath: string): StructureNode[] {
     const parentNode = findNodeByPath(nodes, parentPath);
     return parentNode?.children || [];
 }
 
+
 /**
- * Finds the parent of a node in the structure tree.
+ * Finds and removes a node from a tree structure immutably.
  */
-export function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
+export function findAndRemoveNode(nodes: StructureNode[], path: string): { found: StructureNode | null, tree: StructureNode[] } {
+    let found: StructureNode | null = null;
+    const filterRecursively = (currentNodes: StructureNode[]): StructureNode[] => {
+      return currentNodes.reduce<StructureNode[]>((acc, node) => {
+        if (node.path === path) {
+          found = node;
+          return acc;
+        }
+        const newNode = { ...node };
+        if (newNode.children) {
+          newNode.children = filterRecursively(newNode.children);
+        }
+        acc.push(newNode);
+        return acc;
+      }, []);
+    };
+    const newTree = filterRecursively(nodes);
+    return { found, tree: newTree };
+  }
+  
+/**
+ * Recursively updates the path of a node and all of its descendants.
+ */
+export function updatePathsRecursively(node: StructureNode, newParentDir: string): StructureNode {
+    const fileName = node.path.substring(node.path.lastIndexOf('/') + 1);
+    const newPath = `${newParentDir}/${fileName}`.replace('//', '/');
+    const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
+    const updatedNode: StructureNode = { ...node, path: newPath, slug: newSlug };
+    if (updatedNode.children) {
+      const newChildsParentPath = newPath.replace(/\.md$/, '');
+      updatedNode.children = updatedNode.children.map(child =>
+        updatePathsRecursively(child, newChildsParentPath)
+      );
+    }
+    return updatedNode;
+}
+  
+/**
+ * Recursively calculates the depth of a specific node within the tree.
+ */
+export function getNodeDepth(nodes: StructureNode[], path: string, currentDepth = 0): number {
     for (const node of nodes) {
-        if (node.path === path) return parent;
+        if (node.path === path) {
+            return currentDepth;
+        }
         if (node.children) {
-            const found = findParentOfNode(node.children, path, node);
-            if (found) return found;
+            const depth = getNodeDepth(node.children, path, currentDepth + 1);
+            if (depth !== -1) {
+                return depth;
+            }
         }
     }
-    return null;
+    return -1;
 }
-
+  
 /**
- * Updates a specific node's children within a larger tree structure.
- */
-export function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
-    return nodes.map(node => {
-        if (node.path === parentPath) {
-            return { ...node, children: newChildren };
-        }
-        if (node.children) {
-            return { ...node, children: updateNodeInChildren(node.children, parentPath, newChildren) };
-        }
-        return node;
-    });
-}
-
-/**
- * --- FIX: ADDED MISSING FUNCTION ---
- * Recursively traverses a node tree and returns a flat array of all
- * node paths (IDs), including all descendants. This is required for dnd-kit's
- * SortableContext to be aware of all possible draggable items.
- *
- * @param {StructureNode[]} nodes - The array of nodes to flatten.
- * @returns {string[]} A flat array of all descendant paths.
+ * Recursively traverses a node tree and returns a flat array of all node paths (IDs).
  */
 export function getDescendantIds(nodes: StructureNode[]): string[] {
-  return nodes.flatMap(node => [
-    node.path,
-    ...(node.children ? getDescendantIds(node.children) : []),
-  ]);
+    return nodes.flatMap(node => [
+      node.path,
+      ...(node.children ? getDescendantIds(node.children) : []),
+    ]);
 }
