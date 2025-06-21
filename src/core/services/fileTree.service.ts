@@ -80,7 +80,6 @@ export function findChildNodes(nodes: StructureNode[], parentPath: string): Stru
 
 /**
  * Finds the parent of a node in the structure tree.
- * FIX: This function is now properly exported.
  */
 export function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
     for (const node of nodes) {
@@ -95,7 +94,6 @@ export function findParentOfNode(nodes: StructureNode[], path: string, parent: S
 
 /**
  * Updates a specific node's children within a larger tree structure.
- * FIX: This function is now properly exported.
  */
 export function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
     return nodes.map(node => {
@@ -107,4 +105,20 @@ export function updateNodeInChildren(nodes: StructureNode[], parentPath: string,
         }
         return node;
     });
+}
+
+/**
+ * --- FIX: ADDED MISSING FUNCTION ---
+ * Recursively traverses a node tree and returns a flat array of all
+ * node paths (IDs), including all descendants. This is required for dnd-kit's
+ * SortableContext to be aware of all possible draggable items.
+ *
+ * @param {StructureNode[]} nodes - The array of nodes to flatten.
+ * @returns {string[]} A flat array of all descendant paths.
+ */
+export function getDescendantIds(nodes: StructureNode[]): string[] {
+  return nodes.flatMap(node => [
+    node.path,
+    ...(node.children ? getDescendantIds(node.children) : []),
+  ]);
 }

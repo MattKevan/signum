@@ -16,6 +16,25 @@ import { SiteSlice } from '@/core/state/slices/siteSlice';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 
 /**
+ * A private helper function to update the paths and slugs of content files
+ * in the in-memory state after a move operation.
+ * @param files The current array of content files.
+ * @param pathsToMove An array of objects mapping old paths to new paths.
+ * @returns A new array of content files with updated paths.
+ */
+const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldPath: string; newPath:string }[]): ParsedMarkdownFile[] => {
+    const pathMap = new Map(pathsToMove.map(p => [p.oldPath, p.newPath]));
+    return files.map(file => {
+        if (pathMap.has(file.path)) {
+            const newPath = pathMap.get(file.path)!;
+            const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
+            return { ...file, path: newPath, slug: newSlug };
+        }
+        return file;
+    });
+};
+
+/**
  * Defines the state and actions for managing a site's content and structure.
  * This includes creating, updating, deleting, and reordering pages.
  */
@@ -80,6 +99,8 @@ export interface ContentSlice {
    * @param activePath The path of the node being un-nested.
    */
   unNestNodeAction: (siteId: string, activePath: string) => Promise<void>;
+    repositionNode: (siteId: string, activePath: string, overPath: string, intent: 'reorder-before' | 'reorder-after' | 'nest') => Promise<void>;
+
 }
 
 export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], ContentSlice> = (set, get) => ({
@@ -95,6 +116,8 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
       }
     }));
   },
+
+  
 
   addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
     const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
@@ -168,38 +191,73 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     }
   },
 
+
   moveNode: async (siteId, draggedNodePath, targetNodePath) => {
     const site = get().getSiteById(siteId);
-    if (!site) { toast.error("Site data not found."); return; }
+    if (!site?.contentFiles) {
+      toast.error("Site data not found.");
+      return;
+    }
+
+    // --- 1. PREPARE STATE CHANGES IN MEMORY ---
     const { found: draggedNode, tree: treeWithoutDraggedNode } = findAndRemoveNode([...site.manifest.structure], draggedNodePath);
-    if (!draggedNode) { toast.error("An error occurred while moving the page."); return; }
+    if (!draggedNode) {
+      toast.error("An error occurred while moving the page.");
+      return;
+    }
 
     const newParentPath = targetNodePath ? targetNodePath.replace(/\.md$/, '') : 'content';
     const updatedNode = updatePathsRecursively(draggedNode, newParentPath);
 
-    const pathsToMove: { oldPath: string, newPath: string }[] = [];
+    const pathsToMove: { oldPath: string; newPath: string }[] = [];
     const collectPaths = (newNode: StructureNode, oldNode: StructureNode) => {
-      if (newNode.path !== oldNode.path) pathsToMove.push({ oldPath: oldNode.path, newPath: newNode.path });
-      if (newNode.children && oldNode.children) newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
+      if (newNode.path !== oldNode.path) {
+        pathsToMove.push({ oldPath: oldNode.path, newPath: newNode.path });
+      }
+      if (newNode.children && oldNode.children) {
+        newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
+      }
     };
     collectPaths(updatedNode, draggedNode);
 
-    if (pathsToMove.length > 0) await localSiteFs.moveContentFiles(siteId, pathsToMove);
-    
     let finalTree: StructureNode[];
     if (targetNodePath) {
       const insertIntoTree = (nodes: StructureNode[]): StructureNode[] => nodes.map(node => {
-        if (node.path === targetNodePath) return { ...node, children: [...(node.children || []), updatedNode] };
-        if (node.children) return { ...node, children: insertIntoTree(node.children) };
+        if (node.path === targetNodePath) {
+          return { ...node, children: [...(node.children || []), updatedNode] };
+        }
+        if (node.children) {
+          return { ...node, children: insertIntoTree(node.children) };
+        }
         return node;
       });
       finalTree = insertIntoTree(treeWithoutDraggedNode);
     } else {
       finalTree = [...treeWithoutDraggedNode, updatedNode];
     }
+
+    // --- 2. PERSIST TO FILE SYSTEM ---
+    if (pathsToMove.length > 0) {
+      await localSiteFs.moveContentFiles(siteId, pathsToMove);
+    }
+
+    // --- 3. UPDATE ZUSTAND STORE TRANSACTIONALLY ---
     const newManifest = { ...site.manifest, structure: finalTree };
-    await get().updateManifest(siteId, newManifest);
-    await get().loadSite(siteId);
+    const updatedContentFiles = updateContentFilePaths(site.contentFiles, pathsToMove);
+
+    set(
+      produce((draft: any) => {
+        const siteToUpdate = draft.sites.find((s: any) => s.siteId === siteId);
+        if (siteToUpdate) {
+          siteToUpdate.manifest = newManifest;
+          siteToUpdate.contentFiles = updatedContentFiles;
+        }
+      })
+    );
+    
+    // Persist the new manifest
+    await localSiteFs.saveManifest(siteId, newManifest);
+
     toast.success(`Moved "${updatedNode.title}" successfully.`);
   },
 
@@ -279,4 +337,108 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     unNestNodeAction: async (siteId, activePath) => {
         return get().moveNode(siteId, activePath, null);
     },
+repositionNode: async (
+    siteId: string,
+    activePath: string,
+    overPath: string,
+    intent: 'reorder-before' | 'reorder-after' | 'nest'
+  ) => {
+    const site = get().getSiteById(siteId);
+    if (!site || !site.contentFiles) {
+        toast.error("Site data not loaded. Cannot move page.");
+        return;
+    }
+
+    // --- 1. VALIDATE THE MOVE ---
+    const homepagePath = site.manifest.structure[0]?.path;
+    if (activePath === homepagePath) {
+      toast.error("The homepage cannot be moved.");
+      return;
+    }
+    if (intent === 'reorder-before' && overPath === homepagePath) {
+      toast.error("Pages cannot be moved above the homepage.");
+      return;
+    }
+    if (intent === 'nest') {
+      const targetFile = site.contentFiles.find(f => f.path === overPath);
+      if (targetFile?.frontmatter.collection) {
+        toast.error("Cannot nest pages under a Collection Page.");
+        return;
+      }
+    }
+
+    // --- 2. PREPARE THE NEW STRUCTURE (in memory) ---
+    const { found: activeNode, tree: treeWithoutActive } = findAndRemoveNode([...site.manifest.structure], activePath);
+    if (!activeNode) return;
+
+    let finalTree = treeWithoutActive;
+
+    if (intent === 'nest') {
+        const insert = (nodes: StructureNode[]): boolean => {
+            for (const node of nodes) {
+                if (node.path === overPath) {
+                    node.children = [...(node.children || []), activeNode];
+                    return true;
+                }
+                if (node.children && insert(node.children)) return true;
+            }
+            return false;
+        };
+        insert(finalTree);
+    } else { // Handle reordering (which also covers un-nesting)
+        const parentOfOver = findParentOfNode(finalTree, overPath);
+        const targetList = parentOfOver ? parentOfOver.children! : finalTree;
+        const overIndex = targetList.findIndex(n => n.path === overPath);
+        const newIndex = intent === 'reorder-after' ? overIndex + 1 : overIndex;
+        targetList.splice(newIndex, 0, activeNode);
+        
+        if (parentOfOver) {
+            finalTree = updateNodeInChildren(finalTree, parentOfOver.path, targetList);
+        } else {
+            finalTree = targetList;
+        }
+    }
+
+    // --- 3. CALCULATE REQUIRED FILE PATH CHANGES ---
+    const parentOfActiveFinal = findParentOfNode(finalTree, activePath);
+    const newParentDir = parentOfActiveFinal ? parentOfActiveFinal.path.replace(/\.md$/, '') : 'content';
+    const finalActiveNode = updatePathsRecursively(activeNode, newParentDir);
+    
+    const pathsToMove: { oldPath: string; newPath: string }[] = [];
+    const collectPaths = (newNode: StructureNode, oldNode: StructureNode) => {
+        if (newNode.path !== oldNode.path) pathsToMove.push({ oldPath: oldNode.path, newPath: newNode.path });
+        if (newNode.children && oldNode.children) newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
+    };
+    collectPaths(finalActiveNode, activeNode);
+
+    // --- 4. EXECUTE THE FULLY TRANSACTIONAL UPDATE ---
+    try {
+        // Step 4a: Persist physical file moves first
+        if (pathsToMove.length > 0) {
+            await localSiteFs.moveContentFiles(siteId, pathsToMove);
+        }
+
+        // Step 4b: Prepare new state for Zustand
+        const newManifest = { ...site.manifest, structure: finalTree };
+        const updatedContentFiles = updateContentFilePaths(site.contentFiles, pathsToMove);
+        
+        // Step 4c: Update Zustand store atomically
+        set(produce((draft: any) => {
+            const siteToUpdate = draft.sites.find((s: any) => s.siteId === siteId);
+            if (siteToUpdate) {
+                siteToUpdate.manifest = newManifest;
+                siteToUpdate.contentFiles = updatedContentFiles;
+            }
+        }));
+
+        // Step 4d: Persist the new manifest structure
+        await localSiteFs.saveManifest(siteId, newManifest);
+        toast.success("Site structure updated successfully.");
+    } catch (error) {
+        console.error("Failed to reposition node:", error);
+        toast.error("An error occurred while updating the site structure.");
+        // If anything fails, reload state from storage to prevent UI inconsistencies
+        get().loadSite(siteId);
+    }
+  },
 });

@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: public, ios, node_modules
+Excluded Directories: ios, node_modules, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -82,8 +82,9 @@ export interface CollectionConfig {
  */
 export interface MarkdownFrontmatter {
   title: string;
-  layout: string; // The layout for this specific page's content.
+  layout: string; 
   collection?: CollectionConfig;
+  homepage?: boolean;
   [key: string]: unknown;
 }
 
@@ -521,6 +522,8 @@ enableMapSet();
 type AppStore = SiteSlice & ContentSlice & SecretsSlice & {
   isInitialized: boolean;
   initialize: () => void;
+  activeSiteId: string | null;
+  setActiveSiteId: (siteId: string | null) => void;
 };
 
 export const useAppStore = create<AppStore>()((...a) => ({
@@ -531,6 +534,12 @@ export const useAppStore = create<AppStore>()((...a) => ({
     console.log('[AppStore] Initializing application state...');
     set({ isInitialized: true });
   },
+
+  activeSiteId: null,
+  setActiveSiteId: (siteId) => {
+    a[0]({ activeSiteId: siteId });
+  },
+
   ...createSiteSlice(...a),
   ...createContentSlice(...a),
   ...createSecretsSlice(...a),
@@ -542,117 +551,160 @@ File: core/state/slices/contentSlice.ts
 // src/core/state/slices/contentSlice.ts
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
-import { ParsedMarkdownFile, StructureNode } from '@/types';
-import * as localSiteFs from '@/core/services/localFileSystem.service';
-import { getParentPath, findNodeByPath, findAndRemoveNode, updatePathsRecursively } from '@/core/services/fileTree.service';
+import { arrayMove } from '@dnd-kit/sortable';
 import { toast } from 'sonner';
+import { ParsedMarkdownFile, StructureNode, MarkdownFrontmatter } from '@/types';
+import * as localSiteFs from '@/core/services/localFileSystem.service';
+import {
+  getParentPath,
+  findAndRemoveNode,
+  updatePathsRecursively,
+  findParentOfNode,
+  updateNodeInChildren,
+} from '@/core/services/fileTree.service';
 import { SiteSlice } from '@/core/state/slices/siteSlice';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 
+/**
+ * A private helper function to update the paths and slugs of content files
+ * in the in-memory state after a move operation.
+ * @param files The current array of content files.
+ * @param pathsToMove An array of objects mapping old paths to new paths.
+ * @returns A new array of content files with updated paths.
+ */
+const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldPath: string; newPath:string }[]): ParsedMarkdownFile[] => {
+    const pathMap = new Map(pathsToMove.map(p => [p.oldPath, p.newPath]));
+    return files.map(file => {
+        if (pathMap.has(file.path)) {
+            const newPath = pathMap.get(file.path)!;
+            const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
+            return { ...file, path: newPath, slug: newSlug };
+        }
+        return file;
+    });
+};
+
+/**
+ * Defines the state and actions for managing a site's content and structure.
+ * This includes creating, updating, deleting, and reordering pages.
+ */
 export interface ContentSlice {
+  /**
+   * Creates a new content file or updates an existing one. It persists the file
+   * to storage and updates the site manifest's structure tree.
+   * @param siteId The ID of the site being modified.
+   * @param filePath The full path for the content file (e.g., 'content/about.md').
+   * @param rawMarkdownContent The full content of the file, including frontmatter.
+   * @returns A promise that resolves to true on success.
+   */
   addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
+
+  /**
+   * Deletes a content file from storage, removes it from the manifest structure,
+   * and updates all relevant state. If the deleted file was the homepage, it
+   * intelligently assigns a new homepage.
+   * @param siteId The ID of the site being modified.
+   * @param filePath The path of the content file to delete.
+   */
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
+
+  /**
+   * Moves a node (and all its children) to a new parent in the structure tree.
+   * This handles file path/slug updates and physical file moves in storage.
+   * @param siteId The ID of the site being modified.
+   * @param draggedNodePath The path of the node being moved.
+   * @param targetNodePath The path of the new parent node, or null to move to the root.
+   */
   moveNode: (siteId: string, draggedNodePath: string, targetNodePath: string | null) => Promise<void>;
+
+  /**
+   * A lightweight action to save changes to a file's content or frontmatter
+   * without altering the site's structure tree.
+   * @param siteId The ID of the site being modified.
+   * @param savedFile The complete `ParsedMarkdownFile` object to save.
+   */
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
+
+  /**
+   * Sets a specific page as the site's homepage. This action ensures that only
+   * one page has the `homepage: true` flag by removing the flag from the
+   * previous homepage in a single, transactional operation.
+   * @param siteId The ID of the site being modified.
+   * @param newHomepagePath The path of the file to designate as the new homepage.
+   */
+  setHomepageAction: (siteId: string, newHomepagePath: string) => Promise<void>;
+
+  /**
+   * Reorders a node within its current list of siblings.
+   * @param siteId The ID of the site being modified.
+   * @param activePath The path of the node being dragged.
+   * @param targetPath The path of the node being dropped onto.
+   * @param position Indicates whether the drop was above or below the target.
+   */
+  reorderNodeAction: (siteId: string, activePath: string, targetPath: string, position: 'reorder-before' | 'reorder-after') => Promise<void>;
+  
+  /**
+   * Moves a nested node to the root level of the site structure.
+   * @param siteId The ID of the site being modified.
+   * @param activePath The path of the node being un-nested.
+   */
+  unNestNodeAction: (siteId: string, activePath: string) => Promise<void>;
+    repositionNode: (siteId: string, activePath: string, overPath: string, intent: 'reorder-before' | 'reorder-after' | 'nest') => Promise<void>;
+
 }
 
 export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], ContentSlice> = (set, get) => ({
 
-    updateContentFileOnly: async (siteId, savedFile) => {
-        await localSiteFs.saveContentFile(siteId, savedFile.path, stringifyToMarkdown(savedFile.frontmatter, savedFile.content));
+  updateContentFileOnly: async (siteId, savedFile) => {
+    await localSiteFs.saveContentFile(siteId, savedFile.path, stringifyToMarkdown(savedFile.frontmatter, savedFile.content));
+    set(produce((draft: SiteSlice) => {
+      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+      if (siteToUpdate?.contentFiles) {
+        const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === savedFile.path);
+        if (fileIndex !== -1) siteToUpdate.contentFiles[fileIndex] = savedFile;
+        else siteToUpdate.contentFiles.push(savedFile);
+      }
+    }));
+  },
 
-        set(produce((draft: SiteSlice) => {
-            const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-            if (siteToUpdate?.contentFiles) {
-                const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === savedFile.path);
-                if (fileIndex !== -1) {
-                    siteToUpdate.contentFiles[fileIndex] = savedFile;
-                } else {
-                    siteToUpdate.contentFiles.push(savedFile);
-                }
-            }
-        }));
-    },
+  
 
- addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
+  addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
     const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
     const site = get().getSiteById(siteId);
     if (!site || !site.contentFiles) return false;
 
     const isNewFile = !site.contentFiles.some(f => f.path === filePath);
-
-    // --- FIX: Safely extract menuTitle with a type check ---
-    const menuTitle = typeof savedFile.frontmatter.menuTitle === 'string'
-      ? savedFile.frontmatter.menuTitle
-      : undefined;
+    const menuTitle = typeof savedFile.frontmatter.menuTitle === 'string' ? savedFile.frontmatter.menuTitle : undefined;
 
     const newManifest = produce(site.manifest, draft => {
-        let parentFound = false;
-        const parentPath = getParentPath(filePath);
-
-        const findAndUpdateNode = (nodes: StructureNode[]): StructureNode[] => {
-            return nodes.map(node => {
-                if (!isNewFile && node.path === filePath) {
-                    return { 
-                        ...node, 
-                        title: savedFile.frontmatter.title,
-                        menuTitle: menuTitle, // Use the safe, typed variable
-                    };
-                }
-
-                const nodeAsDir = node.path.replace(/\.md$/, '');
-                if (isNewFile && parentPath === nodeAsDir) {
-                    parentFound = true;
-                    return {
-                        ...node,
-                        children: [
-                            ...(node.children || []),
-                            {
-                                type: 'page',
-                                title: savedFile.frontmatter.title,
-                                menuTitle: menuTitle, // Use the safe, typed variable
-                                path: filePath,
-                                slug: savedFile.slug,
-                            }
-                        ]
-                    };
-                }
-                
-                if (node.children) {
-                    return { ...node, children: findAndUpdateNode(node.children) };
-                }
-                return node;
-            });
-        };
-
-        draft.structure = findAndUpdateNode(draft.structure);
-
-        if (isNewFile && !parentFound && parentPath === 'content') {
-          draft.structure.push({
-              type: 'page',
-              title: savedFile.frontmatter.title,
-              menuTitle: menuTitle, // Use the safe, typed variable
-              path: filePath,
-              slug: savedFile.slug,
-              navOrder: draft.structure.length
-          });
+      let parentFound = false;
+      const parentPath = getParentPath(filePath);
+      const findAndUpdateNode = (nodes: StructureNode[]): StructureNode[] => nodes.map(node => {
+        if (!isNewFile && node.path === filePath) return { ...node, title: savedFile.frontmatter.title, menuTitle: menuTitle };
+        const nodeAsDir = node.path.replace(/\.md$/, '');
+        if (isNewFile && parentPath === nodeAsDir) {
+          parentFound = true;
+          return { ...node, children: [...(node.children || []), { type: 'page', title: savedFile.frontmatter.title, menuTitle: menuTitle, path: filePath, slug: savedFile.slug }] };
         }
+        if (node.children) return { ...node, children: findAndUpdateNode(node.children) };
+        return node;
+      });
+      draft.structure = findAndUpdateNode(draft.structure);
+      if (isNewFile && !parentFound && parentPath === 'content') draft.structure.push({ type: 'page', title: savedFile.frontmatter.title, menuTitle: menuTitle, path: filePath, slug: savedFile.slug, navOrder: draft.structure.length });
     });
 
     await localSiteFs.saveManifest(siteId, newManifest);
 
     set(produce((draft: SiteSlice) => {
-        const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-        if (siteToUpdate) {
-            siteToUpdate.manifest = newManifest;
-            if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
-            const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === filePath);
-            if (fileIndex !== -1) {
-                siteToUpdate.contentFiles[fileIndex] = savedFile;
-            } else {
-                siteToUpdate.contentFiles.push(savedFile);
-            }
-        }
+      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+      if (siteToUpdate) {
+        siteToUpdate.manifest = newManifest;
+        if (!siteToUpdate.contentFiles) siteToUpdate.contentFiles = [];
+        const fileIndex = siteToUpdate.contentFiles.findIndex(f => f.path === filePath);
+        if (fileIndex !== -1) siteToUpdate.contentFiles[fileIndex] = savedFile;
+        else siteToUpdate.contentFiles.push(savedFile);
+      }
     }));
     return true;
   },
@@ -660,41 +712,44 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
   deleteContentFileAndState: async (siteId, filePath) => {
     const site = get().getSiteById(siteId);
     if (!site) return;
+    const fileToDelete = site.contentFiles?.find(f => f.path === filePath);
+    const wasHomepage = fileToDelete?.frontmatter.homepage === true;
 
     const newManifest = produce(site.manifest, draft => {
-        const filterStructure = (nodes: StructureNode[]): StructureNode[] => {
-            return nodes
-                .filter(node => node.path !== filePath)
-                .map(node => {
-                    if (node.children) {
-                        node.children = filterStructure(node.children);
-                    }
-                    return node;
-                });
-        };
-        draft.structure = filterStructure(draft.structure);
+      const filterStructure = (nodes: StructureNode[]): StructureNode[] => nodes.filter(node => node.path !== filePath).map(node => {
+        if (node.children) node.children = filterStructure(node.children);
+        return node;
+      });
+      draft.structure = filterStructure(draft.structure);
     });
 
-    await Promise.all([
-      localSiteFs.deleteContentFile(siteId, filePath),
-      get().updateManifest(siteId, newManifest)
-    ]);
-
+    await Promise.all([localSiteFs.deleteContentFile(siteId, filePath), get().updateManifest(siteId, newManifest)]);
     set(produce((draft: SiteSlice) => {
-        const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
-        if (siteToUpdate?.contentFiles) {
-            siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
-        }
+      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+      if (siteToUpdate?.contentFiles) siteToUpdate.contentFiles = siteToUpdate.contentFiles.filter(f => f.path !== filePath);
     }));
+
+    if (wasHomepage) {
+      const updatedSite = get().getSiteById(siteId);
+      const fallbackHomepageNode = updatedSite?.manifest.structure.find(node => node.type === 'page');
+      if (fallbackHomepageNode) {
+        toast.warning(`Homepage deleted. Setting "${fallbackHomepageNode.title}" as the new homepage.`);
+        await get().setHomepageAction(siteId, fallbackHomepageNode.path);
+      } else {
+        toast.error("Homepage deleted, and no other pages were available to take its place.");
+      }
+    }
   },
 
- moveNode: async (siteId, draggedNodePath, targetNodePath) => {
+
+  moveNode: async (siteId, draggedNodePath, targetNodePath) => {
     const site = get().getSiteById(siteId);
-    if (!site) {
+    if (!site?.contentFiles) {
       toast.error("Site data not found.");
       return;
     }
 
+    // --- 1. PREPARE STATE CHANGES IN MEMORY ---
     const { found: draggedNode, tree: treeWithoutDraggedNode } = findAndRemoveNode([...site.manifest.structure], draggedNodePath);
     if (!draggedNode) {
       toast.error("An error occurred while moving the page.");
@@ -704,34 +759,237 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     const newParentPath = targetNodePath ? targetNodePath.replace(/\.md$/, '') : 'content';
     const updatedNode = updatePathsRecursively(draggedNode, newParentPath);
 
-    const pathsToMove: { oldPath: string, newPath: string }[] = [];
+    const pathsToMove: { oldPath: string; newPath: string }[] = [];
     const collectPaths = (newNode: StructureNode, oldNode: StructureNode) => {
+      if (newNode.path !== oldNode.path) {
         pathsToMove.push({ oldPath: oldNode.path, newPath: newNode.path });
-        if (newNode.children && oldNode.children) {
-            newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
-        }
+      }
+      if (newNode.children && oldNode.children) {
+        newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
+      }
     };
     collectPaths(updatedNode, draggedNode);
 
-    await localSiteFs.moveContentFiles(siteId, pathsToMove);
-
     let finalTree: StructureNode[];
     if (targetNodePath) {
-        const insertIntoTree = (nodes: StructureNode[]): StructureNode[] => nodes.map(node => {
-            if (node.path === targetNodePath) return { ...node, children: [...(node.children || []), updatedNode] };
-            if (node.children) return { ...node, children: insertIntoTree(node.children) };
-            return node;
-        });
-        finalTree = insertIntoTree(treeWithoutDraggedNode);
+      const insertIntoTree = (nodes: StructureNode[]): StructureNode[] => nodes.map(node => {
+        if (node.path === targetNodePath) {
+          return { ...node, children: [...(node.children || []), updatedNode] };
+        }
+        if (node.children) {
+          return { ...node, children: insertIntoTree(node.children) };
+        }
+        return node;
+      });
+      finalTree = insertIntoTree(treeWithoutDraggedNode);
     } else {
-        finalTree = [...treeWithoutDraggedNode, updatedNode];
+      finalTree = [...treeWithoutDraggedNode, updatedNode];
     }
 
-    const newManifest = { ...site.manifest, structure: finalTree };
-    await get().updateManifest(siteId, newManifest);
+    // --- 2. PERSIST TO FILE SYSTEM ---
+    if (pathsToMove.length > 0) {
+      await localSiteFs.moveContentFiles(siteId, pathsToMove);
+    }
 
-    await get().loadSite(siteId);
+    // --- 3. UPDATE ZUSTAND STORE TRANSACTIONALLY ---
+    const newManifest = { ...site.manifest, structure: finalTree };
+    const updatedContentFiles = updateContentFilePaths(site.contentFiles, pathsToMove);
+
+    set(
+      produce((draft: any) => {
+        const siteToUpdate = draft.sites.find((s: any) => s.siteId === siteId);
+        if (siteToUpdate) {
+          siteToUpdate.manifest = newManifest;
+          siteToUpdate.contentFiles = updatedContentFiles;
+        }
+      })
+    );
+    
+    // Persist the new manifest
+    await localSiteFs.saveManifest(siteId, newManifest);
+
     toast.success(`Moved "${updatedNode.title}" successfully.`);
+  },
+
+  setHomepageAction: async (siteId, newHomepagePath) => {
+    const site = get().getSiteById(siteId);
+    if (!site?.contentFiles) throw new Error("Site content not loaded.");
+
+    const targetFile = site.contentFiles.find(f => f.path === newHomepagePath);
+    if (targetFile?.frontmatter.homepage === true) { toast.info("This page is already the designated homepage."); return; }
+
+    const updates: { path: string; frontmatter: MarkdownFrontmatter }[] = [];
+    let newHomepageTitle = 'the selected page';
+
+    site.contentFiles.forEach(file => {
+      if (file.path === newHomepagePath) {
+        newHomepageTitle = file.frontmatter.title;
+        updates.push({ path: file.path, frontmatter: { ...file.frontmatter, homepage: true } });
+      } else if (file.frontmatter.homepage === true) {
+        const { homepage, ...rest } = file.frontmatter;
+        updates.push({ path: file.path, frontmatter: rest });
+      }
+    });
+
+    if (updates.length === 0 && targetFile) {
+        newHomepageTitle = targetFile.frontmatter.title;
+        updates.push({ path: targetFile.path, frontmatter: { ...targetFile.frontmatter, homepage: true } });
+    } else if (updates.length === 0) {
+        throw new Error("Target homepage file not found.");
+    }
+    
+    await Promise.all(updates.map(update => {
+      const originalFile = site.contentFiles!.find(f => f.path === update.path)!;
+      return localSiteFs.saveContentFile(siteId, update.path, stringifyToMarkdown(update.frontmatter, originalFile.content));
+    }));
+
+    set(produce((draft: SiteSlice) => {
+      const siteToUpdate = draft.sites.find(s => s.siteId === siteId);
+      if (siteToUpdate?.contentFiles) updates.forEach(update => {
+        const fileInState = siteToUpdate.contentFiles!.find(f => f.path === update.path);
+        if (fileInState) fileInState.frontmatter = update.frontmatter;
+      });
+    }));
+
+    toast.success(`Homepage has been set to "${newHomepageTitle}".`);
+  },
+
+  reorderNodeAction: async (siteId, activePath, targetPath, position) => {
+        const site = get().getSiteById(siteId);
+        if (!site) return;
+
+        const parent = findParentOfNode(site.manifest.structure, activePath);
+        const list = parent ? parent.children : site.manifest.structure;
+
+        if (!list) return;
+
+        const oldIndex = list.findIndex((n: StructureNode) => n.path === activePath);
+        let newIndex = list.findIndex((n: StructureNode) => n.path === targetPath);
+        if (oldIndex === -1 || newIndex === -1) return;
+        
+        if (position === 'reorder-after' && oldIndex < newIndex) { /* No adjustment */ } 
+        else if (position === 'reorder-before' && oldIndex > newIndex) { /* No adjustment */ } 
+        else if (position === 'reorder-after') { newIndex += 1; }
+
+        const reorderedList: StructureNode[] = arrayMove(list, oldIndex, newIndex);
+
+        let newStructure: StructureNode[];
+        if (parent) {
+            newStructure = updateNodeInChildren(site.manifest.structure, parent.path, reorderedList);
+        } else {
+            newStructure = reorderedList;
+        }
+        
+        await get().updateManifest(siteId, { ...site.manifest, structure: newStructure });
+        toast.success("Page order updated.");
+    },
+
+    unNestNodeAction: async (siteId, activePath) => {
+        return get().moveNode(siteId, activePath, null);
+    },
+repositionNode: async (
+    siteId: string,
+    activePath: string,
+    overPath: string,
+    intent: 'reorder-before' | 'reorder-after' | 'nest'
+  ) => {
+    const site = get().getSiteById(siteId);
+    if (!site || !site.contentFiles) {
+        toast.error("Site data not loaded. Cannot move page.");
+        return;
+    }
+
+    // --- 1. VALIDATE THE MOVE ---
+    const homepagePath = site.manifest.structure[0]?.path;
+    if (activePath === homepagePath) {
+      toast.error("The homepage cannot be moved.");
+      return;
+    }
+    if (intent === 'reorder-before' && overPath === homepagePath) {
+      toast.error("Pages cannot be moved above the homepage.");
+      return;
+    }
+    if (intent === 'nest') {
+      const targetFile = site.contentFiles.find(f => f.path === overPath);
+      if (targetFile?.frontmatter.collection) {
+        toast.error("Cannot nest pages under a Collection Page.");
+        return;
+      }
+    }
+
+    // --- 2. PREPARE THE NEW STRUCTURE (in memory) ---
+    const { found: activeNode, tree: treeWithoutActive } = findAndRemoveNode([...site.manifest.structure], activePath);
+    if (!activeNode) return;
+
+    let finalTree = treeWithoutActive;
+
+    if (intent === 'nest') {
+        const insert = (nodes: StructureNode[]): boolean => {
+            for (const node of nodes) {
+                if (node.path === overPath) {
+                    node.children = [...(node.children || []), activeNode];
+                    return true;
+                }
+                if (node.children && insert(node.children)) return true;
+            }
+            return false;
+        };
+        insert(finalTree);
+    } else { // Handle reordering (which also covers un-nesting)
+        const parentOfOver = findParentOfNode(finalTree, overPath);
+        const targetList = parentOfOver ? parentOfOver.children! : finalTree;
+        const overIndex = targetList.findIndex(n => n.path === overPath);
+        const newIndex = intent === 'reorder-after' ? overIndex + 1 : overIndex;
+        targetList.splice(newIndex, 0, activeNode);
+        
+        if (parentOfOver) {
+            finalTree = updateNodeInChildren(finalTree, parentOfOver.path, targetList);
+        } else {
+            finalTree = targetList;
+        }
+    }
+
+    // --- 3. CALCULATE REQUIRED FILE PATH CHANGES ---
+    const parentOfActiveFinal = findParentOfNode(finalTree, activePath);
+    const newParentDir = parentOfActiveFinal ? parentOfActiveFinal.path.replace(/\.md$/, '') : 'content';
+    const finalActiveNode = updatePathsRecursively(activeNode, newParentDir);
+    
+    const pathsToMove: { oldPath: string; newPath: string }[] = [];
+    const collectPaths = (newNode: StructureNode, oldNode: StructureNode) => {
+        if (newNode.path !== oldNode.path) pathsToMove.push({ oldPath: oldNode.path, newPath: newNode.path });
+        if (newNode.children && oldNode.children) newNode.children.forEach((child, i) => collectPaths(child, oldNode.children![i]));
+    };
+    collectPaths(finalActiveNode, activeNode);
+
+    // --- 4. EXECUTE THE FULLY TRANSACTIONAL UPDATE ---
+    try {
+        // Step 4a: Persist physical file moves first
+        if (pathsToMove.length > 0) {
+            await localSiteFs.moveContentFiles(siteId, pathsToMove);
+        }
+
+        // Step 4b: Prepare new state for Zustand
+        const newManifest = { ...site.manifest, structure: finalTree };
+        const updatedContentFiles = updateContentFilePaths(site.contentFiles, pathsToMove);
+        
+        // Step 4c: Update Zustand store atomically
+        set(produce((draft: any) => {
+            const siteToUpdate = draft.sites.find((s: any) => s.siteId === siteId);
+            if (siteToUpdate) {
+                siteToUpdate.manifest = newManifest;
+                siteToUpdate.contentFiles = updatedContentFiles;
+            }
+        }));
+
+        // Step 4d: Persist the new manifest structure
+        await localSiteFs.saveManifest(siteId, newManifest);
+        toast.success("Site structure updated successfully.");
+    } catch (error) {
+        console.error("Failed to reposition node:", error);
+        toast.error("An error occurred while updating the site structure.");
+        // If anything fails, reload state from storage to prevent UI inconsistencies
+        get().loadSite(siteId);
+    }
   },
 });
 
@@ -2270,7 +2528,7 @@ export async function blocksToMarkdown(blocks: Block[]): Promise<string> {
 File: core/services/siteExporter.service.ts
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, Manifest } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
 import { flattenStructureToRenderableNodes } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
@@ -2278,19 +2536,14 @@ import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
-import { getActiveImageService } from '@/core/services/images/images.service'; 
+import { getActiveImageService } from '@/core/services/images/images.service';
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
  */
 function escapeForXml(str: unknown): string {
     if (str === undefined || str === null) return '';
-    return String(str)
-        .replace(/&/g, '&')
-        .replace(/</g, '<')
-        .replace(/>/g, '>')
-        .replace(/"/g, '"')
-        .replace(/'/g, "'");
+    return String(str).replace(/&/g, '&').replace(/</g, '<').replace(/>/g, '>').replace(/"/g, '"').replace(/'/g, "'");
 }
 
 /**
@@ -2298,18 +2551,14 @@ function escapeForXml(str: unknown): string {
  * and add them to the ZIP archive.
  */
 async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'theme' | 'layout', assetId: string) {
-    // The asset folder path is now simpler, e.g., _signum/layouts/page/
     const assetFolder = zip.folder('_signum')?.folder(`${assetType}s`)?.folder(assetId);
     if (!assetFolder) return;
-
-    // Use the asset's ID to fetch its manifest.
-    const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetId, 'layout.json');
-
+    const manifestFileName = assetType === 'theme' ? 'theme.json' : 'layout.json';
+    const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetId, manifestFileName);
     if (!manifest || !manifest.files) {
         console.warn(`Asset manifest for ${assetType}/${assetId} is missing or has no 'files' array. Skipping bundle.`);
         return;
     }
-
     for (const file of manifest.files) {
         const content = await getAssetContent(siteData, assetType, assetId, file.path);
         if (content) {
@@ -2321,31 +2570,23 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
 }
 
 /**
- * A helper function to recursively find all ImageRef objects within
- * a site's content files' frontmatter.
+ * A helper function to recursively find all ImageRef objects within a site's data.
  */
 function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
-  const refs = new Set<ImageRef>(); // Use a Set to avoid duplicates
-  const visited = new Set();
+  const refs = new Set<ImageRef>();
+  const visited = new Set<object>();
 
   function find(obj: any) {
     if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
     visited.add(obj);
-
-    if ('serviceId' in obj && 'src' in obj) {
-      refs.add(obj as ImageRef);
-      return;
+    if (obj.serviceId && obj.src) {
+        refs.add(obj as ImageRef);
     }
-    if (Array.isArray(obj)) obj.forEach(item => find(item));
-    else Object.values(obj).forEach(value => find(value));
+    Object.values(obj).forEach(value => find(value));
   }
 
-  // 1. Search the root of the manifest for top-level assets
   find(siteData.manifest);
-
-  // 2. Search all content file frontmatter
   siteData.contentFiles?.forEach(file => find(file.frontmatter));
-  
   return Array.from(refs);
 }
 
@@ -2363,40 +2604,25 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
         const initialResolution = resolvePageContent(siteData, node.slug.split('/'));
-
         if (initialResolution.type === PageType.NotFound) continue;
-
         const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
 
         if (isPaginated) {
             const totalPages = initialResolution.pagination!.totalPages;
             for (let i = 1; i <= totalPages; i++) {
-                const pageNumber = i;
-                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), pageNumber);
-
+                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), i);
                 if (resolutionForPage.type === PageType.NotFound) continue;
-
-                const outputPath = getUrlForNode(node, true, pageNumber);
+                const outputPath = getUrlForNode(node, manifest, true, i);
                 const depth = (outputPath.match(/\//g) || []).length;
                 const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-
-                const finalHtml = await render(siteData, resolutionForPage, {
-                    siteRootPath: '/',
-                    isExport: true,
-                    relativeAssetPath: relativePrefix
-                });
+                const finalHtml = await render(siteData, resolutionForPage, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
                 zip.file(outputPath, finalHtml);
             }
         } else {
-            const outputPath = getUrlForNode(node, true);
+            const outputPath = getUrlForNode(node, manifest, true);
             const depth = (outputPath.match(/\//g) || []).length;
             const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-
-            const finalHtml = await render(siteData, initialResolution, {
-                siteRootPath: '/',
-                isExport: true,
-                relativeAssetPath: relativePrefix
-            });
+            const finalHtml = await render(siteData, initialResolution, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
             zip.file(outputPath, finalHtml);
         }
     }
@@ -2414,34 +2640,21 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     if (allImageRefs.length > 0) {
         const imageService = getActiveImageService(manifest);
         const assetsToBundle = await imageService.getExportableAssets(siteData.siteId, allImageRefs);
-
         for (const asset of assetsToBundle) {
             zip.file(asset.path, asset.data);
         }
     }
 
-
-    // Gather ALL used layouts from frontmatter
     const layoutIds = new Set<string>();
     contentFiles.forEach(file => {
-        // Add the main page layout
-        if (file.frontmatter.layout) {
-            layoutIds.add(file.frontmatter.layout);
-        }
-        // If it's a collection page, add its item layout
+        if (file.frontmatter.layout) layoutIds.add(file.frontmatter.layout);
         if (file.frontmatter.collection) {
-            // The line trying to access list_layout is REMOVED.
             layoutIds.add(file.frontmatter.collection.item_layout);
         }
     });
 
-    const uniqueLayoutIds = [...layoutIds];
-
-    const activeThemeId = manifest.theme.name;
-    await bundleAsset(zip, siteData, 'theme', activeThemeId);
-
-    // Bundle all the unique layouts that were found
-    for (const layoutId of uniqueLayoutIds) {
+    await bundleAsset(zip, siteData, 'theme', manifest.theme.name);
+    for (const layoutId of Array.from(layoutIds)) {
         await bundleAsset(zip, siteData, 'layout', layoutId);
     }
 
@@ -2449,21 +2662,19 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
 
-    // Exclude collection pages from RSS items
     const rssItems = allRenderableNodes
         .map((node): RssItemData | null => {
             const file = contentFiles.find(f => f.path === node.path);
             return file ? { node, file } : null;
         })
-        .filter((item): item is RssItemData =>
-            item !== null &&
-            !!item.file.frontmatter.date &&
-            !item.file.frontmatter.collection // <-- This is the key filter
-        )
+        .filter((item): item is RssItemData => {
+            if (!item || !item.file) return false;
+            return !!item.file.frontmatter.date && !item.file.frontmatter.collection;
+        })
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
         .slice(0, 20)
         .map((item) => {
-            const relativeUrl = getUrlForNode(item.node, false); // Use non-export URL for feed
+            const relativeUrl = getUrlForNode(item.node, manifest, false);
             const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
             const description = escapeForXml(item.file.frontmatter.description);
             const pubDate = new Date(item.file.frontmatter.date as string).toUTCString();
@@ -2475,7 +2686,7 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
     const sitemapUrls = allRenderableNodes.map((node) => {
         const file = contentFiles.find(f => f.path === node.path);
-        const relativeUrl = getUrlForNode(node, false); // Use non-export URL
+        const relativeUrl = getUrlForNode(node, manifest, false);
         const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
         const lastMod = (file?.frontmatter.date as string || new Date().toISOString()).split('T')[0];
         return `<url><loc>${escapeForXml(absoluteUrl)}</loc><lastmod>${lastMod}</lastmod></url>`;
@@ -2484,9 +2695,6 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
 
-    
-
-    // --- 4. Generate the Final ZIP file ---
     return zip.generateAsync({ type: 'blob' });
 }
 
@@ -2494,59 +2702,75 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
 
 File: core/services/urlUtils.service.ts
 // src/core/services/urlUtils.service.ts
+import { Manifest, StructureNode } from '@/types';
 
 /**
- * Generates a URL for a given site node, correctly handling index cases,
- * static export paths, and pagination routes.
+ * Generates a URL for a given site node based on its position and context.
+ * This is a critical utility for both the live preview and the final static site export.
  *
- * @param node - An object representing a node in the site structure.
- * @param isExport - A boolean indicating if the URL is for a static export.
- * @param pageNumber - Optional page number for generating paginated links.
- * @returns A string representing the URL segment or full filename.
+ * It implements the "First Page is Homepage" rule:
+ * - The very first page in the site's root structure (`manifest.structure[0]`) is
+ *   always treated as the homepage and mapped to the root URL (`/` or `index.html`).
+ * - All other pages are mapped to subdirectories based on their slug for clean URLs
+ *   (e.g., a page with slug 'about' becomes '/about/').
+ *
+ * @param node - The `StructureNode` object for which to generate a URL. It must have `path` and `slug`.
+ * @param manifest - The complete site manifest. This is required to identify the homepage by its position.
+ * @param isExport - A boolean indicating if the URL is for a static export (e.g., `about/index.html`) or a live preview (e.g., `/about`).
+ * @param pageNumber - An optional page number for generating paginated links (e.g., `/blog/page/2`).
+ * @returns A string representing the final URL segment or filename.
  */
 export function getUrlForNode(
-  node: { slug: string; path: string },
+  node: { path: string; slug: string },
+  manifest: Manifest,
   isExport: boolean,
   pageNumber?: number,
 ): string {
-  // --- THIS IS THE KEY CHECK ---
-  // A page is the true root index if its path is exactly 'content/index.md'.
-  const isRootIndex = node.path === 'content/index.md';
+  // --- Homepage Check ---
+  // The homepage is defined as the first node in the root of the manifest's structure array.
+  // The optional chaining `?.` safely handles an empty structure for a brand new site.
+  const isDesignatedHomepage = manifest.structure[0]?.path === node.path;
+
+  if (isDesignatedHomepage) {
+    // --- Homepage URL Logic ---
+    if (isExport) {
+      // For a paginated homepage, page 2 and beyond go into a subdirectory.
+      // e.g., /page/2/index.html
+      if (pageNumber && pageNumber > 1) {
+        return `page/${pageNumber}/index.html`;
+      }
+      // The homepage itself is always the root index.html file.
+      return 'index.html';
+    } else {
+      // Live Preview URL
+      if (pageNumber && pageNumber > 1) {
+        return `page/${pageNumber}`;
+      }
+      // For the live preview, the root URL is represented by an empty string,
+      // which the browser/router interprets as '/'.
+      return '';
+    }
+  }
+
+  // --- Logic for All Other Pages ---
+  const baseSlug = node.slug;
 
   if (isExport) {
-    // --- EXPORT PATHS ---
-
-    // Handle the root index as a special case for export. It's the only file in the root.
-    if (isRootIndex) {
-      return 'index.html';
-    }
-
-    // For all other pages, use the full slug which represents the directory structure.
-    const baseName = node.slug;
-
+    // Paginated collection pages, e.g., blog/page/2/index.html
     if (pageNumber && pageNumber > 1) {
-      // For paginated routes, e.g., /blog/page/2/index.html
-      return `${baseName}/page/${pageNumber}/index.html`;
+      return `${baseSlug}/page/${pageNumber}/index.html`;
     }
-
-    // All other pages go into a directory with an index.html file for clean URLs.
-    // e.g., 'about-us' becomes '/about-us/index.html'
-    // e.g., 'blog/my-post' becomes '/blog/my-post/index.html'
-    return `${baseName}/index.html`;
+    // All other pages are placed in their own directory with an index.html
+    // to create clean URLs, e.g., /about-us/
+    return `${baseSlug}/index.html`;
+  } else {
+    // Live Preview URLs for other pages
+    if (pageNumber && pageNumber > 1) {
+      return `${baseSlug}/page/${pageNumber}`;
+    }
+    // A standard page preview URL is just its slug, e.g., /about-us
+    return baseSlug;
   }
-
-  // --- LIVE PREVIEW PATH SEGMENTS ---
-  if (pageNumber && pageNumber > 1) {
-    return `${node.slug}/page/${pageNumber}`;
-  }
-
-  // For the live preview, the root URL is just '/' (empty string)
-  if (isRootIndex) {
-    return '';
-  }
-
-  // For all other pages, the URL segment is simply its full slug.
-  return node.slug;
 }
 
 ================================================================================
@@ -2793,8 +3017,7 @@ export async function getImageAsset(siteId: string, imagePath: string): Promise<
 ================================================================================
 
 File: core/services/navigationStructure.service.ts
-// src/core/services/navigationStructureService.ts
-
+// src/core/services/navigationStructure.service.ts
 import { LocalSiteData, NavLinkItem, StructureNode } from '@/types';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { getRelativePath } from '@/core/services/relativePaths.service';
@@ -2802,28 +3025,35 @@ import { RenderOptions } from '@/core/services/theme-engine/themeEngine.service'
 
 /**
  * Recursively builds a navigation link structure with context-aware paths.
+ * @param siteData - The full site data, needed for URL generation.
  * @param nodes - The site structure nodes to build links from.
  * @param currentPagePath - The path of the page being currently rendered.
  * @param options - The render options, containing isExport and siteRootPath.
  * @returns An array of navigation link objects.
  */
-function buildNavLinks(nodes: StructureNode[], currentPagePath: string, options: Pick<RenderOptions, 'isExport' | 'siteRootPath'>): NavLinkItem[] {
+function buildNavLinks(
+    siteData: LocalSiteData, 
+    nodes: StructureNode[], 
+    currentPagePath: string, 
+    options: Pick<RenderOptions, 'isExport' | 'siteRootPath'>
+): NavLinkItem[] {
   return nodes
     .filter(node => node.type === 'page' && node.navOrder !== undefined)
     .sort((a, b) => (a.navOrder || 0) - (b.navOrder || 0))
     .map(node => {
       let href: string;
-      const urlSegment = getUrlForNode(node, options.isExport);
+      // --- FIX: Pass siteData.manifest instead of the whole siteData object ---
+      const urlSegment = getUrlForNode(node, siteData.manifest, options.isExport);
 
       if (options.isExport) {
         href = getRelativePath(currentPagePath, urlSegment);
       } else {
-        href = `${options.siteRootPath}${urlSegment ? `/${urlSegment}` : ''}`.replace(/\/$/, '') || '/';
+        const path = `/${urlSegment}`.replace(/\/$/, '') || '/';
+        href = `${options.siteRootPath}${path === '/' ? '' : path}`;
       }
 
-      // --- NEW: Recursive call for children ---
       const children = (node.children && node.children.length > 0)
-        ? buildNavLinks(node.children, currentPagePath, options)
+        ? buildNavLinks(siteData, node.children, currentPagePath, options)
         : [];
 
       return {
@@ -2843,7 +3073,7 @@ export function generateNavLinks(
   options: Pick<RenderOptions, 'isExport' | 'siteRootPath'>
 ): NavLinkItem[] {
   const { structure } = siteData.manifest;
-  return buildNavLinks(structure, currentPagePath, options);
+  return buildNavLinks(siteData, structure, currentPagePath, options);
 }
 
 ================================================================================
@@ -3043,60 +3273,29 @@ export async function saveSiteSecretsToDb(siteId: string, secrets: SiteSecrets):
 
 File: core/services/fileTree.service.ts
 // src/core/services/fileTree.service.ts
-
 import { StructureNode } from '@/types';
 
 /**
  * Finds a node in a structure tree by its exact `path`.
- * @param nodes The array of nodes to search within.
- * @param path The path of the node to find (e.g., "content/blog/first-post.md").
- * @returns The found StructureNode or undefined.
  */
 export function findNodeByPath(nodes: StructureNode[], path: string): StructureNode | undefined {
   for (const node of nodes) {
-    if (node.path === path) {
-      return node;
-    }
+    if (node.path === path) return node;
     if (node.children) {
       const found = findNodeByPath(node.children, path);
-      if (found) {
-        return found;
-      }
+      if (found) return found;
     }
   }
   return undefined;
 }
 
 /**
- * Recursively traverses the structure tree and collects all nodes that are pages.
- * @param nodes The array of nodes to traverse.
- * @returns A flat array of all page-type StructureNodes.
- */
-export function flattenStructureToPages(nodes: StructureNode[]): StructureNode[] {
-  let pages: StructureNode[] = [];
-  for (const node of nodes) {
-    if (node.type === 'page') {
-      pages.push(node);
-    }
-    if (node.children) {
-      pages = pages.concat(flattenStructureToPages(node.children));
-    }
-  }
-  return pages;
-}
-
-/**
- * Recursively traverses the structure tree and collects all nodes that can be rendered as a page.
- * This includes single pages AND collection listing pages.
- * @param nodes The array of nodes to traverse.
- * @returns A flat array of all renderable StructureNodes.
+ * Recursively traverses the structure tree and collects all nodes.
  */
 export function flattenStructureToRenderableNodes(nodes: StructureNode[]): StructureNode[] {
   let renderableNodes: StructureNode[] = [];
   for (const node of nodes) {
-    if (node.type === 'page' || node.type === 'collection') {
-      renderableNodes.push(node);
-    }
+    renderableNodes.push(node);
     if (node.children) {
       renderableNodes = renderableNodes.concat(flattenStructureToRenderableNodes(node.children));
     }
@@ -3106,9 +3305,6 @@ export function flattenStructureToRenderableNodes(nodes: StructureNode[]): Struc
 
 /**
  * Gets the parent directory path for a given file path.
- * e.g., "content/blog/post.md" -> "content/blog"
- * @param path The full path of a file or folder.
- * @returns The path of the parent directory.
  */
 export function getParentPath(path: string): string {
   if (!path.includes('/')) return 'content';
@@ -3116,73 +3312,89 @@ export function getParentPath(path: string): string {
 }
 
 /**
- * Finds a node by its path and removes it from a tree structure, returning both the found node and the modified tree.
- * This is a pure function; it does not mutate the original array.
- * @param {StructureNode[]} nodes - The array of nodes to search.
- * @param {string} path - The path of the node to remove.
- * @returns An object containing the found node and the updated tree.
+ * Finds and removes a node from a tree structure.
  */
 export function findAndRemoveNode(nodes: StructureNode[], path: string): { found: StructureNode | null, tree: StructureNode[] } {
   let found: StructureNode | null = null;
-  
-  const filterRecursively = (currentNodes: StructureNode[]): StructureNode[] => {
-    const result: StructureNode[] = [];
-    for (const node of currentNodes) {
-      if (node.path === path) {
-        found = node;
-        continue; // Skip adding it to the result, effectively removing it
-      }
-      if (node.children) {
-        const newChildren = filterRecursively(node.children);
-        result.push({ ...node, children: newChildren });
-      } else {
-        result.push(node);
-      }
+  const filterRecursively = (currentNodes: StructureNode[]): StructureNode[] => currentNodes.reduce((acc: StructureNode[], node) => {
+    if (node.path === path) {
+      found = node;
+      return acc;
     }
-    return result;
-  };
-
+    if (node.children) node.children = filterRecursively(node.children);
+    acc.push(node);
+    return acc;
+  }, []);
   const newTree = filterRecursively(nodes);
   return { found, tree: newTree };
 }
 
-
 /**
- * Recursively updates the path of a node and all of its descendants based on a new parent path.
- * @param {StructureNode} node - The node to start from.
- * @param {string} newParentPath - The new parent path segment (e.g., 'content/about').
- * @returns {StructureNode} The node with all paths and slugs updated.
+ * Recursively updates the path of a node and all of its descendants.
  */
 export function updatePathsRecursively(node: StructureNode, newParentPath: string): StructureNode {
-  // Get the last part of the old path to append to the new parent path.
   const oldFileName = node.path.substring(node.path.lastIndexOf('/'));
   const newPath = `${newParentPath}${oldFileName}`;
-
-  // The new slug is the new path, minus the 'content/' prefix and '.md' extension.
   const newSlug = newPath.replace(/^content\//, '').replace(/\.md$/, '');
-
   const updatedNode: StructureNode = { ...node, path: newPath, slug: newSlug };
-
   if (updatedNode.children) {
-    // The new parent path for the children is the updated node's path, without the '.md' extension.
     const newChildsParentPath = newPath.replace(/\.md$/, '');
-    updatedNode.children = updatedNode.children.map(child =>
-      updatePathsRecursively(child, newChildsParentPath)
-    );
+    updatedNode.children = updatedNode.children.map(child => updatePathsRecursively(child, newChildsParentPath));
   }
-
   return updatedNode;
 }
 
 /**
  * Finds all direct child nodes of a given parent node path.
- * @param nodes The entire site structure array.
- * @param parentPath The path of the parent node whose children are to be found.
- * @returns An array of StructureNodes that are children of the parent.
  */
 export function findChildNodes(nodes: StructureNode[], parentPath: string): StructureNode[] {
     const parentNode = findNodeByPath(nodes, parentPath);
     return parentNode?.children || [];
+}
+
+/**
+ * Finds the parent of a node in the structure tree.
+ */
+export function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
+    for (const node of nodes) {
+        if (node.path === path) return parent;
+        if (node.children) {
+            const found = findParentOfNode(node.children, path, node);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+/**
+ * Updates a specific node's children within a larger tree structure.
+ */
+export function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
+    return nodes.map(node => {
+        if (node.path === parentPath) {
+            return { ...node, children: newChildren };
+        }
+        if (node.children) {
+            return { ...node, children: updateNodeInChildren(node.children, parentPath, newChildren) };
+        }
+        return node;
+    });
+}
+
+/**
+ * --- FIX: ADDED MISSING FUNCTION ---
+ * Recursively traverses a node tree and returns a flat array of all
+ * node paths (IDs), including all descendants. This is required for dnd-kit's
+ * SortableContext to be aware of all possible draggable items.
+ *
+ * @param {StructureNode[]} nodes - The array of nodes to flatten.
+ * @returns {string[]} A flat array of all descendant paths.
+ */
+export function getDescendantIds(nodes: StructureNode[]): string[] {
+  return nodes.flatMap(node => [
+    node.path,
+    ...(node.children ? getDescendantIds(node.children) : []),
+  ]);
 }
 
 ================================================================================
@@ -3726,8 +3938,8 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
 
 
   // --- STEP 2: Resolve ALL top-level asynchronous data ---
-  const currentPageExportPath = getUrlForNode(resolution.contentFile, true);
-  const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
+    const currentPageExportPath = getUrlForNode(resolution.contentFile, siteData.manifest, true);
+    const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
   const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
   const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
   const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
@@ -4686,22 +4898,52 @@ File: app/sites/[siteId]/layout.tsx
 // src/app/sites/[siteId]/layout.tsx
 'use client';
 
+import { useEffect, ReactNode } from 'react';
+import { useParams, usePathname } from 'next/navigation';
+import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import Image from 'next/image';
 import { TbEdit, TbSettings } from "react-icons/tb";
 import { cn } from '@/lib/utils';
-import Image from 'next/image';
-import { ReactNode } from 'react';
 
 /**
  * The root layout for a single site's backend.
- * This component provides the persistent vertical toolbar for navigating
- * between main sections like 'Edit' and 'Settings'.
+ * This component serves a dual purpose:
+ * 1. **Visual Layout:** It provides the persistent vertical toolbar for navigating
+ *    between main sections like 'Edit' and 'Settings'.
+ * 2. **Data Loader & Context Setter:** It uses a `useEffect` hook to trigger the
+ *    loading of the active site's data and sets the `activeSiteId` in the
+ *    global store, making it available to all child components.
  */
 export default function SingleSiteLayout({ children }: { children: ReactNode }) {
+  // --- Part 1: Get router and state management hooks ---
+  const params = useParams();
   const pathname = usePathname();
-  const siteId = pathname.split('/')[2];
+  const siteId = params.siteId as string;
 
+  const loadSiteAction = useAppStore(state => state.loadSite);
+  const setActiveSiteIdAction = useAppStore(state => state.setActiveSiteId);
+
+  // --- Part 2: The Data Loading Logic (from the previous loader component) ---
+  // This effect runs whenever the siteId from the URL changes.
+  useEffect(() => {
+    if (siteId) {
+      // Trigger the loading of this site's data from storage.
+      loadSiteAction(siteId);
+      // Announce to the rest of the app which site is currently active.
+      setActiveSiteIdAction(siteId);
+    }
+    
+    // Cleanup function: When the user navigates away from this site's
+    // section, clear the activeSiteId to prevent stale data display elsewhere.
+    return () => {
+      setActiveSiteIdAction(null);
+    };
+  }, [siteId, loadSiteAction, setActiveSiteIdAction]);
+
+  // --- Part 3: The Visual Rendering Logic (from your provided code) ---
+
+  // Determine which navigation link is currently active based on the URL path.
   const isEditorActive = pathname.startsWith(`/sites/${siteId}/edit`);
   const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
@@ -4711,7 +4953,7 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
   ];
 
   return (
-    <div className="flex h-screen flex-col lg:flex-row">
+    <div className="flex h-screen flex-col lg:flex-row bg-muted/20">
       <aside className="fixed inset-x-0 bottom-0 z-30 flex h-16 w-full shrink-0 border-t bg-background lg:static lg:inset-y-0 lg:left-0 lg:h-full lg:w-[60px] lg:border-r lg:border-t-0">
         <nav className="flex w-full items-center justify-center gap-4 px-2 lg:flex-col lg:justify-start lg:pb-5">
           <Link
@@ -4740,7 +4982,7 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
         </nav>
       </aside>
 
-      {/* The rest of the page (which will be another layout like EditSiteLayout) renders here. */}
+      {/* The rest of the page (which will be another layout like ThreeColumnLayout) renders here. */}
       <main className="flex-1 overflow-auto pb-16 lg:pb-0">
         {children}
       </main>
@@ -5101,7 +5343,7 @@ export default function ImageSettingsPage() {
                     <SelectItem value="cloudinary">Upload to Cloudinary</SelectItem>
                 </SelectContent>
             </Select>
-            <p className="text-xs text-muted-foreground">"Local" is best for portability. "Cloudinary" is best for performance.</p>
+            <p className="text-xs text-muted-foreground">&quot;Local&quot; is best for portability. &quot;Cloudinary&quot; is best for performance.</p>
         </div>
         
         {selectedService === 'cloudinary' && (
@@ -5115,7 +5357,7 @@ export default function ImageSettingsPage() {
                         onChange={(e) => handleInputChange(setCloudinaryCloudName, e.target.value)}
                         placeholder="e.g., your-cloud-name"
                     />
-                     <p className="text-xs text-muted-foreground">This is public and stored in your site's manifest.</p>
+                     <p className="text-xs text-muted-foreground">This is public and stored in your site&apos;s manifest.</p>
                 </div>
                  <div className="space-y-2">
                     <Label htmlFor="upload-preset">Cloudinary Upload Preset (Secret)</Label>
@@ -5292,26 +5534,68 @@ File: app/sites/[siteId]/edit/page.tsx
 
 import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
+import { useAppStore } from '@/core/state/useAppStore';
+import { toast } from 'sonner';
 
-// This page acts as a default entry point for the editor.
-// It immediately redirects to the editor for the site's homepage (index.md).
+/**
+ * A smart entry point for the site editor.
+ *
+ * This component's logic is now simplified:
+ * 1. It waits for the site data to be fully loaded.
+ * 2. If the site has pages, it finds the designated homepage (the first page)
+ *    and redirects to its specific editor URL.
+ * 3. If the site has NO pages, it redirects to the generic content editor URL,
+ *    which will then display the "Create Your Homepage" prompt.
+ */
 export default function SiteEditorRootPage() {
   const router = useRouter();
   const params = useParams();
   const siteId = params.siteId as string;
 
-  useEffect(() => {
-    if (siteId) {
-      // Use `replace` to avoid adding this redirect page to the browser history.
-      // This will navigate to the content editor for the file at `content/index.md`.
-      router.replace(`/sites/${siteId}/edit/content/`);
-    }
-  }, [siteId, router]);
+  const site = useAppStore(state => state.getSiteById(siteId));
+  const loadingSites = useAppStore(state => state.loadingSites);
 
-  // Return a loading state while the redirect is happening.
+  useEffect(() => {
+    // Guard Clause 1: Wait for the siteId to be available.
+    if (!siteId) return;
+
+    // Guard Clause 2: Wait for the asynchronous data loading from storage to complete.
+    // The `SiteLoaderLayout` triggers this load; we just wait for it to finish.
+    if (loadingSites.has(siteId) || !site) {
+      return;
+    }
+    
+    let redirectPath: string;
+
+    // Check if the site's structure array has any pages.
+    if (site.manifest.structure.length > 0) {
+      // The site has pages. The homepage is always the first one.
+      const homepageNode = site.manifest.structure[0];
+      
+      if (homepageNode) {
+        // Derive the editor slug from the homepage node's actual path.
+        const editorSlug = homepageNode.path.replace(/^content\//, '').replace(/\.md$/, '');
+        redirectPath = `/sites/${siteId}/edit/content/${editorSlug}`;
+      } else {
+        // This is an edge case for a corrupted manifest.
+        toast.error("Error: Site has a structure but no valid homepage found.");
+        redirectPath = `/sites/${siteId}/settings`;
+      }
+    } else {
+      // The site has NO pages. Redirect to the generic content editor,
+      // which will display the "Create Your Homepage" UI.
+      redirectPath = `/sites/${siteId}/edit/content`;
+    }
+
+    // Use `replace` to avoid polluting browser history with this redirect page.
+    router.replace(redirectPath);
+
+  }, [site, siteId, router, loadingSites]);
+
+  // Display a consistent loading message while waiting for the logic to run.
   return (
     <div className="p-6 flex justify-center items-center h-full">
-      <p>Loading editor...</p>
+      <p>Loading Editor...</p>
     </div>
   );
 }
@@ -5324,15 +5608,20 @@ File: app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
 
 import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
+import { useAppStore } from '@/core/state/useAppStore';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
 import type { LocalSiteData } from '@/types';
 
 // Component Imports
+import { Button } from '@/core/components/ui/button';
+import { FilePlus, LayoutGrid } from 'lucide-react';
 import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import LeftSidebar from '@/components/publishing/LeftSidebar';
+import NewPageDialog from '@/features/editor/components/NewPageDialog';
+import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';
 import BlocknoteEditor, { type BlocknoteEditorRef } from '@/features/editor/components/BlocknoteEditor';
 import FrontmatterSidebar from '@/features/editor/components/FrontmatterSidebar';
 import PrimaryContentFields from '@/features/editor/components/PrimaryContentFields';
-import LeftSidebar from '@/components/publishing/LeftSidebar';
 import CollectionItemList from '@/features/editor/components/CollectionItemList';
 import SaveButton from '@/features/editor/components/SaveButton';
 
@@ -5344,117 +5633,78 @@ import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 function EditContentPageInternal() {
   const editorRef = useRef<BlocknoteEditorRef>(null);
 
-  const { siteId, isNewFileMode, filePath } = usePageIdentifier();
-
-  const {
-    status,
-    site,
-    frontmatter,
-    initialBlocks,
-    slug,
-    setSlug,
-    handleFrontmatterChange,
-    onContentModified,
-  } = useFileContent(siteId, filePath, isNewFileMode);
-
-  const { handleDelete } = useFilePersistence({
-    siteId,
-    filePath,
-    isNewFileMode,
-    frontmatter,
-    slug,
-    getEditorContent: () => editorRef.current?.getBlocks() ?? [],
-  });
-
-  // Get the state variables and setters from the global UI store
-  const {
-    leftSidebarContent, rightSidebarContent,
-    setLeftAvailable, setRightAvailable,
-    setLeftSidebarContent, setRightSidebarContent
-  } = useUIStore(state => state.sidebar);
+  // --- FIX: Use the new `activeSiteId` to get the correct site data ---
+  const activeSiteId = useAppStore(state => state.activeSiteId);
+  const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
+  
+  const { siteId, isNewFileMode, filePath } = usePageIdentifier({ site });
+  
+  const { status, frontmatter, initialBlocks, slug, setSlug, handleFrontmatterChange, onContentModified } = useFileContent(siteId, filePath, isNewFileMode);
+  const { handleDelete } = useFilePersistence({ siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent: () => editorRef.current?.getBlocks() ?? [] });
+  const { leftSidebarContent, rightSidebarContent, setLeftAvailable, setRightAvailable, setLeftSidebarContent, setRightSidebarContent } = useUIStore(state => state.sidebar);
 
   const isCollectionPage = useMemo(() => !!frontmatter?.collection, [frontmatter]);
 
-  // This effect tells the UI store WHAT to render in the left sidebar slot.
+  const rightSidebarComponent = useMemo(() => {
+    if (status !== 'ready' || !frontmatter || !site) return null;
+    return <FrontmatterSidebar siteId={siteId} filePath={filePath} site={site as LocalSiteData} frontmatter={frontmatter} onFrontmatterChange={handleFrontmatterChange} isNewFileMode={isNewFileMode} slug={slug} onSlugChange={setSlug} onDelete={handleDelete} />;
+  }, [status, site, frontmatter, siteId, filePath, isNewFileMode, slug, handleFrontmatterChange, setSlug, handleDelete]);
+
   useEffect(() => {
     setLeftAvailable(true);
-    setLeftSidebarContent(<LeftSidebar />); // The page only knows about LeftSidebar, not FileTree.
-    
-    return () => {
-        setLeftAvailable(false);
-        setLeftSidebarContent(null);
-    }
+    setLeftSidebarContent(<LeftSidebar />);
+    return () => { setLeftAvailable(false); setLeftSidebarContent(null); };
   }, [setLeftAvailable, setLeftSidebarContent]);
 
-  // This effect tells the UI store WHAT to render in the right sidebar slot.
   useEffect(() => {
-    if (status === 'ready' && frontmatter && site) {
+    if (rightSidebarComponent) {
       setRightAvailable(true);
-      setRightSidebarContent(
-        <FrontmatterSidebar
-          siteId={siteId}
-          site={site as LocalSiteData}
-          frontmatter={frontmatter}
-          onFrontmatterChange={handleFrontmatterChange}
-          isNewFileMode={isNewFileMode}
-          slug={slug}
-          onSlugChange={setSlug}
-          onDelete={handleDelete}
-        />
-      );
+      setRightSidebarContent(rightSidebarComponent);
     } else {
       setRightAvailable(false);
       setRightSidebarContent(null);
     }
-    return () => { setRightAvailable(false); }
-  }, [status, site, frontmatter, isNewFileMode, slug, siteId, handleFrontmatterChange, handleDelete, setSlug, setRightAvailable, setRightSidebarContent]);
+    return () => { setRightAvailable(false); setRightSidebarContent(null); };
+  }, [rightSidebarComponent, setRightAvailable, setRightSidebarContent]);
 
-
-  // This memo renders the main content area (the editor or the collection list).
-  const pageContent = useMemo(() => {
-    if (status !== 'ready' || !frontmatter) {
-      return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
-    }
-
-    return (
-      <div className='flex h-full w-full flex-col'>
-        <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
-            <div className="shrink-0">
-                <PrimaryContentFields
-                    frontmatter={frontmatter}
-                    onFrontmatterChange={handleFrontmatterChange}
-                />
-            </div>
-            <div className="mt-6 flex-grow min-h-0">
-              {isCollectionPage ? (
-                <CollectionItemList
-                  siteId={siteId}
-                  collectionPagePath={filePath}
-                />
-              ) : (
-                <BlocknoteEditor
-                  ref={editorRef}
-                  key={filePath}
-                  initialContent={initialBlocks}
-                  onContentChange={onContentModified}
-                />
-              )}
-            </div>
-        </div>
-      </div>
-    );
-  }, [status, frontmatter, initialBlocks, filePath, onContentModified, isCollectionPage, siteId, handleFrontmatterChange]);
+  const isSiteEmpty = site && site.manifest.structure.length === 0 && !isNewFileMode;
 
   return (
-    // --- FIX: The ThreeColumnLayout now correctly receives the state variables. ---
-    // It will render whatever component is currently in `leftSidebarContent`,
-    // which the useEffect hook has set to be `<LeftSidebar />`.
     <ThreeColumnLayout
         leftSidebar={leftSidebarContent}
-        rightSidebar={rightSidebarContent}
-        headerActions={<SaveButton />}
+        rightSidebar={isSiteEmpty ? null : rightSidebarContent}
+        headerActions={isSiteEmpty ? null : <SaveButton />}
     >
-        {pageContent}
+      {isSiteEmpty ? (
+        <div className="flex flex-col items-center justify-center h-full text-center p-8 bg-background">
+          <h2 className="text-2xl font-bold mb-2">Create Your Homepage</h2>
+          <p className="text-muted-foreground mb-6 max-w-md">Your site is empty. The first page you create will become your site's permanent homepage.</p>
+          <div className="flex gap-4">
+            <NewPageDialog siteId={siteId}><Button size="lg"><FilePlus className="mr-2 h-5 w-5" /> Create Content Page</Button></NewPageDialog>
+            <CreateCollectionPageDialog siteId={siteId}><Button size="lg" variant="outline"><LayoutGrid className="mr-2 h-5 w-5" /> Create Collection Page</Button></CreateCollectionPageDialog>
+          </div>
+        </div>
+      ) : (
+        (() => {
+          if (status !== 'ready' || !frontmatter || !filePath) {
+            return <div className="p-6 flex justify-center items-center h-full"><p>Loading Editor...</p></div>;
+          }
+          return (
+            <div className='flex h-full w-full flex-col'>
+              <div className='container mx-auto flex h-full max-w-[900px] flex-col p-6'>
+                <div className="shrink-0"><PrimaryContentFields frontmatter={frontmatter} onFrontmatterChange={handleFrontmatterChange} /></div>
+                <div className="mt-6 flex-grow min-h-0">
+                  {isCollectionPage ? (
+                    <CollectionItemList siteId={siteId} collectionPagePath={filePath} />
+                  ) : (
+                    <BlocknoteEditor ref={editorRef} key={filePath} initialContent={initialBlocks} onContentChange={onContentModified} />
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })()
+      )}
     </ThreeColumnLayout>
   );
 }
@@ -5500,6 +5750,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
+import { slugify } from '@/lib/utils';
+
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
@@ -5521,11 +5773,36 @@ export default function CreateSitePage() {
     const newSiteId = generateSiteId(siteTitle);
     const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
 
+    // 1. Create a slug from the site's title for the first page.
+    // This gives it a meaningful, non-special name.
+    const firstPageTitle = DEFAULT_HOMEPAGE_CONFIG.TITLE;
+    const firstPageSlug = slugify(firstPageTitle); // e.g., 'welcome-to-your-new-site'
+
+    // 2. Define the frontmatter with the `homepage: true` flag.
     const defaultFrontmatter: MarkdownFrontmatter = {
-        title: DEFAULT_HOMEPAGE_CONFIG.TITLE,
-        layout: homepageLayoutPath,
+        title: firstPageTitle,
+        layout: DEFAULT_PAGE_LAYOUT_PATH,
         date: new Date().toISOString().split('T')[0],
+        homepage: true, // This is the ONLY thing that makes it the homepage.
     };
+    
+    // 3. Create the ParsedMarkdownFile object using the normal slug and path.
+    const defaultIndexFile: ParsedMarkdownFile = {
+        slug: firstPageSlug,
+        path: `content/${firstPageSlug}.md`, // e.g., content/welcome-to-your-new-site.md
+        frontmatter: defaultFrontmatter,
+        content: `## ${firstPageTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
+    };
+
+    // 4. Create the corresponding StructureNode for the manifest.
+    const indexStructureNode: StructureNode = {
+        type: 'page',
+        title: firstPageTitle,
+        path: defaultIndexFile.path, // Path uses the real filename
+        slug: firstPageSlug,          // Slug uses the real slug
+        navOrder: 0,
+    };
+
 
     const mockSiteData: LocalSiteData = { 
         siteId: 'mock-id', 
@@ -5560,22 +5837,6 @@ export default function CreateSitePage() {
     }
 }
 
-    const defaultIndexFile: ParsedMarkdownFile = {
-        slug: 'index',
-        path: 'content/index.md',
-        frontmatter: defaultFrontmatter,
-        content: `# Welcome to ${siteTitle}\n\nThis is your new site's homepage. You can start editing it now.`,
-    };
-    
-    const indexStructureNode: StructureNode = {
-        type: 'page',
-        title: 'Home',
-        path: 'content/index.md',
-        slug: 'index',
-        navOrder: 0,
-        layout: homepageLayoutPath,
-    };
-
     const newSiteData: LocalSiteData = {
       siteId: newSiteId,
       manifest: {
@@ -5583,21 +5844,19 @@ export default function CreateSitePage() {
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: {
-          name: selectedTheme.path,
-          config: {},
-        },
-        structure: [indexStructureNode],
+        theme: { name: selectedTheme.path, config: {} },
+        structure: [],
       },
-      contentFiles: [defaultIndexFile],
+      contentFiles: [],
       themeFiles: [],
       layoutFiles: [],
     };
 
+
     try {
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
-      router.push(`/sites/${newSiteId}/edit/content/index`);
+      router.push(`/sites/${newSiteId}/edit`);
     } catch (error) {
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
@@ -6949,119 +7208,119 @@ File: features/editor/components/FileTree.tsx
 import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import { type ParsedMarkdownFile, type StructureNode } from '@/types';
-import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Plus } from 'lucide-react';
+import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Home } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useSortable } from '@dnd-kit/sortable';
+import { useSortable, SortableContext, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
-import { Button } from '@/core/components/ui/button';
+import { getDescendantIds } from '@/core/services/fileTree.service'; // <-- FIX: ADD THIS IMPORT
 
 // --- Type Definitions ---
+type DndIndicator = {
+    path: string;
+    intent: 'reorder-before' | 'reorder-after' | 'nest';
+} | null;
+
 interface FileTreeProps {
   nodes: StructureNode[];
   contentFiles: ParsedMarkdownFile[];
   baseEditPath: string;
-  activePath?: string;
+  activePath: string | undefined;
+  homepagePath: string | undefined;
+  dndIndicator: DndIndicator;
   nestingLevel?: number;
-  className?: string;
-  // New props to render the drop indicator
-  activeId: string | null;
-  overId: string | null;
 }
 
-interface FileTreeNodeProps {
+interface FileTreeNodeProps extends Omit<FileTreeProps, 'nodes'> {
   node: StructureNode;
-  contentFiles: ParsedMarkdownFile[];
-  baseEditPath: string;
-  activePath?: string;
-  nestingLevel: number;
-  // New props for drop indicator
-  isOver: boolean;
-  isDragging: boolean;
 }
 
-// --- Draggable Node Component ---
-const DndNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath, activePath, nestingLevel, isOver, isDragging }) => {
-    const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
-        id: node.path,
-    });
-    
-    const [isOpen, setIsOpen] = useState(true);
-    const displayLabel = node.menuTitle || node.title || node.slug;
+// --- Single Tree Node Component ---
+const FileTreeNode: React.FC<FileTreeNodeProps> = ({ node, contentFiles, baseEditPath, activePath, homepagePath, dndIndicator, nestingLevel = 0 }) => {
+  const [isOpen, setIsOpen] = useState(true);
+  
+  const isHomepage = node.path === homepagePath;
+  const fileForNode = useMemo(() => contentFiles.find(f => f.path === node.path), [contentFiles, node.path]);
+  const isCollection = !!fileForNode?.frontmatter.collection;
+  const hasChildren = node.children && node.children.length > 0;
 
-    const isCollectionPage = useMemo(() => {
-        const file = contentFiles.find(f => f.path === node.path);
-        return !!file?.frontmatter.collection;
-    }, [contentFiles, node.path]);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: node.path,
+    disabled: isHomepage,
+  });
 
-    const style = {
-        transform: CSS.Transform.toString(transform),
-        transition,
-        opacity: isDragging ? 0.5 : 1, // Make the original item semi-transparent while dragging
-    };
+  const { setNodeRef: setDroppableRef } = useDroppable({
+    id: node.path,
+    data: { type: 'container', isCollection },
+  });
 
-    const hasChildren = node.children && node.children.length > 0;
-    const shouldRenderChildren = hasChildren && !isCollectionPage && nestingLevel < 1;
-    
-    const href = `${baseEditPath}/content/${node.slug}`;
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    marginLeft: `${nestingLevel * 1.25}rem`,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
-    return (
-        <div ref={setNodeRef} style={style} className="relative">
-            {/* --- FIX: Drop Line Indicator --- */}
-            {isOver && <div className="absolute -top-1 left-0 right-0 h-0.5 bg-blue-500 rounded-full" />}
-            
-            <div className="flex items-center group w-full my-0.5 rounded-md transition-colors relative bg-background">
-                <div {...attributes} {...listeners} className="p-1 cursor-grab touch-none text-muted-foreground/50">
-                    <GripVertical className="h-4 w-4" />
-                </div>
-                <div className={cn("flex-grow flex items-center py-1 pl-1 pr-1", activePath === node.path && "font-semibold")}>
-                    <ChevronRight 
-                        className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200", shouldRenderChildren ? 'cursor-pointer' : 'invisible', isOpen && "rotate-90")} 
-                        onClick={() => shouldRenderChildren && setIsOpen(!isOpen)}
-                    />
-                    {isCollectionPage ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
-                    <Link href={href} className="truncate flex-grow mx-1.5 text-sm">{displayLabel}</Link>
-                    {/* ... New Item Button ... */}
-                </div>
-            </div>
+  const editorSlug = node.path.replace(/^content\//, '').replace(/\.md$/, '');
+  const href = `${baseEditPath}/content/${editorSlug}`;
 
-            {shouldRenderChildren && isOpen && (
-                <div className="pl-6 border-l ml-4">
-                    <FileTree
-                        nodes={node.children!}
-                        contentFiles={contentFiles}
-                        baseEditPath={baseEditPath}
-                        activePath={activePath}
-                        nestingLevel={nestingLevel + 1}
-                        className="py-1"
-                        activeId={null} // Indicators only shown at the level being dragged
-                        overId={null}
-                    />
-                </div>
-            )}
+  const isDropTarget = dndIndicator?.path === node.path;
+  const showDropLineBefore = isDropTarget && dndIndicator.intent === 'reorder-before';
+  const showDropLineAfter = isDropTarget && dndIndicator.intent === 'reorder-after';
+  const showNestingHighlight = isDropTarget && dndIndicator.intent === 'nest';
+
+  return (
+    <div ref={setNodeRef} style={style} className="relative">
+      {showDropLineBefore && <div className="absolute -top-0.5 left-0 right-0 h-1 bg-blue-500 rounded-full z-20" />}
+      
+      <div
+        ref={setDroppableRef}
+        className={cn(
+          "flex items-center group w-full my-0.5 rounded-md relative transition-colors",
+          showNestingHighlight && "bg-blue-100 dark:bg-blue-900/40",
+          activePath === node.path && !showNestingHighlight && "bg-accent text-accent-foreground"
+        )}
+      >
+        <button {...listeners} {...attributes} disabled={isHomepage} className={cn("p-1 touch-none", isHomepage ? "cursor-default text-muted-foreground/30" : "cursor-grab text-muted-foreground/50 hover:text-muted-foreground")}>
+          <GripVertical className="h-4 w-4" />
+        </button>
+        
+        <div className="flex-grow flex items-center py-1 pl-1 pr-1">
+          {hasChildren ? (<ChevronRight className={cn("h-4 w-4 mr-1 shrink-0 transition-transform duration-200 cursor-pointer", isOpen && "rotate-90")} onClick={() => setIsOpen(!isOpen)} />) : (<span className="w-4 h-4 mr-1 shrink-0" />)}
+
+          {isHomepage ? <Home className="h-4 w-4 shrink-0 text-primary" /> : isCollection ? <LayoutGrid className="h-4 w-4 shrink-0 text-muted-foreground" /> : <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />}
+          
+          <Link href={href} className="truncate flex-grow mx-1.5 text-sm hover:underline" title={node.title}>{node.menuTitle || node.title}</Link>
         </div>
-    );
+      </div>
+      
+      {showDropLineAfter && <div className="absolute -bottom-0.5 left-0 right-0 h-1 bg-blue-500 rounded-full z-20" />}
+      
+      {hasChildren && isOpen && (
+        <FileTree
+          nodes={node.children!}
+          {...{ contentFiles, baseEditPath, activePath, homepagePath, dndIndicator }}
+          nestingLevel={nestingLevel + 1}
+        />
+      )}
+    </div>
+  );
 };
 
-// --- Main FileTree Component ---
-export default function FileTree({ nodes, contentFiles, baseEditPath, activePath, nestingLevel = 0, activeId, overId, className }: FileTreeProps) {
+// --- Main File Tree Container ---
+export default function FileTree({ nodes, contentFiles, baseEditPath, activePath, homepagePath, dndIndicator }: FileTreeProps) {
+  const nodeIds = useMemo(() => getDescendantIds(nodes), [nodes]);
+
+  if (!nodes || nodes.length === 0) return null;
+
   return (
-    <div className={cn("w-full", className)}>
-        <div className="space-y-0.5">
-            {nodes.map(node => (
-                <DndNode 
-                    key={node.path} 
-                    node={node} 
-                    contentFiles={contentFiles}
-                    baseEditPath={baseEditPath} 
-                    activePath={activePath}
-                    nestingLevel={nestingLevel}
-                    isDragging={activeId === node.path}
-                    isOver={overId === node.path}
-                />
-            ))}
-        </div>
-    </div>
+    <SortableContext items={nodeIds} strategy={verticalListSortingStrategy}>
+      <div className="space-y-0.5">
+        {nodes.map(node => (
+          <FileTreeNode key={node.path} node={node} {...{ contentFiles, baseEditPath, activePath, homepagePath, dndIndicator }}/>
+        ))}
+      </div>
+    </SortableContext>
   );
 }
 
@@ -7178,11 +7437,73 @@ export default DataSourceSelectWidget;
 
 ================================================================================
 
+File: features/editor/components/HomepageSwitch.tsx
+// src/features/editor/components/HomepageSwitch.tsx
+'use client';
+
+import { useAppStore } from '@/core/state/useAppStore';
+import { Label } from '@/core/components/ui/label';
+import { Switch } from '@/core/components/ui/switch';
+import { toast } from 'sonner';
+import { useState } from 'react';
+
+interface HomepageSwitchProps {
+  siteId: string;
+  pagePath: string;
+  isHomepage: boolean;
+}
+
+export default function HomepageSwitch({ siteId, pagePath, isHomepage }: HomepageSwitchProps) {
+  const { setHomepageAction } = useAppStore.getState();
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleCheckedChange = async (isChecked: boolean) => {
+    if (!isChecked) {
+      // It's not possible for the user to "uncheck" this switch.
+      // Another page must be selected to become the homepage.
+      toast.info("To change the homepage, set it on another page.");
+      return;
+    }
+    
+    setIsLoading(true);
+    try {
+      await setHomepageAction(siteId, pagePath);
+    } catch (error) {
+      console.error("Failed to set homepage:", error);
+      toast.error("An error occurred while setting the homepage.");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center justify-between rounded-lg border p-3 shadow-sm">
+      <div className="space-y-0.5">
+        <Label htmlFor="homepage-switch" className="text-base">
+          Set as Homepage
+        </Label>
+        <p className="text-sm text-muted-foreground">
+          Make this the first page visitors see.
+        </p>
+      </div>
+      <Switch
+        id="homepage-switch"
+        checked={isHomepage}
+        onCheckedChange={handleCheckedChange}
+        disabled={isLoading || isHomepage}
+        aria-readonly
+      />
+    </div>
+  );
+}
+
+================================================================================
+
 File: features/editor/components/BlocknoteEditor.tsx
 // src/features/editor/components/BlocknoteEditor.tsx
 'use client';
 
-import { useMemo, forwardRef, useImperativeHandle } from 'react';
+import { forwardRef, useImperativeHandle } from 'react';
 import { Block } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';
@@ -7566,9 +7887,14 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 import ViewEditor from '@/features/editor/components/ViewEditor'; 
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; 
+import HomepageSwitch from './HomepageSwitch'; 
 
+/**
+ * Props for the FrontmatterSidebar component.
+ */
 interface FrontmatterSidebarProps {
   siteId: string;
+  filePath: string; // The full path to the content file being edited
   site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles' | 'contentFiles'>;
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (newFrontmatter: Partial<MarkdownFrontmatter>) => void;
@@ -7578,29 +7904,32 @@ interface FrontmatterSidebarProps {
   onDelete: () => Promise<void>;
 }
 
+/**
+ * Renders the right-hand sidebar in the editor, containing all metadata
+ * and settings for the current page (frontmatter).
+ */
 export default function FrontmatterSidebar({
-  siteId, site, frontmatter, onFrontmatterChange,
+  siteId, site, frontmatter, filePath, onFrontmatterChange,
   isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
 
- const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
+  const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
   const [layoutSchema, setLayoutSchema] = useState<RJSFSchema | null>(null);
 
   const isCollectionPage = useMemo(() => !!frontmatter.collection, [frontmatter]);
 
+  // Effect to fetch the available layouts (e.g., page, list) for the dropdowns.
   useEffect(() => {
     async function fetchAndFilterLayouts() {
       if (!site) return;
-
-      // Determine which type of layout we need to show in the dropdown.
       const requiredLayoutType = isCollectionPage ? 'list' : 'page';
       const filteredLayouts = await getAvailableLayouts(site, requiredLayoutType);
       setAvailableLayouts(filteredLayouts);
     }
     fetchAndFilterLayouts();
-  }, [site, isCollectionPage]); // Re-runs when the page type changes
+  }, [site, isCollectionPage]);
 
-  // This effect loads the schema for the currently selected layout.
+  // Effect to load the JSON schema for the currently selected layout.
   useEffect(() => {
     const loadSchema = async () => {
       if (!frontmatter.layout) {
@@ -7612,7 +7941,8 @@ export default function FrontmatterSidebar({
     };
     loadSchema();
   }, [site, frontmatter.layout]);
- const menuTitleValue = typeof frontmatter.menuTitle === 'string' ? frontmatter.menuTitle : '';
+
+  const menuTitleValue = typeof frontmatter.menuTitle === 'string' ? frontmatter.menuTitle : '';
   const handleLayoutChange = (layoutId: string) => {
     onFrontmatterChange({ layout: layoutId });
   };
@@ -7620,33 +7950,38 @@ export default function FrontmatterSidebar({
   return (
     <div className="p-4 space-y-6 h-full flex flex-col">
       <h2 className="text-lg font-semibold border-b pb-3">Page Settings</h2>
-      <Accordion type="multiple" defaultValue={['general', 'collection', 'advanced']} className="w-full">
+      
+      {/* Settings are organized into accordions for clarity */}
+      <Accordion type="multiple" defaultValue={['general', 'advanced']} className="w-full flex-grow overflow-y-auto">
         <AccordionItem value="general">
           <AccordionTrigger>General</AccordionTrigger>
-          <AccordionContent className="space-y-4 pt-4">
+          <AccordionContent className="space-y-6 pt-4">
+            
+            {/* The Homepage switch is only visible for existing pages */}
+            {!isNewFileMode && (
+              <HomepageSwitch
+                siteId={siteId}
+                pagePath={filePath}
+                isHomepage={!!frontmatter.homepage}
+              />
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="menu-title-input">Menu Title (Optional)</Label>
-               <Input
-                  id="menu-title-input"
-                  placeholder="e.g., Home, About"
-                  value={menuTitleValue}
-                  onChange={(e) => onFrontmatterChange({ menuTitle: e.target.value })}
+              <Input
+                id="menu-title-input"
+                placeholder="e.g., Home, About Us"
+                value={menuTitleValue}
+                onChange={(e) => onFrontmatterChange({ menuTitle: e.target.value })}
               />
-              
               <p className="text-xs text-muted-foreground">A short label for navigation menus. If left blank, the page title will be used.</p>
             </div>
-
-          
+           
             <div className="space-y-2">
               <Label htmlFor="page-layout-select">Layout</Label>
               <Select value={frontmatter.layout} onValueChange={handleLayoutChange}>
                   <SelectTrigger id="page-layout-select"><SelectValue placeholder="Select a layout..." /></SelectTrigger>
-                  <SelectContent>
-                      {availableLayouts.map(layout => (
-                          <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>
-                      ))}
-                  </SelectContent>
+                  <SelectContent>{availableLayouts.map(layout => <SelectItem key={layout.id} value={layout.id}>{layout.name}</SelectItem>)}</SelectContent>
               </Select>
                <p className="text-xs text-muted-foreground">Controls the appearance of this page.</p>
             </div>
@@ -7654,11 +7989,7 @@ export default function FrontmatterSidebar({
             {layoutSchema && (
                 <div className="border-t pt-4">
                      <h4 className="text-sm font-medium mb-2">Layout Options</h4>
-                    <SchemaDrivenForm
-                        schema={layoutSchema}
-                        formData={frontmatter}
-                        onFormChange={(data) => onFrontmatterChange(data as Partial<MarkdownFrontmatter>)}
-                    />
+                    <SchemaDrivenForm schema={layoutSchema} formData={frontmatter} onFormChange={(data) => onFrontmatterChange(data as Partial<MarkdownFrontmatter>)} />
                 </div>
             )}
           </AccordionContent>
@@ -7668,11 +7999,7 @@ export default function FrontmatterSidebar({
           <AccordionItem value="collection">
             <AccordionTrigger>Collection Display</AccordionTrigger>
             <AccordionContent className="pt-2">
-              <ViewEditor
-                siteId={siteId}
-                frontmatter={frontmatter}
-                onFrontmatterChange={onFrontmatterChange}
-              />
+              <ViewEditor siteId={siteId} frontmatter={frontmatter} onFrontmatterChange={onFrontmatterChange} />
             </AccordionContent>
           </AccordionItem>
         )}
@@ -7687,16 +8014,17 @@ export default function FrontmatterSidebar({
                     value={slug}
                     onChange={(e) => onSlugChange(e.target.value)}
                     disabled={!isNewFileMode}
-                    className={!isNewFileMode ? 'bg-muted/50' : ''}
+                    className={!isNewFileMode ? 'bg-muted/50 cursor-not-allowed' : ''}
                 />
+                <p className="text-xs text-muted-foreground">The unique filename for this page. Can only be set on creation.</p>
               </div>
           </AccordionContent>
         </AccordionItem>
       </Accordion>
 
+      {/* The Delete button is only available for existing pages */}
       {!isNewFileMode && (
-        <div className="mt-auto pt-6 border-t">
-          {/* ... Delete button dialog remains the same ... */}
+        <div className="mt-auto pt-6 border-t shrink-0">
           <AlertDialog>
               <AlertDialogTrigger asChild>
                   <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive">
@@ -7707,7 +8035,7 @@ export default function FrontmatterSidebar({
                   <AlertDialogHeader>
                       <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This action will permanently delete the file for &quot;{frontmatter?.title || 'this content'}&quot; and all its child items. This cannot be undone.
+                        This action will permanently delete the file for "{frontmatter?.title || 'this content'}" and cannot be undone.
                       </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -7767,11 +8095,20 @@ File: features/editor/hooks/usePageIdentifier.ts
 import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
+import { LocalSiteData } from '@/types'; // Import the site data type
+
+/**
+ * The hook now accepts the site data as an argument to make it smarter.
+ */
+interface PageIdentifierParams {
+  site: LocalSiteData | undefined;
+}
 
 /**
  * Parses the URL to identify the site and the specific file being targeted for editing.
+ * It is now data-aware and can correctly identify the homepage file from the root editor URL.
  */
-export function usePageIdentifier() {
+export function usePageIdentifier({ site }: PageIdentifierParams) {
   const params = useParams();
   const siteId = params.siteId as string;
   const slugSegments = useMemo(() => (params.slug as string[]) || [], [params.slug]);
@@ -7779,14 +8116,31 @@ export function usePageIdentifier() {
   const isNewFileMode = useMemo(() => slugSegments.includes(NEW_FILE_SLUG_MARKER), [slugSegments]);
 
   const filePath = useMemo(() => {
+    // For creating a new file, the path is its intended parent directory.
     if (isNewFileMode) {
-      // For a new file, the path is the parent directory.
       const parentSlug = slugSegments.slice(0, slugSegments.indexOf(NEW_FILE_SLUG_MARKER)).join('/');
       return parentSlug ? `content/${parentSlug}` : 'content';
     }
-    // For an existing file, it's the full path.
-    return `content/${(slugSegments.length > 0 ? slugSegments.join('/') : 'index')}.md`;
-  }, [slugSegments, isNewFileMode]);
+
+    // --- NEW LOGIC FOR EXISTING FILES ---
+    if (slugSegments.length > 0) {
+      // If the URL has a slug, derive the path directly from it.
+      const slug = slugSegments.join('/');
+      return `content/${slug}.md`;
+    } else {
+      // If the URL has NO slug, it means we are at the editor root.
+      // We must find the designated homepage file from the site data.
+      if (site?.contentFiles) {
+        const homepageFile = site.contentFiles.find(f => f.frontmatter.homepage === true);
+        // Return the actual path of the homepage file.
+        if (homepageFile) {
+          return homepageFile.path;
+        }
+      }
+      // Fallback while data is loading or if no homepage is set.
+      return '';
+    }
+  }, [slugSegments, isNewFileMode, site]);
 
   return { siteId, slugSegments, isNewFileMode, filePath };
 }
@@ -7953,27 +8307,18 @@ import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useEditor } from '@/features/editor/contexts/EditorContext';
-import * as localSiteFs from '@/core/services/localFileSystem.service';
-import { parseMarkdownString } from '@/lib/markdownParser';
+// REMOVED: No longer need to read directly from the file system here.
+// import * as localSiteFs from '@/core/services/localFileSystem.service'; 
 import { slugify } from '@/lib/utils';
 import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-
-// Import the new Blocknote types and conversion service
 import { Block } from '@blocknote/core';
 import { markdownToBlocks } from '@/core/services/blocknote.service';
 
 export type FileStatus = 'initializing' | 'loading' | 'ready' | 'not_found';
+interface PageFrontmatter extends MarkdownFrontmatter { menuTitle?: string; }
 
-interface PageFrontmatter extends MarkdownFrontmatter {
-    menuTitle?: string;
-}
-/**
- * Manages the state of a single content file for the editor.
- * It handles loading the raw Markdown, parsing it, converting the body
- * to Blocknote's format, and managing in-memory state for frontmatter and slugs.
- */
 export function useFileContent(siteId: string, filePath: string, isNewFileMode: boolean) {
   const router = useRouter();
   const site = useAppStore(state => state.getSiteById(siteId));
@@ -7982,21 +8327,20 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
   const [status, setStatus] = useState<FileStatus>('initializing');
   const [frontmatter, setFrontmatter] = useState<PageFrontmatter | null>(null);
   const [slug, setSlug] = useState('');
-  
-  // This state now holds the Blocknote-compatible JSON for the editor.
   const [initialBlocks, setInitialBlocks] = useState<Block[]>([]);
 
   useEffect(() => {
     const loadData = async () => {
-      // Wait until the site's manifest is loaded into the store
-      if (!site?.manifest) {
+      // Guard clause: wait for the site data to be fully loaded into the store.
+      if (!site?.manifest || !site?.contentFiles) {
         setStatus('loading');
         return;
       }
 
       let markdownContent = '';
+
       if (isNewFileMode) {
-        // Setup default state for a brand new, unsaved file
+        // Setup for a brand new, unsaved file.
         setFrontmatter({
           title: '',
           layout: DEFAULT_PAGE_LAYOUT_PATH,
@@ -8006,45 +8350,39 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
         markdownContent = '# Start Writing...';
         setSlug('');
       } else {
-        // Load an existing file from storage
-        const rawContent = await localSiteFs.getContentFileRaw(siteId, filePath);
-        if (rawContent === null) {
+        // --- FIX: Read directly from the hydrated Zustand store, not IndexedDB ---
+        // This eliminates the race condition.
+        const fileData = site.contentFiles.find(f => f.path === filePath);
+
+        if (!fileData) {
           setStatus('not_found');
-          toast.error(`Content file not found for this URL.`);
-          router.push(`/sites/${siteId}/edit`);
+          toast.error(`Content file not found at path: ${filePath}`);
+          router.push(`/sites`);
           return;
         }
-        const { frontmatter: fm, content } = parseMarkdownString(rawContent);
-        setFrontmatter(fm);
-        markdownContent = content;
-        setSlug(filePath.split('/').pop()?.replace('.md', '') || '');
+        
+        // Use the data already in the store. No need to re-parse.
+        setFrontmatter(fileData.frontmatter);
+        markdownContent = fileData.content;
+        setSlug(fileData.slug);
       }
 
-      // Asynchronously convert the loaded markdown string to Blocknote's format
       const blocks = await markdownToBlocks(markdownContent);
       setInitialBlocks(blocks);
-      
       setStatus('ready');
       setHasUnsavedChanges(false);
     };
 
-    loadData();
-  }, [site?.manifest, filePath, isNewFileMode, siteId, router, setHasUnsavedChanges]);
+    // Only run if filePath is valid. For a new site, this waits until the redirect happens.
+    if (filePath) {
+        loadData();
+    }
+    
+  }, [site, filePath, isNewFileMode, siteId, router, setHasUnsavedChanges]);
 
-  /**
-   * A callback passed to the editor to signal that its content has changed.
-   * This sets the global "unsaved changes" flag.
-   */
-  const onContentModified = useCallback(() => {
-    setHasUnsavedChanges(true);
-  }, [setHasUnsavedChanges]);
+  const onContentModified = useCallback(() => setHasUnsavedChanges(true), [setHasUnsavedChanges]);
 
-  /**
-   * A callback to handle changes to frontmatter fields. It updates the
-   * local frontmatter state and also auto-generates the slug if the title
-   * is changed on a new file.
-   */
-const handleFrontmatterChange = useCallback((update: Partial<PageFrontmatter>) => {
+  const handleFrontmatterChange = useCallback((update: Partial<PageFrontmatter>) => {
     setFrontmatter(prev => {
       if (!prev) return null;
       const newFm = { ...prev, ...update };
@@ -8053,19 +8391,10 @@ const handleFrontmatterChange = useCallback((update: Partial<PageFrontmatter>) =
       }
       return newFm;
     });
-    onContentModified(); // Any frontmatter change is considered an unsaved change
+    onContentModified();
   }, [isNewFileMode, onContentModified]);
 
-  return {
-    status,
-    site,
-    frontmatter,
-    initialBlocks,
-    slug,
-    setSlug,
-    handleFrontmatterChange,
-    onContentModified,
-  };
+  return { status, site, frontmatter, initialBlocks, slug, setSlug, handleFrontmatterChange, onContentModified };
 }
 
 ================================================================================
@@ -8074,7 +8403,7 @@ File: features/editor/hooks/useFilePersistence.ts
 // src/features/editor/hooks/useFilePersistence.ts
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useEditor } from '@/features/editor/contexts/EditorContext';
@@ -8083,8 +8412,6 @@ import { AUTOSAVE_DELAY } from '@/config/editorConfig';
 import { toast } from 'sonner';
 import type { MarkdownFrontmatter } from '@/types';
 import { useUnloadPrompt } from './useUnloadPrompt';
-
-// Import the necessary types
 import { Block } from '@blocknote/core';
 import { blocksToMarkdown } from '@/core/services/blocknote.service';
 
@@ -8097,46 +8424,48 @@ interface PersistenceParams {
   getEditorContent: () => Block[]; 
 }
 
-/**
- * Handles all "write" operations for a file: saving, autosaving, and deleting.
- */
 export function useFilePersistence({
-  siteId,
-  filePath,
-  isNewFileMode,
-  frontmatter,
-  slug,
-  getEditorContent,
+  siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent,
 }: PersistenceParams) {
   const router = useRouter();
-  const { addOrUpdateContentFile, deleteContentFileAndState } = useAppStore.getState();
+  const { addOrUpdateContentFile, deleteContentFileAndState, getSiteById } = useAppStore.getState();
   const { hasUnsavedChanges, setHasUnsavedChanges, setSaveState, registerSaveAction } = useEditor();
   const autosaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const [isInitialSaveCompleted, setInitialSaveCompleted] = useState(!isNewFileMode);
-  
+
   const handleSave = useCallback(async () => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
-
     if (!frontmatter) throw new Error("Frontmatter not ready for saving.");
-    if (!frontmatter.title.trim()) {
-        toast.error("A title is required before saving.");
-        throw new Error("A title is required.");
-    }
+    if (!frontmatter.title.trim()) throw new Error("A title is required before saving.");
 
     const currentBlocks = getEditorContent();
     const markdownBody = await blocksToMarkdown(currentBlocks);
     
-    const finalPath = isNewFileMode ? `${filePath}/${slug.trim()}.md`.replace('//', '/') : filePath;
-    const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+    // --- FIX: Logic is now split for Create vs. Update ---
+    if (isNewFileMode) {
+      // --- CREATION LOGIC (First Save) ---
+      if (!slug.trim()) throw new Error("A URL slug is required for a new page.");
+      
+      const site = getSiteById(siteId);
+      const finalPath = `${filePath}/${slug.trim()}.md`.replace('//', '/');
 
-    await addOrUpdateContentFile(siteId, finalPath, rawMarkdown);
+      // Check for path conflicts before saving
+      if (site?.contentFiles?.some(f => f.path === finalPath)) {
+        throw new Error(`A page with the path "${slug}" already exists.`);
+      }
 
-    if (isNewFileMode && !isInitialSaveCompleted) {
-      setInitialSaveCompleted(true);
+      const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+      await addOrUpdateContentFile(siteId, finalPath, rawMarkdown);
+
+      // Transition from "creation mode" to "editing mode" by updating the URL
       const newEditPath = finalPath.replace(/^content\//, '').replace(/\.md$/, '');
       router.replace(`/sites/${siteId}/edit/content/${newEditPath}`);
+
+    } else {
+      // --- UPDATE LOGIC (Subsequent Saves) ---
+      const rawMarkdown = stringifyToMarkdown(frontmatter, markdownBody);
+      await addOrUpdateContentFile(siteId, filePath, rawMarkdown);
     }
-  }, [frontmatter, getEditorContent, isNewFileMode, filePath, slug, addOrUpdateContentFile, siteId, isInitialSaveCompleted, router]);
+  }, [siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent, addOrUpdateContentFile, getSiteById, router]);
 
   const handleDelete = useCallback(async () => {
     if (isNewFileMode || !frontmatter) return;
@@ -8149,16 +8478,14 @@ export function useFilePersistence({
     }
   }, [isNewFileMode, frontmatter, deleteContentFileAndState, siteId, filePath, router]);
 
-  // Register the save action with the EditorContext
   useEffect(() => {
     registerSaveAction(handleSave);
   }, [handleSave, registerSaveAction]);
 
-  // Autosave effect
   useEffect(() => {
     if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current);
-    const canAutosave = !isNewFileMode || isInitialSaveCompleted;
-    if (hasUnsavedChanges && canAutosave) {
+    // Autosave is disabled in new file mode until the first manual save.
+    if (hasUnsavedChanges && !isNewFileMode) {
       autosaveTimeoutRef.current = setTimeout(async () => {
         setSaveState('saving');
         try {
@@ -8166,17 +8493,13 @@ export function useFilePersistence({
           setHasUnsavedChanges(false);
           setSaveState('saved');
           setTimeout(() => setSaveState('no_changes'), 2000);
-        } catch (error) {
-          console.error("Autosave failed:", error);
-          setSaveState('idle');
-        }
+        } catch (error) { console.error("Autosave failed:", error); setSaveState('idle'); }
       }, AUTOSAVE_DELAY);
     }
     return () => { if (autosaveTimeoutRef.current) clearTimeout(autosaveTimeoutRef.current); };
-  }, [hasUnsavedChanges, isNewFileMode, isInitialSaveCompleted, handleSave, setSaveState, setHasUnsavedChanges]);
+  }, [hasUnsavedChanges, isNewFileMode, handleSave, setSaveState, setHasUnsavedChanges]);
 
-  // Hook to prompt user before unload
-  useUnloadPrompt(isNewFileMode && hasUnsavedChanges && !isInitialSaveCompleted);
+  useUnloadPrompt(hasUnsavedChanges);
 
   return { handleDelete };
 }
@@ -8255,7 +8578,7 @@ File: components/publishing/LeftSidebar.tsx
 'use client';
 
 import { useParams, usePathname } from 'next/navigation';
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useState } from 'react';
 import { useAppStore } from '@/core/state/useAppStore';
 import { useUIStore } from '@/core/state/uiStore';
 import { Button } from '@/core/components/ui/button';
@@ -8265,45 +8588,15 @@ import CreateCollectionPageDialog from '@/features/editor/components/CreateColle
 import type { StructureNode } from '@/types';
 import { cn } from '@/lib/utils';
 import { Home, FilePlus, LayoutGrid } from 'lucide-react';
-import { DndContext, DragEndEvent, useDroppable, DragOverlay, DragStartEvent, closestCenter } from '@dnd-kit/core';
-import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-kit/sortable';
-import { Link } from '@/core/components/ui/link';
 import { toast } from 'sonner';
+import { DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, useSensor, useSensors, DragOverEvent } from '@dnd-kit/core';
+import { Link } from '@/core/components/ui/link';
+import { getDescendantIds } from '@/core/services/fileTree.service';
 
-// HELPER FUNCTIONS
-const flattenTreeIds = (nodes: StructureNode[]): string[] => {
-    let ids: string[] = [];
-    for (const node of nodes) {
-        ids.push(node.path);
-        if (node.children) {
-            ids = ids.concat(flattenTreeIds(node.children));
-        }
-    }
-    return ids;
-};
-
-function findParentOfNode(nodes: StructureNode[], path: string, parent: StructureNode | null = null): StructureNode | null {
-    for (const node of nodes) {
-        if (node.path === path) return parent;
-        if (node.children) {
-            const found = findParentOfNode(node.children, path, node);
-            if (found) return found;
-        }
-    }
-    return null;
-}
-
-function updateNodeInChildren(nodes: StructureNode[], parentPath: string, newChildren: StructureNode[]): StructureNode[] {
-    return nodes.map(node => {
-        if (node.path === parentPath) {
-            return { ...node, children: newChildren };
-        }
-        if (node.children) {
-            return { ...node, children: updateNodeInChildren(node.children, parentPath, newChildren) };
-        }
-        return node;
-    });
-}
+type DndIndicator = {
+    path: string;
+    intent: 'reorder-before' | 'reorder-after' | 'nest';
+} | null;
 
 export default function LeftSidebar() {
   const params = useParams();
@@ -8311,139 +8604,101 @@ export default function LeftSidebar() {
   const siteId = params.siteId as string;
 
   const site = useAppStore((state) => state.getSiteById(siteId));
-  const { updateManifest, moveNode } = useAppStore.getState();
-  
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [overId, setOverId] = useState<string | null>(null);
-
-  // --- FIX: Select state from the correct slices using separate selectors ---
+  // --- FIX: Use a single, powerful store action ---
+  const { repositionNode } = useAppStore.getState(); 
   const { isLeftOpen, toggleLeftSidebar } = useUIStore((state) => state.sidebar);
   const isDesktop = useUIStore((state) => state.screen.isDesktop);
 
-  const [activePath, setActivePath] = useState<string | undefined>();
-
-  const flattenedIds = useMemo(() => site ? flattenTreeIds(site.manifest.structure) : [], [site]);
-
-  useEffect(() => {
-    if (!site?.manifest) return;
-    const contentSlug = pathname.substring(pathname.indexOf('/edit/content/') + 14).replace(/\/$/, '') || 'index';
-    setActivePath(`content/${contentSlug}.md`);
-  }, [pathname, site?.manifest]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [dndIndicator, setDndIndicator] = useState<DndIndicator>(null);
+  
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
 
   const handleDragStart = useCallback((event: DragStartEvent) => setActiveId(event.active.id as string), []);
-  const handleDragOver = useCallback((event: DragEndEvent) => setOverId(event.over?.id as string | null), []);
-
-  const handleDragEnd = useCallback((event: DragEndEvent) => {
-    setActiveId(null);
-    setOverId(null);
-    
-    const { active, over } = event;
-    if (!site || !over || active.id === over.id) return;
-
-    const activePath = active.id as string;
-    const overPath = over.id as string;
-
-    // SCENARIO 1: UN-NESTING
-    if (over.id === '__sidebar_root_droppable__') {
-      const parent = findParentOfNode(site.manifest.structure, activePath);
-      if (parent) {
-        moveNode(siteId, activePath, null);
-      }
+  
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const { over, delta } = event;
+    if (!over) {
+      setDndIndicator(null);
       return;
     }
+    const overId = over.id as string;
+    const overData = over.data?.current;
 
-    const parentOfActive = findParentOfNode(site.manifest.structure, activePath);
-    const parentOfOver = findParentOfNode(site.manifest.structure, overPath);
+    const isNestingTarget = overData?.type === 'container' && !overData.isCollection;
+    const nestingZoneHeight = over.rect.height * 0.6; // 60% of height is the nest zone
+    const nestingZoneTop = over.rect.height * 0.2;
     
-    // SCENARIO 2: REORDERING
-    if (parentOfActive?.path === parentOfOver?.path) {
-        const listToReorder = parentOfActive ? parentOfActive.children! : site.manifest.structure;
-        const oldIndex = listToReorder.findIndex(item => item.path === activePath);
-        const newIndex = listToReorder.findIndex(item => item.path === overPath);
-
-        if (oldIndex !== -1 && newIndex !== -1) {
-            const reorderedList = arrayMove(listToReorder, oldIndex, newIndex);
-            let newStructure: StructureNode[];
-
-            if (parentOfActive) {
-                newStructure = updateNodeInChildren(site.manifest.structure, parentOfActive.path, reorderedList);
-            } else {
-                newStructure = reorderedList;
-            }
-            updateManifest(siteId, { ...site.manifest, structure: newStructure });
-        }
-        return;
+    // --- INTENT CALCULATION ---
+    if (isNestingTarget && delta.y > nestingZoneTop && delta.y < (nestingZoneTop + nestingZoneHeight)) {
+      setDndIndicator({ path: overId, intent: 'nest' });
+    } else {
+      const position = delta.y < over.rect.height / 2 ? 'reorder-before' : 'reorder-after';
+      setDndIndicator({ path: overId, intent: position });
     }
-    
-    // SCENARIO 3: NESTING
-    if (!parentOfActive && !parentOfOver) {
-        const isTargetCollection = !!site.contentFiles?.find(f => f.path === overPath)?.frontmatter.collection;
-        if (isTargetCollection) {
-            toast.error("Cannot nest under a collection page.");
-            return;
-        }
-        moveNode(siteId, activePath, overPath);
-        return;
+  }, []);
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const activePath = activeId;
+    const overPath = event.over?.id as string | undefined;
+    const finalIndicator = dndIndicator;
+
+    setActiveId(null);
+    setDndIndicator(null);
+
+    if (!site || !activePath || !overPath || !finalIndicator || activePath === overPath) return;
+
+    // --- DELEGATE ALL LOGIC TO THE STORE ACTION ---
+    repositionNode(siteId, activePath, overPath, finalIndicator.intent);
+
+  }, [siteId, activeId, dndIndicator, site, repositionNode]);
+
+  const allNodeIds = useMemo(() => site ? getDescendantIds(site.manifest.structure) : [], [site]);
+  const homepagePath = useMemo(() => site?.manifest.structure[0]?.path, [site]);
+
+  const activePathForFileTree = useMemo(() => {
+    if (!site?.manifest) return undefined;
+    const editorRootPath = `/sites/${siteId}/edit/content`;
+    if (pathname === editorRootPath || pathname.startsWith(`${editorRootPath}/`)) {
+        const slug = pathname.replace(editorRootPath, '').replace(/^\//, '');
+        return slug ? `content/${slug}.md` : homepagePath;
     }
-    
-  }, [site, siteId, moveNode, updateManifest]);
-
-  const onCreationComplete = () => {
-    if (!isDesktop) toggleLeftSidebar();
-  };
-
-  const { setNodeRef: setRootDroppableRef, isOver } = useDroppable({ id: '__sidebar_root_droppable__'});
-  const unnestDropZoneStyle = isOver && activeId && findParentOfNode(site?.manifest.structure || [], activeId) ? 'bg-blue-50 dark:bg-blue-900/30 ring-2 ring-blue-500 ring-inset' : '';
+    return undefined;
+  }, [pathname, site, siteId, homepagePath]);
 
   if (!site) return null;
 
   return (
     <>
-      {!isDesktop && ( <div onClick={toggleLeftSidebar} className={cn('fixed inset-0 z-40 bg-black/60 transition-opacity', isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} /> )}
-
-      <DndContext onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd} collisionDetection={closestCenter}>
+      {!isDesktop && (<div onClick={toggleLeftSidebar} className={cn('fixed inset-0 z-40 bg-black/60', isLeftOpen ? 'opacity-100' : 'pointer-events-none opacity-0')} /> )}
+      <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
         <div className="flex h-full flex-col">
           <div className="flex shrink-0 items-center justify-between border-b p-2">
             <h3 className="px-2 text-sm font-semibold uppercase tracking-wider text-muted-foreground">Site Content</h3>
             <div className="flex items-center gap-1">
-              <CreateCollectionPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                  <Button variant="ghost" className='size-7 p-1' title="New Collection Page"><LayoutGrid className="h-4 w-4" /></Button>
-              </CreateCollectionPageDialog>
-              <NewPageDialog siteId={siteId} onComplete={onCreationComplete}>
-                  <Button variant="ghost" className='size-7 p-1' title="New Standard Page"><FilePlus className="h-4 w-4" /></Button>
-              </NewPageDialog>
+              <CreateCollectionPageDialog siteId={siteId}><Button variant="ghost" className='size-7 p-1' title="New Collection"><LayoutGrid className="h-4 w-4" /></Button></CreateCollectionPageDialog>
+              <NewPageDialog siteId={siteId}><Button variant="ghost" className='size-7 p-1' title="New Page"><FilePlus className="h-4 w-4" /></Button></NewPageDialog>
             </div>
           </div>
-
-          <div ref={setRootDroppableRef} className={cn("flex-grow overflow-y-auto p-2 transition-colors", unnestDropZoneStyle)}>
+          <div className="flex-grow overflow-y-auto p-2">
             {site.manifest.structure.length > 0 ? (
-              <SortableContext items={flattenedIds} strategy={verticalListSortingStrategy}>
-                  <FileTree
-                      nodes={site.manifest.structure}
-                      contentFiles={site.contentFiles || []}
-                      baseEditPath={`/sites/${siteId}/edit`}
-                      activePath={activePath}
-                      activeId={activeId}
-                      overId={overId}
-                  />
-              </SortableContext>
-            ) : ( 
-              <div className="px-2 py-4 text-xs text-center text-muted-foreground italic">
-                <p>No pages created yet.</p>
-                <p>Drag a nested page here to make it top-level.</p>
-              </div>
+                <FileTree 
+                    nodes={site.manifest.structure} 
+                    contentFiles={site.contentFiles || []}
+                    baseEditPath={`/sites/${siteId}/edit`}
+                    activePath={activePathForFileTree}
+                    homepagePath={homepagePath}
+                    dndIndicator={dndIndicator}
+                />
+            ) : (
+              <div className="px-2 py-4 text-xs text-center text-muted-foreground italic"><p>No pages created yet.</p></div>
             )}
           </div>
-
           <div className="mt-auto shrink-0 border-t p-2">
-              <Button variant="ghost" asChild className="w-full justify-start gap-2">
-                  <Link href="/sites"><Home className="h-4 w-4" /> App Dashboard</Link>
-              </Button>
+            <Button variant="ghost" asChild className="w-full justify-start gap-2"><Link href="/sites"><Home className="h-4 w-4" /> App Dashboard</Link></Button>
           </div>
         </div>
-        <DragOverlay>
-            {activeId ? <div className="p-2 bg-background border rounded-md shadow-lg text-sm">Moving page...</div> : null}
-        </DragOverlay>
+        <DragOverlay>{activeId ? <div className="p-2 bg-background border rounded-md shadow-lg text-sm font-semibold">Moving page...</div> : null}</DragOverlay>
       </DndContext>
     </>
   );
