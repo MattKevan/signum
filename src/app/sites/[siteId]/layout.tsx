@@ -1,7 +1,7 @@
 // src/app/sites/[siteId]/layout.tsx
 'use client';
 
-import { useEffect, ReactNode } from 'react';
+import { useEffect, ReactNode, useCallback } from 'react';
 import { useParams, usePathname } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
@@ -11,42 +11,48 @@ import { cn } from '@/lib/utils';
 
 /**
  * The root layout for a single site's backend.
- * This component serves a dual purpose:
- * 1. **Visual Layout:** It provides the persistent vertical toolbar for navigating
- *    between main sections like 'Edit' and 'Settings'.
- * 2. **Data Loader & Context Setter:** It uses a `useEffect` hook to trigger the
- *    loading of the active site's data and sets the `activeSiteId` in the
- *    global store, making it available to all child components.
+ * This component provides the persistent vertical toolbar and, crucially, manages
+ * the loading of the active site's data into the global store.
+ *
+ * RECENT FIX: The data loading logic has been made non-destructive. It now checks
+ * if the site's content is already in memory before triggering a full load from
+ * storage. This prevents the UI from reverting after a save operation.
  */
 export default function SingleSiteLayout({ children }: { children: ReactNode }) {
-  // --- Part 1: Get router and state management hooks ---
   const params = useParams();
   const pathname = usePathname();
   const siteId = params.siteId as string;
 
-  const loadSiteAction = useAppStore(state => state.loadSite);
-  const setActiveSiteIdAction = useAppStore(state => state.setActiveSiteId);
+  // --- State and Action Hooks ---
+  // Select the specific data and actions needed from the store.
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const loadSite = useAppStore(state => state.loadSite);
+  const setActiveSiteId = useAppStore(state => state.setActiveSiteId);
 
-  // --- Part 2: The Data Loading Logic (from the previous loader component) ---
-  // This effect runs whenever the siteId from the URL changes.
+  // --- FIX: This is the new, "smart" data loading effect ---
   useEffect(() => {
+    // Always set the active site ID when this layout is mounted.
     if (siteId) {
-      // Trigger the loading of this site's data from storage.
-      loadSiteAction(siteId);
-      // Announce to the rest of the app which site is currently active.
-      setActiveSiteIdAction(siteId);
+      setActiveSiteId(siteId);
     }
     
-    // Cleanup function: When the user navigates away from this site's
-    // section, clear the activeSiteId to prevent stale data display elsewhere.
+    // THE CRITICAL GUARD CLAUSE:
+    // Only call `loadSite` if the siteId is present AND the site's core content
+    // (`contentFiles`) has not yet been loaded into the store.
+    if (siteId && (!site || !site.contentFiles)) {
+      console.log(`[SiteLayout] Site data for ${siteId} not found in memory. Loading from storage.`);
+      loadSite(siteId);
+    }
+
+    // Cleanup function: When the user navigates away, clear the activeSiteId.
     return () => {
-      setActiveSiteIdAction(null);
+      setActiveSiteId(null);
     };
-  }, [siteId, loadSiteAction, setActiveSiteIdAction]);
+  // The dependency array ensures this logic re-evaluates if the siteId changes
+  // or if the site object itself is replaced in the store.
+  }, [siteId, site, loadSite, setActiveSiteId]);
 
-  // --- Part 3: The Visual Rendering Logic (from your provided code) ---
-
-  // Determine which navigation link is currently active based on the URL path.
+  // --- Visual Rendering Logic ---
   const isEditorActive = pathname.startsWith(`/sites/${siteId}/edit`);
   const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
@@ -85,7 +91,6 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
         </nav>
       </aside>
 
-      {/* The rest of the page (which will be another layout like ThreeColumnLayout) renders here. */}
       <main className="flex-1 overflow-auto pb-16 lg:pb-0">
         {children}
       </main>

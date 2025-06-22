@@ -1,31 +1,48 @@
-// src/app/(publishing)/create-site/page.tsx
+// src/app/create-site/page.tsx
 'use client';
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import { LocalSiteData, MarkdownFrontmatter, ThemeInfo } from '@/types';
+import { LocalSiteData, Manifest, ThemeInfo } from '@/types';
 import { Button } from '@/core/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getLayoutManifest } from '@/core/services/configHelpers.service';
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
-import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
+import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
+// Import the new centralized service function for theme synchronization.
+import { synchronizeThemeDefaults } from '@/core/services/theme.service';
 
+/**
+ * Renders the "Create New Site" page.
+ * 
+ * This component is responsible for gathering initial site details (title, theme)
+ * and orchestrating the creation of a new site record.
+ * 
+ * RECENT REFACTOR: This component no longer contains logic for parsing theme defaults itself.
+ * It now uses the centralized `synchronizeThemeDefaults` service to ensure that the new
+ * site's manifest is created with a complete and valid theme configuration from the start.
+ * This makes the component simpler and more aligned with the principle of separation of concerns.
+ */
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
 
+  // --- Local State for the Form ---
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
   const availableThemes = useMemo(() => CORE_THEMES, []);
+  // Set the default theme on initial render.
   const [selectedTheme, setSelectedTheme] = useState<ThemeInfo | null>(availableThemes[0] || null);
 
+  /**
+   * Handles the form submission to create a new site.
+   */
   const handleSubmit = async () => {
     if (!siteTitle.trim() || !selectedTheme) {
       toast.error('Site title and a theme are required.');
@@ -33,75 +50,45 @@ export default function CreateSitePage() {
     }
     setIsLoading(true);
 
-    const newSiteId = generateSiteId(siteTitle);
-    const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
-
-    // 1. Create a slug from the site's title for the first page.
-    // This gives it a meaningful, non-special name.
-    const firstPageTitle = DEFAULT_HOMEPAGE_CONFIG.TITLE;
-
-    // 2. Define the frontmatter with the `homepage: true` flag.
-    const defaultFrontmatter: MarkdownFrontmatter = {
-        title: firstPageTitle,
-        layout: DEFAULT_PAGE_LAYOUT_PATH,
-        date: new Date().toISOString().split('T')[0],
-        homepage: true, // This is the ONLY thing that makes it the homepage.
-    };
-
-    const mockSiteData: LocalSiteData = { 
-        siteId: 'mock-id', 
-        contentFiles: [], 
-        layoutFiles: [], 
-        themeFiles: [], 
-        manifest: { 
-            siteId: 'mock-id',
-            title: 'mock',
-            description: 'mock',
-            generatorVersion: GENERATOR_VERSION,
-            structure: [],
-            theme: { 
-                name: selectedTheme.path, 
-                config: {} 
-            } 
-        } 
-    };
-    
-    const layoutManifest = await getLayoutManifest(mockSiteData, homepageLayoutPath);
-    
-    if (layoutManifest?.schema?.properties) {
-    for (const [key, prop] of Object.entries(layoutManifest.schema.properties)) {
-        // Check if the property in the schema has a 'default' value
-        if (typeof prop === 'object' && prop !== null && 'default' in prop) {
-            // And if we haven't already set this value in our frontmatter
-            if (defaultFrontmatter[key] === undefined) {
-                // Then apply the default value from the schema.
-                defaultFrontmatter[key] = prop.default as unknown;
-            }
-        }
-    }
-}
-
-    const newSiteData: LocalSiteData = {
-      siteId: newSiteId,
-      manifest: {
+    try {
+      const newSiteId = generateSiteId(siteTitle);
+      
+      // 1. Create a preliminary manifest with just the basic user choices.
+      // The `config` object is intentionally left empty, as the service will populate it.
+      const preliminaryManifest: Manifest = {
         siteId: newSiteId,
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: { name: selectedTheme.path, config: {} },
+        theme: { 
+          name: selectedTheme.path, 
+          config: {} 
+        },
         structure: [],
-      },
-      contentFiles: [],
-      themeFiles: [],
-      layoutFiles: [],
-    };
+      };
+      
+      // 2. Use the central `synchronizeThemeDefaults` service to get the
+      //    fully populated and correct theme configuration object.
+      const synchronizedTheme = await synchronizeThemeDefaults(preliminaryManifest);
+      
+      // 3. Construct the final site data object, injecting the synchronized theme.
+      //    This ensures the manifest is saved correctly from the very beginning.
+      const newSiteData: LocalSiteData = {
+        siteId: newSiteId,
+        manifest: { ...preliminaryManifest, theme: synchronizedTheme },
+        // These are always empty for a brand new site.
+        contentFiles: [],
+        themeFiles: [],
+        layoutFiles: [],
+      };
 
-
-    try {
+      // 4. Save the complete site data to storage and update the global state.
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
       router.push(`/sites/${newSiteId}/edit`);
+
     } catch (error) {
+      console.error("Error during site creation:", error);
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
@@ -113,7 +100,7 @@ export default function CreateSitePage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">Create a New Site</h1>
-            <Button onClick={() => router.push('/')} variant="outline">Cancel</Button>
+            <Button onClick={() => router.push('/sites')} variant="outline">Cancel</Button>
         </div>
 
         <div className="space-y-4 p-6 border rounded-lg">

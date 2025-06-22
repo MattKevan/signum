@@ -1,58 +1,29 @@
-// src/components/publishing/AppearanceSettingsForm.tsx
+// src/features/site-settings/components/AppearanceSettingsForm.tsx
+
 'use client';
 
-import { useEffect, useState } from 'react';
 import { RJSFSchema } from '@rjsf/utils';
-import { getJsonAsset, type ThemeManifest } from '@/core/services/configHelpers.service';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
-import { ThemeConfig, LocalSiteData } from '@/types';
+import { ThemeConfig } from '@/types';
 
+// The props interface is simplified. It now expects to receive the schema directly.
 interface AppearanceSettingsFormProps {
-  site: LocalSiteData;
-  themePath: string;
+  schema: RJSFSchema | null; // Receive the schema as a prop.
+  isLoading: boolean; // Receive loading state from the parent.
+  themePath: string; // Keep this for displaying messages.
   themeConfig: ThemeConfig['config'];
   onConfigChange: (newConfig: ThemeConfig['config']) => void;
 }
 
-export default function AppearanceSettingsForm({ site, themePath, themeConfig, onConfigChange }: AppearanceSettingsFormProps) {
-  const [schema, setSchema] = useState<RJSFSchema | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export default function AppearanceSettingsForm({ 
+  schema, 
+  isLoading,
+  themePath,
+  themeConfig, 
+  onConfigChange 
+}: AppearanceSettingsFormProps) {
 
-  useEffect(() => {
-    async function loadSchema() {
-      if (!themePath) {
-        setIsLoading(false);
-        setSchema(null);
-        return;
-      }
-      
-      setIsLoading(true);
-
-      // --- START OF CORRECTED LOGIC ---
-
-      // 1. Fetch the entire theme.json file for the active theme.
-      const themeManifest = await getJsonAsset<ThemeManifest>(
-        site,
-        'theme',
-        themePath,
-        'theme.json' // <-- Correct filename
-      );
-
-      // 2. Check if the manifest was found and if it contains the appearance schema.
-      if (themeManifest && themeManifest.appearanceSchema) {
-        setSchema(themeManifest.appearanceSchema);
-      } else {
-        // If not found, there are no settings, so set the schema to null.
-        setSchema(null);
-      }
-      
-      // --- END OF CORRECTED LOGIC ---
-
-      setIsLoading(false);
-    }
-
-    loadSchema();
-  }, [site, themePath]);
+  // The internal state and useEffect for loading the schema are now REMOVED.
   
   const handleChange = (event: { formData?: Record<string, unknown> }) => {
     onConfigChange(event.formData as ThemeConfig['config'] || {});
@@ -70,15 +41,17 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
     );
   }
 
+  // If the parent passes a null schema, it means there are no settings.
   if (!schema) {
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme &quot;{themePath}&quot; does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable appearance settings.</p>
       </div>
     );
   }
 
+  // The component now just renders the form with the props it was given.
   return (
     <SchemaDrivenForm
       schema={schema}

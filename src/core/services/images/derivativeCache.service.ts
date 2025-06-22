@@ -1,14 +1,23 @@
 // src/core/services/images/derivativeCache.service.ts
 import localforage from 'localforage';
 
+/**
+ * Manages the storage and retrieval of generated image "derivatives" (e.g., thumbnails, resized images).
+ * This service acts as a persistent cache in the browser's IndexedDB to avoid re-processing
+ * images unnecessarily between sessions, which significantly improves performance.
+ *
+ */
+
+// A single, global IndexedDB store is used for all derivatives.
+// Scoping is handled by prefixing keys with the site's ID.
 const derivativeCacheStore = localforage.createInstance({
   name: 'SignumDB',
   storeName: 'derivativeCacheStore',
 });
 
 /**
- * Retrieves a cached image derivative from IndexedDB by its key.
- * @param key The unique key for the derivative.
+ * Retrieves a cached image derivative from IndexedDB by its full, namespaced key.
+ * @param key The unique key for the derivative, including the `siteId` prefix (e.g., "site-abc/assets/images/foo_w100.jpg").
  * @returns A promise that resolves to the derivative Blob, or null if not found.
  */
 export async function getCachedDerivative(key: string): Promise<Blob | null> {
@@ -16,20 +25,25 @@ export async function getCachedDerivative(key: string): Promise<Blob | null> {
 }
 
 /**
- * Stores an image derivative Blob in IndexedDB.
- * @param key The unique key for the derivative.
- * @param blob The derivative image data as a Blob.
+ * Stores an image derivative Blob in IndexedDB using its full, namespaced key.
+ * @param key The unique key for the derivative, including the `siteId` prefix.
+ * @param blob The derivative image data as a Blob to be cached.
  */
 export async function setCachedDerivative(key: string, blob: Blob): Promise<void> {
   await derivativeCacheStore.setItem(key, blob);
 }
 
 /**
- * --- FIX: Add the missing exported function. ---
- * Retrieves all keys currently stored in the derivative cache. This is used
- * by the exporter to bundle all generated images.
- * @returns A promise that resolves to an array of all keys (strings).
+ * Retrieves all cache keys that belong to a specific site.
+ * This is crucial for the site exporter to find and bundle all generated images for a single site.
+ * @param siteId The ID of the site whose cache keys are needed.
+ * @returns A promise that resolves to an array of all keys (strings) for the specified site.
  */
-export async function getAllCacheKeys(): Promise<string[]> {
-  return derivativeCacheStore.keys();
+export async function getAllCacheKeys(siteId: string): Promise<string[]> {
+  // 1. Get all keys from the store.
+  const allKeys = await derivativeCacheStore.keys();
+  
+  // 2. Filter the keys to return only those that start with the required "siteId/" prefix.
+  const sitePrefix = `${siteId}/`;
+  return allKeys.filter(key => key.startsWith(sitePrefix));
 }

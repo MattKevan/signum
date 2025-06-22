@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: public, ios, node_modules
+Excluded Directories: node_modules, public, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -819,6 +819,7 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
 
 File: core/state/slices/siteSlice.ts
 // src/core/state/slices/siteSlice.ts
+
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { LocalSiteData, Manifest } from '@/types';
@@ -834,7 +835,6 @@ export interface SiteSlice {
   addSite: (siteData: LocalSiteData) => Promise<void>;
   updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
   deleteSiteAndState: (siteId: string) => Promise<void>;
-  // --- FIX: Added action to initialize the store from storage ---
   initializeSites: () => Promise<void>;
 }
 
@@ -843,19 +843,13 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
   loadingSites: new Set(),
   getSiteById: (siteId) => get().sites.find(s => s.siteId === siteId),
 
-  // --- FIX: New action to hydrate the store on app load ---
-  /**
-   * Loads all site manifests from local storage and populates the initial state.
-   * This is called once when the application starts. It only loads manifests
-   * for a fast initial load; full site content is lazy-loaded later.
-   */
   initializeSites: async () => {
+    // ... (this function is correct, no changes needed)
     try {
       const manifests = await localSiteFs.loadAllSiteManifests();
       const initialSites: LocalSiteData[] = manifests.map(manifest => ({
         siteId: manifest.siteId,
         manifest: manifest,
-        // Content and other files are intentionally left undefined for lazy loading.
       }));
       set({ sites: initialSites });
     } catch (error) {
@@ -865,8 +859,11 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
   },
 
   loadSite: async (siteId) => {
+    // --- FIX: This logic is now non-destructive ---
     if (get().loadingSites.has(siteId)) return;
+    
     const existingSite = get().getSiteById(siteId);
+    // Only fetch if core content files aren't already loaded.
     if (existingSite && existingSite.contentFiles) return;
     
     set(produce(draft => { draft.loadingSites.add(siteId); }));
@@ -882,14 +879,17 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
         loadSiteSecretsFromDb(siteId)
       ]);
 
-      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles, secrets };
+      const loadedData = { manifest, contentFiles, layoutFiles, themeFiles, secrets };
 
       set(produce((draft: SiteSlice) => {
         const siteIndex = draft.sites.findIndex(s => s.siteId === siteId);
         if (siteIndex > -1) {
-          draft.sites[siteIndex] = loadedSiteData;
+          // Instead of replacing, we MERGE the loaded data into the existing object.
+          // This preserves any other data that might already be in the in-memory state.
+          draft.sites[siteIndex] = { ...draft.sites[siteIndex], ...loadedData };
         } else {
-          draft.sites.push(loadedSiteData);
+          // If it's a new site being loaded, add it.
+          draft.sites.push({ siteId, ...loadedData });
         }
       }));
     } catch (error) {
@@ -899,25 +899,26 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
       set(produce(draft => { draft.loadingSites.delete(siteId); }));
     }
   },
-
-  addSite: async (newSiteData) => {
-    await localSiteFs.saveSite(newSiteData);
-    set(produce((draft: SiteSlice) => {
-      const siteIndex = draft.sites.findIndex(s => s.siteId === newSiteData.siteId);
-      if (siteIndex > -1) {
-        // If site exists, overwrite it. This is used by the importer.
-        draft.sites[siteIndex] = newSiteData;
-      } else {
-        draft.sites.push(newSiteData);
-      }
-    }));
-  },
-
+  
+  // --- This action is now safe to use because loadSite is no longer destructive ---
   updateManifest: async (siteId, newManifest) => {
     await localSiteFs.saveManifest(siteId, newManifest);
     set(produce((draft: SiteSlice) => {
       const site = draft.sites.find(s => s.siteId === siteId);
       if (site) site.manifest = newManifest;
+    }));
+  },
+
+  // ... (addSite and deleteSiteAndState remain the same)
+  addSite: async (newSiteData) => {
+    await localSiteFs.saveSite(newSiteData);
+    set(produce((draft: SiteSlice) => {
+      const siteIndex = draft.sites.findIndex(s => s.siteId === newSiteData.siteId);
+      if (siteIndex > -1) {
+        draft.sites[siteIndex] = newSiteData;
+      } else {
+        draft.sites.push(newSiteData);
+      }
     }));
   },
 
@@ -2369,6 +2370,66 @@ export function useHashNavigation() {
 
 ================================================================================
 
+File: core/services/theme.service.ts
+// src/core/services/theme.service.ts
+
+import { Manifest, ThemeConfig } from '@/types';
+import { getJsonAsset, ThemeManifest } from './configHelpers.service';
+import { RJSFSchema } from '@rjsf/utils';
+
+/**
+ * Parses a JSON Schema and extracts all defined default values into an object.
+ * @param schema The RJSFSchema to parse.
+ * @returns An object containing the key-value pairs of default properties.
+ */
+function getDefaultsFromSchema(schema: RJSFSchema | null): Record<string, any> {
+  if (!schema || !schema.properties) return {};
+  
+  const defaults: Record<string, any> = {};
+  
+  for (const key in schema.properties) {
+    const property = schema.properties[key];
+    if (typeof property === 'object' && 'default' in property) {
+      defaults[key] = property.default;
+    }
+  }
+  
+  return defaults;
+}
+
+/**
+ * Synchronizes a site's manifest with its selected theme's defaults.
+ * 
+ * This is the single source of truth for ensuring a manifest's theme configuration
+ * is valid and complete. It fetches the theme's schema, gets the default values,
+ * and intelligently merges them with any existing user-saved values.
+ * 
+ * @param manifest The site's manifest object to be synchronized.
+ * @returns A promise that resolves to the synchronized theme configuration.
+ */
+export async function synchronizeThemeDefaults(manifest: Manifest): Promise<ThemeConfig> {
+  const themeName = manifest.theme.name;
+  
+  // We pass a minimal mock siteData object, as getJsonAsset only needs the manifest
+  // for core themes. This makes the function self-contained.
+  const mockSiteData = { manifest };
+  const themeManifest = await getJsonAsset<ThemeManifest>(mockSiteData as any, 'theme', themeName, 'theme.json');
+  
+  const schema = themeManifest?.appearanceSchema || null;
+  const schemaDefaults = getDefaultsFromSchema(schema);
+  
+  // Intelligently merge: start with the theme's defaults, then apply the user's saved values over them.
+  // This ensures that if a new default is added to a theme, existing sites will pick it up.
+  const synchronizedConfig = { ...schemaDefaults, ...(manifest.theme.config || {}) };
+  
+  return {
+    name: themeName,
+    config: synchronizedConfig,
+  };
+}
+
+================================================================================
+
 File: core/services/configHelpers.service.ts
 // src/core/services/configHelpers.service.ts
 
@@ -3809,18 +3870,26 @@ export type SignumHelper = (siteData: LocalSiteData) => Record<string, SignumHel
 
 File: core/services/images/localImage.service.ts
 // src/core/services/images/localImage.service.ts
+
 import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { slugify } from '@/lib/utils';
 import { getCachedDerivative, setCachedDerivative, getAllCacheKeys } from './derivativeCache.service';
 import imageCompression from 'browser-image-compression';
 
+/**
+ * This service manages images stored locally within the browser's IndexedDB.
+ * It handles uploading, generating transformed "derivatives" (e.g., thumbnails),
+ * caching those derivatives for performance, and bundling all necessary assets for a static site export.
+ */
+
+// In-memory caches to reduce redundant processing and DB reads within a session.
 const sourceImageCache = new Map<string, Blob>();
 const processingPromises = new Map<string, Promise<Blob>>();
 
 /**
  * A strongly-typed interface for the options passed to the browser-image-compression library.
- * This eliminates the need for `any` and improves type safety.
+ * This improves type safety and code clarity.
  */
 interface CompressionOptions {
   maxSizeMB: number;
@@ -3873,6 +3942,8 @@ class LocalImageService implements ImageService {
     const relativePath = `assets/images/${fileName}`;
 
     await localSiteFs.saveImageAsset(siteId, relativePath, file as Blob);
+
+    // For SVGs, width/height can be 0, which is acceptable.
     const { width, height } = await getImageDimensions(file as Blob);
 
     return {
@@ -3885,22 +3956,43 @@ class LocalImageService implements ImageService {
   }
 
   public async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
+
+    // Check if the image is an SVG. If so, bypass all derivative processing.
+    const isSvg = ref.src.toLowerCase().endsWith('.svg');
+    if (isSvg) {
+      if (isExport) {
+        // For static exports, simply return the original, relative path.
+        return ref.src;
+      }
+      // For live preview display, get the original SVG blob and create a temporary object URL.
+      const sourceBlob = await this.getSourceBlob(manifest.siteId, ref.src);
+      return URL.createObjectURL(sourceBlob);
+    }
+    // --- END SVG FIX ---
+
     const { width, height, crop = 'scale', gravity = 'center' } = options;
     const extIndex = ref.src.lastIndexOf('.');
     if (extIndex === -1) throw new Error("Source image has no extension.");
     
     const pathWithoutExt = ref.src.substring(0, extIndex);
     const ext = ref.src.substring(extIndex);
-    const derivativePath = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
 
-    const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, derivativePath, options);
+    // This is the public-facing filename for the generated derivative.
+    const derivativeFileName = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
+
+    // --- FIX #1: SCOPED CACHE KEY ---
+    // The key used for the IndexedDB cache is now namespaced with the siteId.
+    const cacheKey = `${manifest.siteId}/${derivativeFileName}`;
+
+    const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, cacheKey, options);
     
-    return isExport ? derivativePath : URL.createObjectURL(finalBlob);
+    // For export, return the relative filename. For display, create a temporary URL.
+    return isExport ? derivativeFileName : URL.createObjectURL(finalBlob);
   }
 
   /**
-   * The core processing pipeline. It checks all caches and processes the image
-   * only if absolutely necessary, preventing race conditions.
+   * Core processing pipeline. It checks caches and processes the image
+   * only if necessary, preventing race conditions and improving quality.
    */
   private async getOrProcessDerivative(siteId: string, srcPath: string, cacheKey: string, options: ImageTransformOptions): Promise<Blob> {
     const cachedBlob = await getCachedDerivative(cacheKey);
@@ -3911,22 +4003,34 @@ class LocalImageService implements ImageService {
     const processingPromise = (async (): Promise<Blob> => {
       try {
         const sourceBlob = await this.getSourceBlob(siteId, srcPath);
+        
+        // Get original dimensions to prevent upscaling.
+        const sourceDimensions = await getImageDimensions(sourceBlob);
 
-        // --- FIX: Using the strongly-typed `CompressionOptions` interface instead of `any`. ---
         const compressionOptions: CompressionOptions = {
             maxSizeMB: 1.5,
-            initialQuality: 0.8,
+            initialQuality: 0.85, // Increased from 0.8 for better quality.
             useWebWorker: true,
-            exifOrientation: -1, // Use -1 to respect the original orientation
+            exifOrientation: -1,
         };
 
         const { width, height, crop } = options;
-        if (crop === 'fill' && width && height) {
-          compressionOptions.maxWidth = width;
-          compressionOptions.maxHeight = height;
+
+        // Cap requested dimensions at the source's dimensions to prevent upscaling and pixelation.
+        const targetWidth = width ? Math.min(width, sourceDimensions.width) : undefined;
+        const targetHeight = height ? Math.min(height, sourceDimensions.height) : undefined;
+
+        if (crop === 'fill' && targetWidth && targetHeight) {
+          compressionOptions.maxWidth = targetWidth;
+          compressionOptions.maxHeight = targetHeight;
         } else {
-          compressionOptions.maxWidthOrHeight = Math.max(width || 0, height || 0) || undefined;
+          const maxDim = Math.max(targetWidth || 0, targetHeight || 0);
+          // Only set maxWidthOrHeight if a dimension was actually requested.
+          if (maxDim > 0) {
+            compressionOptions.maxWidthOrHeight = maxDim;
+          }
         }
+        // --- END IMAGE QUALITY FIX ---
 
         console.log(`[ImageService] Processing new derivative: ${cacheKey}`);
         const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
@@ -3957,6 +4061,7 @@ class LocalImageService implements ImageService {
   public async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
     const exportableMap = new Map<string, Blob>();
     
+    // 1. Add all original source images for this site to the export map.
     for (const ref of allImageRefs) {
       if (ref.serviceId === 'local' && !exportableMap.has(ref.src)) {
         const sourceBlob = await localSiteFs.getImageAsset(siteId, ref.src);
@@ -3966,15 +4071,23 @@ class LocalImageService implements ImageService {
       }
     }
     
-    const derivativeKeys = await getAllCacheKeys();
+    // 2. Get derivative keys ONLY for the current siteId.
+    const derivativeKeys = await getAllCacheKeys(siteId);
+
+    // 3. Add all of this site's derivatives to the export map.
     for (const key of derivativeKeys) {
-      if (!exportableMap.has(key)) {
+      // The key is in the format "siteId/path/to/image.jpg"
+      // The filename for the ZIP archive should only be "path/to/image.jpg"
+      const filename = key.substring(siteId.length + 1);
+
+      if (!exportableMap.has(filename)) {
         const derivativeBlob = await getCachedDerivative(key);
         if (derivativeBlob) {
-          exportableMap.set(key, derivativeBlob);
+          exportableMap.set(filename, derivativeBlob);
         }
       }
     }
+    // --- END SCOPED EXPORT FIX ---
     
     return Array.from(exportableMap.entries()).map(([path, data]) => ({ path, data }));
   }
@@ -3988,14 +4101,23 @@ File: core/services/images/derivativeCache.service.ts
 // src/core/services/images/derivativeCache.service.ts
 import localforage from 'localforage';
 
+/**
+ * Manages the storage and retrieval of generated image "derivatives" (e.g., thumbnails, resized images).
+ * This service acts as a persistent cache in the browser's IndexedDB to avoid re-processing
+ * images unnecessarily between sessions, which significantly improves performance.
+ *
+ */
+
+// A single, global IndexedDB store is used for all derivatives.
+// Scoping is handled by prefixing keys with the site's ID.
 const derivativeCacheStore = localforage.createInstance({
   name: 'SignumDB',
   storeName: 'derivativeCacheStore',
 });
 
 /**
- * Retrieves a cached image derivative from IndexedDB by its key.
- * @param key The unique key for the derivative.
+ * Retrieves a cached image derivative from IndexedDB by its full, namespaced key.
+ * @param key The unique key for the derivative, including the `siteId` prefix (e.g., "site-abc/assets/images/foo_w100.jpg").
  * @returns A promise that resolves to the derivative Blob, or null if not found.
  */
 export async function getCachedDerivative(key: string): Promise<Blob | null> {
@@ -4003,22 +4125,27 @@ export async function getCachedDerivative(key: string): Promise<Blob | null> {
 }
 
 /**
- * Stores an image derivative Blob in IndexedDB.
- * @param key The unique key for the derivative.
- * @param blob The derivative image data as a Blob.
+ * Stores an image derivative Blob in IndexedDB using its full, namespaced key.
+ * @param key The unique key for the derivative, including the `siteId` prefix.
+ * @param blob The derivative image data as a Blob to be cached.
  */
 export async function setCachedDerivative(key: string, blob: Blob): Promise<void> {
   await derivativeCacheStore.setItem(key, blob);
 }
 
 /**
- * --- FIX: Add the missing exported function. ---
- * Retrieves all keys currently stored in the derivative cache. This is used
- * by the exporter to bundle all generated images.
- * @returns A promise that resolves to an array of all keys (strings).
+ * Retrieves all cache keys that belong to a specific site.
+ * This is crucial for the site exporter to find and bundle all generated images for a single site.
+ * @param siteId The ID of the site whose cache keys are needed.
+ * @returns A promise that resolves to an array of all keys (strings) for the specified site.
  */
-export async function getAllCacheKeys(): Promise<string[]> {
-  return derivativeCacheStore.keys();
+export async function getAllCacheKeys(siteId: string): Promise<string[]> {
+  // 1. Get all keys from the store.
+  const allKeys = await derivativeCacheStore.keys();
+  
+  // 2. Filter the keys to return only those that start with the required "siteId/" prefix.
+  const sitePrefix = `${siteId}/`;
+  return allKeys.filter(key => key.startsWith(sitePrefix));
 }
 
 ================================================================================
@@ -4174,11 +4301,13 @@ export const cloudinaryImageService = new CloudinaryImageService();
 
 File: core/services/theme-engine/themeEngine.service.ts
 // src/core/services/theme-engine/themeEngine.service.ts
+
 import Handlebars from 'handlebars';
 import {
     LocalSiteData,
     PageResolutionResult,
     PageType,
+    ThemeConfig,
 } from '@/types';
 import {
     getJsonAsset,
@@ -4191,7 +4320,24 @@ import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
+// Import the new centralized service function for theme synchronization.
+import { synchronizeThemeDefaults } from '@/core/services/theme.service';
 
+/**
+ * This service is the core rendering engine for Signum. It orchestrates the entire
+ * process of converting raw site data (Markdown, manifest) into a final, viewable HTML page.
+ * It is designed to be "dumb" about theme-specific logic, following these steps:
+ *
+ * 1.  **Defensively Synchronizes Manifest:** It first ensures the manifest's theme config
+ *     is complete by calling the `synchronizeThemeDefaults` service. This protects
+ *     against old or corrupted data.
+ * 2.  Registers all necessary helper functions (e.g., `{{formatDate}}`, `{{{image}}}`).
+ * 3.  Caches all available theme partials and layout templates for performance.
+ * 4.  Resolves all dynamic/asynchronous data for a page (nav links, image URLs, etc.).
+ * 5.  Generates an inline `<style>` block by directly converting user-defined settings
+ *     from the manifest into CSS variables.
+ * 6.  Renders the main content layout and then injects it into the theme's base HTML shell.
+ */
 
 // --- Type Definitions ---
 export interface RenderOptions {
@@ -4202,6 +4348,7 @@ export interface RenderOptions {
 
 // --- Helper Registration ---
 function registerCoreHelpers(siteData: LocalSiteData) {
+    // A simple flag to prevent re-registering helpers on every render.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
@@ -4221,7 +4368,7 @@ function registerCoreHelpers(siteData: LocalSiteData) {
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
-    // Clear all existing partials to ensure a clean state
+    // Clear all existing partials to ensure a clean state for the current render.
     for (const partial in Handlebars.partials) {
         if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
             Handlebars.unregisterPartial(partial);
@@ -4262,79 +4409,127 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
 }
 
 /**
+ * Generates an inline <style> block from the user's saved theme configuration.
+ * It directly converts snake_case keys from the manifest (e.g., "font_headings")
+ * into --kebab-case CSS variables (e.g., "--font-headings") and uses the
+ * exact value provided by the user's selection.
+ * @param themeConfig The user's saved theme settings from manifest.theme.config.
+ * @returns A string containing a complete <style> tag, or an empty string if no config is present.
+ */
+function generateStyleOverrides(themeConfig: ThemeConfig['config']): string {
+  // Guard against empty or missing config
+  if (!themeConfig || Object.keys(themeConfig).length === 0) {
+    return '';
+  }
+
+  // Directly convert keys and use values. No special mapping logic needed.
+  const variables = Object.entries(themeConfig)
+    .map(([key, value]) => {
+      // Ensure the value is not null/undefined before creating a CSS rule
+      if (value) {
+        const cssVariable = `--${key.replace(/_/g, '-')}`;
+        return `  ${cssVariable}: ${value};`;
+      }
+      return null;
+    })
+    .filter(Boolean) // Remove any null entries from the array
+    .join('\n');
+
+  // If there are no valid variables after filtering, return an empty string.
+  if (!variables) {
+    return '';
+  }
+
+  // Return the complete, formatted <style> block, ready for injection into the HTML head.
+  return `
+<style id="signum-style-overrides">
+:root {
+${variables}
+}
+</style>
+  `.trim();
+}
+
+
+/**
  * Renders a resolved page into a full HTML string based on the active theme and assets.
  */
 export async function render(siteData: LocalSiteData, resolution: PageResolutionResult, options: RenderOptions): Promise<string> {
     if (resolution.type === PageType.NotFound) {
-      // You can create a simple 404 template or just return a basic error message.
+      // Return a basic error message for 404 pages.
       return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
-  }
-  registerCoreHelpers(siteData);
-  await cacheAllTemplates(siteData);
+    }
 
-  if (!siteData.contentFiles) { /* error handling */ }
+    // --- DEFENSIVE GUARD ---
+    // Synchronize the manifest's theme config before rendering.
+    // This ensures that even if the saved manifest has an empty or outdated
+    // config, it will be populated with the correct defaults before being used.
+    // This makes the rendering process resilient to old or corrupted data.
+    const synchronizedTheme = await synchronizeThemeDefaults(siteData.manifest);
+    // Create a new `manifest` variable for this render cycle that is guaranteed to be correct.
+    const manifest = { ...siteData.manifest, theme: synchronizedTheme };
+    // We also update the siteData object to pass the corrected manifest to helpers.
+    const synchronizedSiteData = { ...siteData, manifest };
+    // --- END GUARD ---
+    
+    registerCoreHelpers(synchronizedSiteData);
+    await cacheAllTemplates(synchronizedSiteData);
 
-  const { manifest } = siteData;
-  const themePath = manifest.theme.name;
-  const pageLayoutPath = resolution.layoutPath;
+    const themePath = manifest.theme.name;
+    const pageLayoutPath = resolution.layoutPath;
 
-  // --- STEP 1: Render the main body content first ---
-  // The body render might call the async `{{{image}}}` helper, so we must await it.
-  const pageLayoutSource = Handlebars.partials[pageLayoutPath];
-  if (!pageLayoutSource) { /* error handling */ }
-  const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
-  
-  // This render pass populates the image derivative cache.
-  const bodyHtml = await pageLayoutTemplate({
-    ...resolution,
-    options: options // Pass options down for the image helper
-  });
+    // --- STEP 1: Render the main body content first ---
+    const pageLayoutSource = Handlebars.partials[pageLayoutPath];
+    if (!pageLayoutSource) {
+        return `Error: Page layout template "${pageLayoutPath}" not found.`;
+    }
+    const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
+    
+    const bodyHtml = await pageLayoutTemplate({
+      ...resolution,
+      options: options
+    });
 
+    // --- STEP 2: Resolve ALL top-level asynchronous and dynamic data ---
+    const currentPageExportPath = getUrlForNode(resolution.contentFile, manifest, true);
+    const navLinks = generateNavLinks(synchronizedSiteData, currentPageExportPath, options);
+    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
+    const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
+    const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
-  // --- STEP 2: Resolve ALL top-level asynchronous data ---
-    const currentPageExportPath = getUrlForNode(resolution.contentFile, siteData.manifest, true);
-    const navLinks = generateNavLinks(siteData, currentPageExportPath, options);
-  const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
-  const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
-  const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
-
-  // Resolve logo and favicon URLs, passing the isExport flag.
-  let logoUrl: string | undefined = undefined;
-  if (siteData.manifest.logo) {
+    let logoUrl: string | undefined = undefined;
+    if (manifest.logo) {
       try {
-          const service = getActiveImageService(siteData.manifest);
-          logoUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.logo, { height: 32 }, options.isExport);
+          const service = getActiveImageService(manifest);
+          logoUrl = await service.getDisplayUrl(manifest, manifest.logo, { height: 32 }, options.isExport);
       } catch (e) { console.warn("Could not generate logo URL:", e); }
-  }
+    }
   
-  let faviconUrl: string | undefined = undefined;
-  if (siteData.manifest.favicon) {
-      try {
-          const service = getActiveImageService(siteData.manifest);
-          faviconUrl = await service.getDisplayUrl(siteData.manifest, siteData.manifest.favicon, { width: 32, height: 32 }, options.isExport);
-      } catch (e) { console.warn("Could not generate favicon URL:", e); }
-  }
+    let faviconUrl: string | undefined = undefined;
+    if (manifest.favicon) {
+        try {
+            const service = getActiveImageService(manifest);
+            faviconUrl = await service.getDisplayUrl(manifest, manifest.favicon, { width: 32, height: 32 }, options.isExport);
+        } catch (e) { console.warn("Could not generate favicon URL:", e); }
+    }
 
-  const styleOverrides = '';
-  if (manifest.theme.config && Object.keys(manifest.theme.config).length > 0) { /* style logic */ }
+    const styleOverrides = generateStyleOverrides(manifest.theme.config);
 
-
-  // --- STEP 3: Render the final document with all data now resolved ---
-   const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', themePath, 'theme.json');
-  if (!themeManifest) return 'Error: Could not load theme manifest.';
-   const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
-  if (!baseTemplateFile) return 'Error: Theme manifest is missing a file with type "base".';
+    // --- STEP 3: Render the final document with all data now resolved ---
+    const themeManifest = await getJsonAsset<ThemeManifest>(synchronizedSiteData, 'theme', themePath, 'theme.json');
+    if (!themeManifest) return 'Error: Could not load theme manifest.';
+    const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
+    if (!baseTemplateFile) return 'Error: Theme manifest is missing a file with type "base".';
   
-  const baseTemplateSource = await getAssetContent(siteData, 'theme', themePath, baseTemplateFile.path);
-  if (!baseTemplateSource) return 'Error: Could not load base template source.';
-  const baseTemplate = Handlebars.compile(baseTemplateSource);
+    const baseTemplateSource = await getAssetContent(synchronizedSiteData, 'theme', themePath, baseTemplateFile.path);
+    if (!baseTemplateSource) return 'Error: Could not load base template source.';
+    const baseTemplate = Handlebars.compile(baseTemplateSource);
 
-  const finalContext = {
+    const finalContext = {
       manifest,
       navLinks,
       year: new Date().getFullYear(),
       headContext: {
-          // All these accesses are now safe.
           pageTitle: resolution.pageTitle,
           manifest: manifest,
           contentFile: resolution.contentFile,
@@ -4345,11 +4540,10 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       },
       body: new Handlebars.SafeString(bodyHtml),
       logoUrl: logoUrl,
-      options: options, // For any helpers still needing it
+      options: options,
       ...resolution,
   };
 
-  // This final render is now synchronous because all async data has been prepared.
   const finalHtml = baseTemplate(finalContext);
 
   return finalHtml;
@@ -5558,7 +5752,7 @@ File: app/sites/[siteId]/layout.tsx
 // src/app/sites/[siteId]/layout.tsx
 'use client';
 
-import { useEffect, ReactNode } from 'react';
+import { useEffect, ReactNode, useCallback } from 'react';
 import { useParams, usePathname } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
@@ -5568,42 +5762,48 @@ import { cn } from '@/lib/utils';
 
 /**
  * The root layout for a single site's backend.
- * This component serves a dual purpose:
- * 1. **Visual Layout:** It provides the persistent vertical toolbar for navigating
- *    between main sections like 'Edit' and 'Settings'.
- * 2. **Data Loader & Context Setter:** It uses a `useEffect` hook to trigger the
- *    loading of the active site's data and sets the `activeSiteId` in the
- *    global store, making it available to all child components.
+ * This component provides the persistent vertical toolbar and, crucially, manages
+ * the loading of the active site's data into the global store.
+ *
+ * RECENT FIX: The data loading logic has been made non-destructive. It now checks
+ * if the site's content is already in memory before triggering a full load from
+ * storage. This prevents the UI from reverting after a save operation.
  */
 export default function SingleSiteLayout({ children }: { children: ReactNode }) {
-  // --- Part 1: Get router and state management hooks ---
   const params = useParams();
   const pathname = usePathname();
   const siteId = params.siteId as string;
 
-  const loadSiteAction = useAppStore(state => state.loadSite);
-  const setActiveSiteIdAction = useAppStore(state => state.setActiveSiteId);
+  // --- State and Action Hooks ---
+  // Select the specific data and actions needed from the store.
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
+  const loadSite = useAppStore(state => state.loadSite);
+  const setActiveSiteId = useAppStore(state => state.setActiveSiteId);
 
-  // --- Part 2: The Data Loading Logic (from the previous loader component) ---
-  // This effect runs whenever the siteId from the URL changes.
+  // --- FIX: This is the new, "smart" data loading effect ---
   useEffect(() => {
+    // Always set the active site ID when this layout is mounted.
     if (siteId) {
-      // Trigger the loading of this site's data from storage.
-      loadSiteAction(siteId);
-      // Announce to the rest of the app which site is currently active.
-      setActiveSiteIdAction(siteId);
+      setActiveSiteId(siteId);
     }
     
-    // Cleanup function: When the user navigates away from this site's
-    // section, clear the activeSiteId to prevent stale data display elsewhere.
+    // THE CRITICAL GUARD CLAUSE:
+    // Only call `loadSite` if the siteId is present AND the site's core content
+    // (`contentFiles`) has not yet been loaded into the store.
+    if (siteId && (!site || !site.contentFiles)) {
+      console.log(`[SiteLayout] Site data for ${siteId} not found in memory. Loading from storage.`);
+      loadSite(siteId);
+    }
+
+    // Cleanup function: When the user navigates away, clear the activeSiteId.
     return () => {
-      setActiveSiteIdAction(null);
+      setActiveSiteId(null);
     };
-  }, [siteId, loadSiteAction, setActiveSiteIdAction]);
+  // The dependency array ensures this logic re-evaluates if the siteId changes
+  // or if the site object itself is replaced in the store.
+  }, [siteId, site, loadSite, setActiveSiteId]);
 
-  // --- Part 3: The Visual Rendering Logic (from your provided code) ---
-
-  // Determine which navigation link is currently active based on the URL path.
+  // --- Visual Rendering Logic ---
   const isEditorActive = pathname.startsWith(`/sites/${siteId}/edit`);
   const isSettingsActive = pathname.startsWith(`/sites/${siteId}/settings`);
 
@@ -5642,7 +5842,6 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
         </nav>
       </aside>
 
-      {/* The rest of the page (which will be another layout like ThreeColumnLayout) renders here. */}
       <main className="flex-1 overflow-auto pb-16 lg:pb-0">
         {children}
       </main>
@@ -6042,6 +6241,7 @@ export default function ImageSettingsPage() {
 
 File: app/sites/[siteId]/settings/appearance/page.tsx
 // src/app/sites/[siteId]/settings/appearance/page.tsx
+
 'use client';
 
 import { useParams } from 'next/navigation';
@@ -6053,7 +6253,10 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { toast } from "sonner";
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
-import { getAvailableThemes } from '@/core/services/configHelpers.service';
+import { getAvailableThemes, getJsonAsset, ThemeManifest } from '@/core/services/configHelpers.service';
+import { RJSFSchema } from '@rjsf/utils';
+import { synchronizeThemeDefaults } from '@/core/services/theme.service';
+
 
 export default function AppearanceSettingsPage() {
   const params = useParams();
@@ -6062,73 +6265,105 @@ export default function AppearanceSettingsPage() {
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
 
-  const [selectedThemePath, setSelectedThemePath] = useState<string>('');
-  const [themeConfig, setThemeConfig] = useState<ThemeConfig['config']>({});
-  const [isLoading, setIsLoading] = useState(false);
+  const [formData, setFormData] = useState<ThemeConfig | null>(null);
+  const [appearanceSchema, setAppearanceSchema] = useState<RJSFSchema | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
 
   const availableThemes = useMemo(() => {
     return getAvailableThemes(site?.manifest);
   }, [site?.manifest]);
 
+  // This effect correctly initializes the form's state.
   useEffect(() => {
-    if (site?.manifest.theme) {
-      setSelectedThemePath(site.manifest.theme.name);
-      setThemeConfig(site.manifest.theme.config);
-      setHasChanges(false);
+    // Only re-initialize from the global store IF the user has no unsaved changes.
+    // This guard prevents wiping out the user's work.
+    if (site?.manifest && !hasChanges) {
+      setIsLoading(true);
+      synchronizeThemeDefaults(site.manifest)
+        .then(synchronizedTheme => {
+          setFormData(synchronizedTheme);
+          return getJsonAsset<ThemeManifest>(site, 'theme', synchronizedTheme.name, 'theme.json');
+        })
+        .then(themeManifest => {
+          setAppearanceSchema(themeManifest?.appearanceSchema || null);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
     }
-  }, [site]);
-  
+  }, [site, hasChanges]);
+
+
+  // --- FIX: This is the corrected state update handler ---
+  // It uses the functional form of the state setter to avoid stale closures.
   const handleConfigChange = useCallback((newConfig: ThemeConfig['config']) => {
-    setThemeConfig(newConfig);
+    // `setFormData`'s callback receives the guaranteed latest state (`prevFormData`),
+    // preventing any race conditions or work with stale data.
+    setFormData(prevFormData => {
+      if (!prevFormData) return null;
+      // react-jsonschema-form's onChange provides the *entire* updated form data.
+      // We don't need to merge; we simply replace the old config with the new one.
+      return { ...prevFormData, config: newConfig };
+    });
     setHasChanges(true);
-  }, []);
+  }, []); // The dependency array can safely be empty.
 
   const handleThemeChange = (newThemePath: string) => {
-    setSelectedThemePath(newThemePath);
-    setThemeConfig({});
-    setHasChanges(true);
+    if (site) {
+      setIsLoading(true);
+      setHasChanges(true);
+      const tempManifest = { ...site.manifest, theme: { name: newThemePath, config: {} } };
+      synchronizeThemeDefaults(tempManifest)
+        .then(synchronizedTheme => {
+          setFormData(synchronizedTheme);
+          return getJsonAsset<ThemeManifest>(site, 'theme', newThemePath, 'theme.json');
+        })
+        .then(themeManifest => {
+          setAppearanceSchema(themeManifest?.appearanceSchema || null);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    }
   };
 
   const handleSave = async () => {
-    if (!site || !site.manifest || !selectedThemePath) return;
+    if (!site?.manifest || !formData) return;
     
     setIsLoading(true);
     const newManifest: Manifest = {
       ...site.manifest,
-      theme: {
-        name: selectedThemePath,
-        config: themeConfig,
-      },
+      theme: formData,
     };
 
     try {
       await updateManifestAction(siteId, newManifest);
       toast.success('Appearance settings saved successfully!');
+      // After saving, reset the change flag. This will allow the main `useEffect`
+      // to re-sync with the global state if the user navigates away and back.
       setHasChanges(false);
-    } catch {
-      toast.error("Failed to save settings. Please try again.");
+    } catch(error) {
+      toast.error(`Failed to save settings: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
     }
   };
 
-  if (!site) {
+  if (isLoading || !formData) {
     return <div className="p-6">Loading settings...</div>;
   }
   
-  // The component now only returns its content, not the layout.
   return (
     <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Appearance</h1>
         <p className="text-muted-foreground">Customize the visual style of your site.</p>
       </div>
-
       <div className="border-t pt-6 space-y-6">
         <div>
             <Label htmlFor="theme-select">Active Theme</Label>
-            <Select value={selectedThemePath} onValueChange={handleThemeChange}>
+            <Select value={formData.name} onValueChange={handleThemeChange}>
                 <SelectTrigger id="theme-select" className="mt-1">
                     <SelectValue placeholder="Select a theme..." />
                 </SelectTrigger>
@@ -6141,17 +6376,14 @@ export default function AppearanceSettingsPage() {
                 </SelectContent>
             </Select>
         </div>
-        
-        {selectedThemePath && (
-            <AppearanceSettingsForm 
-                site={site}
-                themePath={selectedThemePath}
-                themeConfig={themeConfig}
-                onConfigChange={handleConfigChange}
-            />
-        )}
+        <AppearanceSettingsForm 
+            isLoading={isLoading}
+            schema={appearanceSchema}
+            themePath={formData.name}
+            themeConfig={formData.config}
+            onConfigChange={handleConfigChange}
+        />
       </div>
-
       <div className="flex justify-end pt-4">
         <Button onClick={handleSave} disabled={isLoading || !hasChanges} size="lg">
           {isLoading ? 'Saving...' : 'Save Appearance'}
@@ -6389,34 +6621,51 @@ export default function ViewSitePage() {
 ================================================================================
 
 File: app/create-site/page.tsx
-// src/app/(publishing)/create-site/page.tsx
+// src/app/create-site/page.tsx
 'use client';
 
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import { LocalSiteData, MarkdownFrontmatter, ThemeInfo } from '@/types';
+import { LocalSiteData, Manifest, ThemeInfo } from '@/types';
 import { Button } from '@/core/components/ui/button';
 import { generateSiteId } from '@/lib/utils';
 import { toast } from "sonner";
-import { getLayoutManifest } from '@/core/services/configHelpers.service';
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
-import { GENERATOR_VERSION, CORE_THEMES, DEFAULT_PAGE_LAYOUT_PATH, DEFAULT_HOMEPAGE_CONFIG } from '@/config/editorConfig';
+import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
+// Import the new centralized service function for theme synchronization.
+import { synchronizeThemeDefaults } from '@/core/services/theme.service';
 
+/**
+ * Renders the "Create New Site" page.
+ * 
+ * This component is responsible for gathering initial site details (title, theme)
+ * and orchestrating the creation of a new site record.
+ * 
+ * RECENT REFACTOR: This component no longer contains logic for parsing theme defaults itself.
+ * It now uses the centralized `synchronizeThemeDefaults` service to ensure that the new
+ * site's manifest is created with a complete and valid theme configuration from the start.
+ * This makes the component simpler and more aligned with the principle of separation of concerns.
+ */
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
 
+  // --- Local State for the Form ---
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   
   const availableThemes = useMemo(() => CORE_THEMES, []);
+  // Set the default theme on initial render.
   const [selectedTheme, setSelectedTheme] = useState<ThemeInfo | null>(availableThemes[0] || null);
 
+  /**
+   * Handles the form submission to create a new site.
+   */
   const handleSubmit = async () => {
     if (!siteTitle.trim() || !selectedTheme) {
       toast.error('Site title and a theme are required.');
@@ -6424,75 +6673,45 @@ export default function CreateSitePage() {
     }
     setIsLoading(true);
 
-    const newSiteId = generateSiteId(siteTitle);
-    const homepageLayoutPath = DEFAULT_PAGE_LAYOUT_PATH;
-
-    // 1. Create a slug from the site's title for the first page.
-    // This gives it a meaningful, non-special name.
-    const firstPageTitle = DEFAULT_HOMEPAGE_CONFIG.TITLE;
-
-    // 2. Define the frontmatter with the `homepage: true` flag.
-    const defaultFrontmatter: MarkdownFrontmatter = {
-        title: firstPageTitle,
-        layout: DEFAULT_PAGE_LAYOUT_PATH,
-        date: new Date().toISOString().split('T')[0],
-        homepage: true, // This is the ONLY thing that makes it the homepage.
-    };
-
-    const mockSiteData: LocalSiteData = { 
-        siteId: 'mock-id', 
-        contentFiles: [], 
-        layoutFiles: [], 
-        themeFiles: [], 
-        manifest: { 
-            siteId: 'mock-id',
-            title: 'mock',
-            description: 'mock',
-            generatorVersion: GENERATOR_VERSION,
-            structure: [],
-            theme: { 
-                name: selectedTheme.path, 
-                config: {} 
-            } 
-        } 
-    };
-    
-    const layoutManifest = await getLayoutManifest(mockSiteData, homepageLayoutPath);
-    
-    if (layoutManifest?.schema?.properties) {
-    for (const [key, prop] of Object.entries(layoutManifest.schema.properties)) {
-        // Check if the property in the schema has a 'default' value
-        if (typeof prop === 'object' && prop !== null && 'default' in prop) {
-            // And if we haven't already set this value in our frontmatter
-            if (defaultFrontmatter[key] === undefined) {
-                // Then apply the default value from the schema.
-                defaultFrontmatter[key] = prop.default as unknown;
-            }
-        }
-    }
-}
-
-    const newSiteData: LocalSiteData = {
-      siteId: newSiteId,
-      manifest: {
+    try {
+      const newSiteId = generateSiteId(siteTitle);
+      
+      // 1. Create a preliminary manifest with just the basic user choices.
+      // The `config` object is intentionally left empty, as the service will populate it.
+      const preliminaryManifest: Manifest = {
         siteId: newSiteId,
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: { name: selectedTheme.path, config: {} },
+        theme: { 
+          name: selectedTheme.path, 
+          config: {} 
+        },
         structure: [],
-      },
-      contentFiles: [],
-      themeFiles: [],
-      layoutFiles: [],
-    };
+      };
+      
+      // 2. Use the central `synchronizeThemeDefaults` service to get the
+      //    fully populated and correct theme configuration object.
+      const synchronizedTheme = await synchronizeThemeDefaults(preliminaryManifest);
+      
+      // 3. Construct the final site data object, injecting the synchronized theme.
+      //    This ensures the manifest is saved correctly from the very beginning.
+      const newSiteData: LocalSiteData = {
+        siteId: newSiteId,
+        manifest: { ...preliminaryManifest, theme: synchronizedTheme },
+        // These are always empty for a brand new site.
+        contentFiles: [],
+        themeFiles: [],
+        layoutFiles: [],
+      };
 
-
-    try {
+      // 4. Save the complete site data to storage and update the global state.
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
       router.push(`/sites/${newSiteId}/edit`);
+
     } catch (error) {
+      console.error("Error during site creation:", error);
       toast.error(`Failed to create site: ${(error as Error).message}`);
     } finally {
       setIsLoading(false);
@@ -6504,7 +6723,7 @@ export default function CreateSitePage() {
       <div className="space-y-6">
         <div className="flex justify-between items-center">
             <h1 className="text-3xl font-bold">Create a New Site</h1>
-            <Button onClick={() => router.push('/')} variant="outline">Cancel</Button>
+            <Button onClick={() => router.push('/sites')} variant="outline">Cancel</Button>
         </div>
 
         <div className="space-y-4 p-6 border rounded-lg">
@@ -6904,61 +7123,32 @@ export default function MarkdownRenderer({ markdown }: MarkdownRendererProps) {
 ================================================================================
 
 File: features/site-settings/components/AppearanceSettingsForm.tsx
-// src/components/publishing/AppearanceSettingsForm.tsx
+// src/features/site-settings/components/AppearanceSettingsForm.tsx
+
 'use client';
 
-import { useEffect, useState } from 'react';
 import { RJSFSchema } from '@rjsf/utils';
-import { getJsonAsset, type ThemeManifest } from '@/core/services/configHelpers.service';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
-import { ThemeConfig, LocalSiteData } from '@/types';
+import { ThemeConfig } from '@/types';
 
+// The props interface is simplified. It now expects to receive the schema directly.
 interface AppearanceSettingsFormProps {
-  site: LocalSiteData;
-  themePath: string;
+  schema: RJSFSchema | null; // Receive the schema as a prop.
+  isLoading: boolean; // Receive loading state from the parent.
+  themePath: string; // Keep this for displaying messages.
   themeConfig: ThemeConfig['config'];
   onConfigChange: (newConfig: ThemeConfig['config']) => void;
 }
 
-export default function AppearanceSettingsForm({ site, themePath, themeConfig, onConfigChange }: AppearanceSettingsFormProps) {
-  const [schema, setSchema] = useState<RJSFSchema | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+export default function AppearanceSettingsForm({ 
+  schema, 
+  isLoading,
+  themePath,
+  themeConfig, 
+  onConfigChange 
+}: AppearanceSettingsFormProps) {
 
-  useEffect(() => {
-    async function loadSchema() {
-      if (!themePath) {
-        setIsLoading(false);
-        setSchema(null);
-        return;
-      }
-      
-      setIsLoading(true);
-
-      // --- START OF CORRECTED LOGIC ---
-
-      // 1. Fetch the entire theme.json file for the active theme.
-      const themeManifest = await getJsonAsset<ThemeManifest>(
-        site,
-        'theme',
-        themePath,
-        'theme.json' // <-- Correct filename
-      );
-
-      // 2. Check if the manifest was found and if it contains the appearance schema.
-      if (themeManifest && themeManifest.appearanceSchema) {
-        setSchema(themeManifest.appearanceSchema);
-      } else {
-        // If not found, there are no settings, so set the schema to null.
-        setSchema(null);
-      }
-      
-      // --- END OF CORRECTED LOGIC ---
-
-      setIsLoading(false);
-    }
-
-    loadSchema();
-  }, [site, themePath]);
+  // The internal state and useEffect for loading the schema are now REMOVED.
   
   const handleChange = (event: { formData?: Record<string, unknown> }) => {
     onConfigChange(event.formData as ThemeConfig['config'] || {});
@@ -6976,15 +7166,17 @@ export default function AppearanceSettingsForm({ site, themePath, themeConfig, o
     );
   }
 
+  // If the parent passes a null schema, it means there are no settings.
   if (!schema) {
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme &quot;{themePath}&quot; does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable appearance settings.</p>
       </div>
     );
   }
 
+  // The component now just renders the form with the props it was given.
   return (
     <SchemaDrivenForm
       schema={schema}

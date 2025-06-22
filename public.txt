@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: node_modules, public, ios
+Excluded Directories: public, node_modules, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -125,51 +125,78 @@ File: layouts/listing/listing.hbs
 
 File: themes/default/theme.json
 {
-  "name": "Default Theme",
-  "version": "1.0.0",
+  "name": "Default theme",
+  "version": "1.2.0",
   "files": [
     { "path": "theme.json", "type": "manifest" },
-    { "path": "base.hbs", "type": "base", "name": "Base HTML Shell" },
-    { "path": "css/theme.css", "type": "stylesheet", "name": "Main Stylesheet" },
+    { "path": "base.hbs", "type": "base" },
+    { "path": "css/theme.css", "type": "stylesheet" },
     { "path": "partials/head.hbs", "type": "partial", "name": "head" },
     { "path": "partials/header.hbs", "type": "partial", "name": "header" },
     { "path": "partials/footer.hbs", "type": "partial", "name": "footer" }
   ],
   "appearanceSchema": {
     "title": "Theme Customization",
-    "description": "Customize the core fonts and colors of your site. These values override the theme's defaults.",
+    "description": "Customize the core fonts and colors of your site.",
     "type": "object",
     "properties": {
-      "font_body": {
+      "color_background": {
         "type": "string",
-        "title": "Body Font Family",
-        "description": "e.g., 'Helvetica, sans-serif' or 'Georgia, serif'",
-        "default": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif"
-      },
-      "font_heading": {
-        "type": "string",
-        "title": "Heading Font Family",
-        "description": "e.g., 'Georgia, serif'",
-        "default": "Georgia, 'Times New Roman', Times, serif"
-      },
-      "color_primary": {
-        "type": "string",
-        "title": "Primary Accent Color",
-        "description": "Used for links and important elements.",
+        "title": "Page Background Color",
         "format": "color",
-        "default": "#0074D9"
+        "default": "#f8f9fa"
       },
       "color_text": {
         "type": "string",
         "title": "Body Text Color",
         "format": "color",
-        "default": "#333333"
+        "default": "#212529"
       },
-      "color_background": {
+      "color_headings": {
         "type": "string",
-        "title": "Page Background Color",
+        "title": "Headings Color",
         "format": "color",
-        "default": "#f4f4f4"
+        "default": "#000000"
+      },
+      "color_primary": {
+        "type": "string",
+        "title": "Primary Accent Color",
+        "format": "color",
+        "default": "#0d6efd"
+      },
+
+      "font_headings": {
+        "type": "string",
+        "title": "Headings Font Family",
+        "description": "Choose the font family for all headlines.",
+        "enum": [
+          "var(--font-stack-serif)",
+          "var(--font-stack-sans)",
+          "var(--font-stack-mono)"
+        ],
+        "enumNames": [
+          "Serif (System)",
+          "Sans-Serif (System)",
+          "Monospace (System)"
+        ],
+        "default": "var(--font-stack-serif)"
+      },
+      
+      "font_text": {
+        "type": "string",
+        "title": "Body Text Font Family",
+        "description": "Choose the font family for all paragraphs and lists.",
+        "enum": [
+          "var(--font-stack-serif)",
+          "var(--font-stack-sans)",
+          "var(--font-stack-mono)"
+        ],
+        "enumNames": [
+          "Serif (System)",
+          "Sans-Serif (System)",
+          "Monospace (System)"
+        ],
+        "default": "var(--font-stack-sans)"
       }
     }
   }
@@ -202,66 +229,190 @@ File: themes/default/css/theme.css
 /* public/themes/default/css/theme.css */
 
 /* ==========================================================================
-   1. THEME VARIABLE DEFINITIONS (:root)
-   - These are the default values for the theme.
-   - The user's choices from the "Appearance" settings will override these.
-   - The variable names (--kebab-case) directly correspond to the keys
-     (snake_case) in theme.json.
+   1. CORE THEME DEFINITIONS & DEFAULTS
+   - This section defines the theme's building blocks (font stacks) and
+     sets the default values for all customizable CSS variables. The theme
+     engine will override these defaults with user choices.
    ========================================================================== */
 :root {
-  --font-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --font-heading: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  
-  --color-primary: #0074D9; /* Default: A nice blue */
-  --color-text: #333333;
-  --color-background: #fff;
+  /* --- FONT STACKS (Theme-Specific Resources) --- */
+  /* This theme provides three high-quality, cross-platform system font stacks. */
+  /* A different theme could import Google Fonts here instead. */
+  --font-stack-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-stack-serif: Iowan Old Style, 'Apple Garamond', Baskerville, 'Times New Roman', Droid Serif, Times, 'Source Serif Pro', serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+  --font-stack-mono: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+
+  /* --- DEFAULT COLOR PALETTE --- */
+  /* These are the fallback values if the user hasn't made a choice. */
+  --color-background: #f8f9fa; /* Light grey */
+  --color-text: #212529;       /* Near-black for high readability */
+  --color-headings: #000000;   /* Pure black for strong headlines */
+  --color-primary: #0d6efd;    /* A standard, accessible blue for links */
+  --color-border: #dee2e6;     /* Subtle grey for borders and rules */
+
+  /* --- DEFAULT FONT ASSIGNMENTS --- */
+  /* The theme engine will generate an inline style block to override these */
+  /* with the user's choice from the theme.json 'enum' values. */
+  --font-headings: var(--font-stack-serif);
+  --font-text: var(--font-stack-sans);
 }
 
 
 /* ==========================================================================
-   2. APPLYING VARIABLES TO BASE STYLES
+   2. BASE & TYPOGRAPHY STYLES
    - These rules consume the variables, making the theme dynamic.
    ========================================================================== */
 body {
-  font-family: var(--font-body);
+  font-family: var(--font-text);
   background-color: var(--color-background);
   color: var(--color-text);
   transition: background-color .2s ease-in-out, color .2s ease-in-out;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-
-/* ==========================================================================
-   3. PROSE CONTENT TYPOGRAPHY (using variables)
-   - Styles for raw HTML generated from Markdown.
-   ========================================================================== */
-
-.prose h1, .prose h2, .prose h3, .prose h4 {
-  font-family: var(--font-heading);
-  font-weight: 700;
-  margin-top: 1.5em;
-  margin-bottom: 0.5em;
-}
-
-.prose h1 { font-size: 2.5rem; }
-.prose h2 { font-size: 1.75rem; }
-.prose h3 { font-size: 1.25rem; }
-
-.prose p {
-  margin-bottom: 1em;
-  line-height: 1.8;
-}
-
-.prose a {
+/* Base link styles */
+a {
   color: var(--color-primary);
   text-decoration: none;
   transition: opacity .15s ease-in;
 }
 
-.prose a:hover {
-  opacity: 0.7;
+a:hover {
+  text-decoration: underline;
+  opacity: 0.8;
 }
 
-/* ... other prose styles like lists, blockquotes, etc. ... */
+
+/* ==========================================================================
+   3. PROSE CONTENT STYLES (.prose)
+   - These styles target raw HTML generated from Markdown. They are scoped
+     to the `.prose` class to avoid interfering with the application's UI.
+   ========================================================================== */
+
+/* --- Headings --- */
+.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
+  font-family: var(--font-headings);
+  color: var(--color-headings);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: 1.75em;
+  margin-bottom: 0.75em;
+}
+
+.prose h1 { font-size: 2.25rem; }
+.prose h2 { font-size: 1.75rem; }
+.prose h3 { font-size: 1.25rem; }
+.prose h4 { font-size: 1.1rem; }
+.prose h5, .prose h6 { font-size: 1rem; }
+
+/* --- Paragraphs and Links --- */
+.prose p {
+  margin-bottom: 1.25em;
+}
+
+/* Links inside prose content get an underline on hover */
+.prose a {
+  font-weight: 500;
+}
+
+/* --- Lists (Ordered and Unordered) --- */
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem;
+  margin-top: 1.25em;
+  margin-bottom: 1.25em;
+}
+.prose li {
+  margin-bottom: 0.5em;
+}
+.prose li > p { /* Handle paragraphs inside list items */
+  margin-top: 0.75em;
+  margin-bottom: 0.75em;
+}
+
+/* --- Blockquotes --- */
+.prose blockquote {
+  margin-left: 0;
+  margin-right: 0;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  padding: 0.75em 1.25em;
+  border-left: 4px solid var(--color-primary);
+  background-color: rgba(0,0,0,0.025);
+  font-style: italic;
+  color: #495057; /* Slightly lighter than main text */
+}
+.prose blockquote > p {
+  margin-bottom: 0;
+}
+
+/* --- Code (Inline and Blocks) --- */
+/* Inline `code` tags */
+.prose :not(pre) > code {
+  font-family: var(--font-stack-mono);
+  background-color: rgba(0,0,0,0.05);
+  color: var(--color-text);
+  padding: 0.2em 0.4em;
+  font-size: 0.875em;
+  border-radius: 4px;
+}
+
+/* Code blocks (`pre` tags) */
+.prose pre {
+  font-family: var(--font-stack-mono);
+  background-color: #212529; /* Dark background for contrast */
+  color: #f8f9fa; /* Light text on dark background */
+  padding: 1em;
+  border-radius: 6px;
+  overflow-x: auto; /* Allow horizontal scrolling for long lines */
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  font-size: 0.9em;
+  line-height: 1.6;
+}
+.prose pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
+/* --- Other Elements --- */
+.prose hr {
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  margin: 2.5em 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1.5em;
+  margin-bottom: 1.5em;
+  font-size: 0.9em;
+  text-align: left;
+}
+
+.prose th, .prose td {
+  border: 1px solid var(--color-border);
+  padding: 0.6em 0.8em;
+}
+
+.prose thead th {
+  font-weight: 600;
+  background-color: rgba(0,0,0,0.03);
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose em {
+  font-style: italic;
+}
 
 ================================================================================
 

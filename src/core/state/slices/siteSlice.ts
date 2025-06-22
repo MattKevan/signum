@@ -1,4 +1,5 @@
 // src/core/state/slices/siteSlice.ts
+
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { LocalSiteData, Manifest } from '@/types';
@@ -14,7 +15,6 @@ export interface SiteSlice {
   addSite: (siteData: LocalSiteData) => Promise<void>;
   updateManifest: (siteId: string, manifest: Manifest) => Promise<void>;
   deleteSiteAndState: (siteId: string) => Promise<void>;
-  // --- FIX: Added action to initialize the store from storage ---
   initializeSites: () => Promise<void>;
 }
 
@@ -23,19 +23,13 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
   loadingSites: new Set(),
   getSiteById: (siteId) => get().sites.find(s => s.siteId === siteId),
 
-  // --- FIX: New action to hydrate the store on app load ---
-  /**
-   * Loads all site manifests from local storage and populates the initial state.
-   * This is called once when the application starts. It only loads manifests
-   * for a fast initial load; full site content is lazy-loaded later.
-   */
   initializeSites: async () => {
+    // ... (this function is correct, no changes needed)
     try {
       const manifests = await localSiteFs.loadAllSiteManifests();
       const initialSites: LocalSiteData[] = manifests.map(manifest => ({
         siteId: manifest.siteId,
         manifest: manifest,
-        // Content and other files are intentionally left undefined for lazy loading.
       }));
       set({ sites: initialSites });
     } catch (error) {
@@ -45,8 +39,11 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
   },
 
   loadSite: async (siteId) => {
+    // --- FIX: This logic is now non-destructive ---
     if (get().loadingSites.has(siteId)) return;
+    
     const existingSite = get().getSiteById(siteId);
+    // Only fetch if core content files aren't already loaded.
     if (existingSite && existingSite.contentFiles) return;
     
     set(produce(draft => { draft.loadingSites.add(siteId); }));
@@ -62,14 +59,17 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
         loadSiteSecretsFromDb(siteId)
       ]);
 
-      const loadedSiteData: LocalSiteData = { siteId, manifest, contentFiles, layoutFiles, themeFiles, secrets };
+      const loadedData = { manifest, contentFiles, layoutFiles, themeFiles, secrets };
 
       set(produce((draft: SiteSlice) => {
         const siteIndex = draft.sites.findIndex(s => s.siteId === siteId);
         if (siteIndex > -1) {
-          draft.sites[siteIndex] = loadedSiteData;
+          // Instead of replacing, we MERGE the loaded data into the existing object.
+          // This preserves any other data that might already be in the in-memory state.
+          draft.sites[siteIndex] = { ...draft.sites[siteIndex], ...loadedData };
         } else {
-          draft.sites.push(loadedSiteData);
+          // If it's a new site being loaded, add it.
+          draft.sites.push({ siteId, ...loadedData });
         }
       }));
     } catch (error) {
@@ -79,25 +79,26 @@ export const createSiteSlice: StateCreator<SiteSlice, [], [], SiteSlice> = (set,
       set(produce(draft => { draft.loadingSites.delete(siteId); }));
     }
   },
-
-  addSite: async (newSiteData) => {
-    await localSiteFs.saveSite(newSiteData);
-    set(produce((draft: SiteSlice) => {
-      const siteIndex = draft.sites.findIndex(s => s.siteId === newSiteData.siteId);
-      if (siteIndex > -1) {
-        // If site exists, overwrite it. This is used by the importer.
-        draft.sites[siteIndex] = newSiteData;
-      } else {
-        draft.sites.push(newSiteData);
-      }
-    }));
-  },
-
+  
+  // --- This action is now safe to use because loadSite is no longer destructive ---
   updateManifest: async (siteId, newManifest) => {
     await localSiteFs.saveManifest(siteId, newManifest);
     set(produce((draft: SiteSlice) => {
       const site = draft.sites.find(s => s.siteId === siteId);
       if (site) site.manifest = newManifest;
+    }));
+  },
+
+  // ... (addSite and deleteSiteAndState remain the same)
+  addSite: async (newSiteData) => {
+    await localSiteFs.saveSite(newSiteData);
+    set(produce((draft: SiteSlice) => {
+      const siteIndex = draft.sites.findIndex(s => s.siteId === newSiteData.siteId);
+      if (siteIndex > -1) {
+        draft.sites[siteIndex] = newSiteData;
+      } else {
+        draft.sites.push(newSiteData);
+      }
     }));
   },
 
