@@ -1,6 +1,7 @@
 {{! page.hbs }}
-<article>
+<article class="prose">
     <h1>{{contentFile.frontmatter.title}}</h1>
+    <p class="f4">{{contentFile.frontmatter.description}} </p>
     {{{markdown contentFile.content}}}
 
     {{#if collectionItems}}
