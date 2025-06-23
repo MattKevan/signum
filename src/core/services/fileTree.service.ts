@@ -1,5 +1,5 @@
 // src/core/services/fileTree.service.ts
-import type { ParsedMarkdownFile, StructureNode } from '@/types';
+import type { ParsedMarkdownFile, StructureNode } from '@/core/types';
 
 /**
  * A flattened representation of a StructureNode, including its depth and parent.

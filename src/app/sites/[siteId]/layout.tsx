@@ -7,7 +7,7 @@ import { useAppStore } from '@/core/state/useAppStore';
 import Link from 'next/link';
 import Image from 'next/image';
 import { TbEdit, TbSettings } from "react-icons/tb";
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/libraries/utils';
 
 /**
  * The root layout for a single site's backend.

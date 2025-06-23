@@ -1,5 +1,5 @@
 // src/core/services/theme-engine/helpers/types.ts
-import { LocalSiteData } from '@/types';
+import { LocalSiteData } from '@/core/types';
 import Handlebars from 'handlebars';
 
 /**

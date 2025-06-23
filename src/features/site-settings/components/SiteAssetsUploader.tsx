@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from 'react';
 import Image from 'next/image'; // FIX: Import the optimized Next.js Image component
-import { ImageRef } from '@/types';
+import { ImageRef } from '@/core/types';
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
 import { Button } from '@/core/components/ui/button';

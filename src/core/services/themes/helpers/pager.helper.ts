@@ -2,7 +2,7 @@
 
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
-import { PaginationData } from '@/types';
+import { PaginationData } from '@/core/types';
 
 /**
  * A type guard to check if an unknown value has the shape of PaginationData.

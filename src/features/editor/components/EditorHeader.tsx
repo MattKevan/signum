@@ -10,7 +10,7 @@ import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
 import { toast } from 'sonner';
 import { exportSiteToZip } from '@/core/services/siteExporter.service';
-import { slugify } from '@/lib/utils';
+import { slugify } from '@/core/libraries/utils';
 import { Eye, PanelLeft, UploadCloud, PanelRight } from 'lucide-react';
 
 /**

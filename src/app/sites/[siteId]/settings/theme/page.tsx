@@ -5,23 +5,30 @@ import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
 import { Label } from '@/core/components/ui/label';
-import { Input } from '@/core/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
-import { Switch } from '@/core/components/ui/switch';
 import { useEffect, useState } from 'react';
 import { toast } from "sonner";
 import { getAvailableThemes } from '@/core/services/configHelpers.service';
-import type { Manifest, ThemeConfig, ThemeInfo } from '@/types';
+import type { Manifest, ThemeConfig, ThemeInfo } from '@/core/types';
 import type { RJSFSchema } from '@rjsf/utils';
+import SchemaDrivenForm from '@/core/components/SchemaDrivenForm';
+
+// Define types for theme data
+interface ThemeData {
+  name?: string;
+  version?: string;
+  appearanceSchema?: RJSFSchema;
+  [key: string]: unknown;
+}
 
 // Simple utility to extract defaults from JSON schema
-const extractDefaultsFromSchema = (schema: RJSFSchema): Record<string, any> => {
-  const defaults: Record<string, any> = {};
+const extractDefaultsFromSchema = (schema: RJSFSchema): Record<string, unknown> => {
+  const defaults: Record<string, unknown> = {};
   
   if (schema.properties) {
     Object.entries(schema.properties).forEach(([key, property]) => {
       if (typeof property === 'object' && property !== null && 'default' in property) {
-        defaults[key] = property.default;
+        defaults[key] = property.default as string | number | boolean;
       }
     });
   }
@@ -30,11 +37,11 @@ const extractDefaultsFromSchema = (schema: RJSFSchema): Record<string, any> => {
 };
 
 // Load theme data from theme.json
-const loadThemeData = async (themeName: string) => {
+const loadThemeData = async (themeName: string): Promise<ThemeData> => {
   try {
     const response = await fetch(`/themes/${themeName}/theme.json`);
     if (!response.ok) throw new Error(`Failed to load theme: ${themeName}`);
-    return await response.json();
+    return await response.json() as ThemeData;
   } catch (error) {
     console.error('Error loading theme:', error);
     throw error;
@@ -53,7 +60,7 @@ export default function AppearanceSettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState<string>('');
-  const [formData, setFormData] = useState<Record<string, any>>({});
+  const [formData, setFormData] = useState<Record<string, unknown>>({});
   const [schema, setSchema] = useState<RJSFSchema | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
   const [availableThemes, setAvailableThemes] = useState<ThemeInfo[]>([]);
@@ -101,12 +108,9 @@ export default function AppearanceSettingsPage() {
     initializeData();
   }, [site, isInitialized]);
 
-  // Handle form field changes
-  const handleFieldChange = (fieldName: string, value: any) => {
-    setFormData(prev => ({
-      ...prev,
-      [fieldName]: value
-    }));
+  // Handle form changes from SchemaDrivenForm
+  const handleFormChange = (data: object) => {
+    setFormData(data as Record<string, unknown>);
     setHasChanges(true);
   };
 
@@ -177,130 +181,6 @@ export default function AppearanceSettingsPage() {
     }
   };
 
-  // Render form field based on schema type
-  const renderFormField = (fieldName: string, fieldSchema: any) => {
-    const value = formData[fieldName];
-    const label = fieldSchema.title || fieldName;
-    const description = fieldSchema.description;
-
-    // Handle enum fields (like font selectors) with custom labels
-    if (fieldSchema.enum && fieldSchema.enumNames) {
-      const options = fieldSchema.enum.map((enumValue: string, index: number) => ({
-        value: enumValue,
-        label: fieldSchema.enumNames[index] || enumValue
-      }));
-
-      return (
-        <div key={fieldName} className="space-y-2">
-          <Label htmlFor={fieldName}>{label}</Label>
-          <Select
-            value={value || ''}
-            onValueChange={(selectedValue) => handleFieldChange(fieldName, selectedValue)}
-          >
-            <SelectTrigger id={fieldName}>
-              <SelectValue placeholder="Select an option..." />
-            </SelectTrigger>
-            <SelectContent>
-              {options.map((option: { value: string; label: string }) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
-          {value && (
-            <p className="text-xs text-muted-foreground font-mono">
-              CSS: {value}
-            </p>
-          )}
-        </div>
-      );
-    }
-
-    switch (fieldSchema.type) {
-      case 'string':
-        if (fieldSchema.format === 'color' || fieldName.includes('color')) {
-          return (
-            <div key={fieldName} className="space-y-2">
-              <Label htmlFor={fieldName}>{label}</Label>
-              <div className="flex gap-2 items-center">
-                <Input
-                  id={fieldName}
-                  type="color"
-                  value={value || ''}
-                  onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-                  className="w-16 h-10 p-1 rounded border"
-                />
-                <Input
-                  type="text"
-                  value={value || ''}
-                  onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-                  placeholder={fieldSchema.default || ''}
-                  className="flex-1"
-                />
-              </div>
-              {description && <p className="text-sm text-muted-foreground">{description}</p>}
-            </div>
-          );
-        }
-        
-        return (
-          <div key={fieldName} className="space-y-2">
-            <Label htmlFor={fieldName}>{label}</Label>
-            <Input
-              id={fieldName}
-              type="text"
-              value={value || ''}
-              onChange={(e) => handleFieldChange(fieldName, e.target.value)}
-              placeholder={fieldSchema.default || ''}
-            />
-            {description && <p className="text-sm text-muted-foreground">{description}</p>}
-          </div>
-        );
-
-      case 'boolean':
-        return (
-          <div key={fieldName} className="flex items-center justify-between space-y-2">
-            <div>
-              <Label htmlFor={fieldName}>{label}</Label>
-              {description && <p className="text-sm text-muted-foreground">{description}</p>}
-            </div>
-            <Switch
-              id={fieldName}
-              checked={value || false}
-              onCheckedChange={(checked) => handleFieldChange(fieldName, checked)}
-            />
-          </div>
-        );
-
-      case 'number':
-        return (
-          <div key={fieldName} className="space-y-2">
-            <Label htmlFor={fieldName}>{label}</Label>
-            <Input
-              id={fieldName}
-              type="number"
-              value={value || ''}
-              onChange={(e) => handleFieldChange(fieldName, parseFloat(e.target.value) || 0)}
-              placeholder={fieldSchema.default?.toString() || ''}
-            />
-            {description && <p className="text-sm text-muted-foreground">{description}</p>}
-          </div>
-        );
-
-      default:
-        return (
-          <div key={fieldName} className="space-y-2">
-            <Label>{label}</Label>
-            <p className="text-sm text-muted-foreground">
-              Unsupported field type: {fieldSchema.type}
-            </p>
-          </div>
-        );
-    }
-  };
-
   if (!site || isLoading) {
     return (
       <div className="space-y-6 max-w-2xl p-6">
@@ -342,20 +222,20 @@ export default function AppearanceSettingsPage() {
         </div>
         
         {/* Theme Customization Form */}
-        {schema?.properties ? (
-          <div className="space-y-6">
+        {schema ? (
+          <div className="space-y-4">
             <h3 className="text-lg font-medium">Theme Customization</h3>
-            <div className="space-y-4">
-              {Object.entries(schema.properties).map(([fieldName, fieldSchema]) =>
-                renderFormField(fieldName, fieldSchema as any)
-              )}
-            </div>
+            <SchemaDrivenForm 
+              schema={schema}
+              formData={formData}
+              onFormChange={handleFormChange}
+            />
           </div>
         ) : (
           <div className="text-center border-2 border-dashed p-6 rounded-lg">
             <p className="font-semibold">No Customization Options</p>
             <p className="text-sm text-muted-foreground">
-              The theme "{selectedTheme}" does not provide any customizable settings.
+              The theme &quot;{selectedTheme}&quot; does not provide any customizable settings.
             </p>
           </div>
         )}

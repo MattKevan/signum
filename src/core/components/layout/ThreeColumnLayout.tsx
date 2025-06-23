@@ -2,7 +2,7 @@
 
 import { ReactNode } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/libraries/utils';
 import EditorHeader from '@/features/editor/components/EditorHeader';
 
 interface ThreeColumnLayoutProps {

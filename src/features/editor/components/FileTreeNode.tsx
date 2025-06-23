@@ -6,9 +6,9 @@ import Link from 'next/link';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { GripVertical, ChevronRight, File as FileIcon, LayoutGrid, Home } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/libraries/utils';
 import type { FlattenedNode } from '@/core/services/fileTree.service';
-import type { MarkdownFrontmatter } from '@/types';
+import type { MarkdownFrontmatter } from '@/core/types';
 
 /**
  * Defines the shape of the visual drop indicator state.

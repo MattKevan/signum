@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { TbUserCircle, TbPalette, TbPhoto } from 'react-icons/tb';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/libraries/utils';
 
 // This is the navigation component for the settings area.
 export default function SettingsNav() {

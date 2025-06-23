@@ -3,7 +3,7 @@
 
 import { useMemo } from 'react';
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
-import SchemaDrivenForm from './SchemaDrivenForm';
+import SchemaDrivenForm from '../../../core/components/SchemaDrivenForm';
 import {
   Accordion,
   AccordionContent,

@@ -27,7 +27,7 @@ import { flattenTree, FlattenedNode } from '@/core/services/fileTree.service';
 import { arrayMove } from '@dnd-kit/sortable';
 import { toast } from 'sonner';
 import { exportSiteBackup } from '@/core/services/siteBackup.service';
-import { slugify } from '@/lib/utils';
+import { slugify } from '@/core/libraries/utils';
 
 interface DndProjection {
   parentId: string | null;

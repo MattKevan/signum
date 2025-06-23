@@ -4,7 +4,7 @@
 import { Label } from '@/core/components/ui/label';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
-import { ImageRef } from '@/types';
+import { ImageRef } from '@/core/types';
 import SiteAssetUploader from './SiteAssetsUploader';
 
 interface SiteSettingsFormProps {

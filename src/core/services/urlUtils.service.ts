@@ -1,5 +1,5 @@
 // src/core/services/urlUtils.service.ts
-import { Manifest } from '@/types';
+import { Manifest } from '@/core/types';
 
 /**
  * Generates a URL for a given site node based on its position and context.

@@ -2,7 +2,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { MarkdownFrontmatter, CollectionConfig } from '@/types';
+import { MarkdownFrontmatter, CollectionConfig } from '@/core/types';
 import { getAvailableLayouts, LayoutManifest } from '@/core/services/configHelpers.service';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Label } from '@/core/components/ui/label';

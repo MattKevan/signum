@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo } from 'react';
-import type { LocalSiteData, MarkdownFrontmatter } from '@/types';
+import type { LocalSiteData, MarkdownFrontmatter } from '@/core/types';
 import { getAvailableLayouts, getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
 import { RJSFSchema } from '@rjsf/utils'; 
 import { Label } from '@/core/components/ui/label';
@@ -13,7 +13,7 @@ import { Trash2 } from 'lucide-react';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/core/components/ui/alert-dialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
 import ViewEditor from '@/features/editor/components/CollectionSettings'; 
-import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm'; 
+import SchemaDrivenForm from '@/core/components/SchemaDrivenForm'; 
 
 /**
  * Props for the FrontmatterSidebar component.

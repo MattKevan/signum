@@ -5,12 +5,12 @@ import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
-import type { LocalSiteData } from '@/types';
+import type { LocalSiteData } from '@/core/types';
 
 // Component Imports
 import { Button } from '@/core/components/ui/button';
 import { FilePlus, LayoutGrid } from 'lucide-react';
-import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import ThreeColumnLayout from '@/core/components/layout/ThreeColumnLayout';
 import LeftSidebar from '@/features/editor/components/LeftSidebar';
 import NewPageDialog from '@/features/editor/components/NewPageDialog';
 import CreateCollectionPageDialog from '@/features/editor/components/CreateCollectionPageDialog';

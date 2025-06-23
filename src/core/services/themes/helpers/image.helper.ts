@@ -3,7 +3,7 @@
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
 // --- FIX: Import ImageTransformOptions along with the other types ---
-import { ImageRef, LocalSiteData, ImageTransformOptions } from '@/types';
+import { ImageRef, LocalSiteData, ImageTransformOptions } from '@/core/types';
 import { getActiveImageService } from '@/core/services/images/images.service';
 
 interface RootTemplateContext {

@@ -8,7 +8,7 @@ import {
     PageResolutionResult,
     PageType,
     StructureNode,
-} from '@/types';
+} from '@/core/types';
 // --- FIX: The import is now valid as findChildNodes exists in the target module ---
 import { findNodeByPath, findChildNodes } from './fileTree.service';
 import { getUrlForNode } from './urlUtils.service';

@@ -1,5 +1,5 @@
 // src/core/services/images/cloudinaryImage.service.ts
-import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
+import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/core/types';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Cloudinary } from "@cloudinary/url-gen";
 import { fill, fit, scale } from "@cloudinary/url-gen/actions/resize";

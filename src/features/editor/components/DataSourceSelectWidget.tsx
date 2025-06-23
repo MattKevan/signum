@@ -6,7 +6,7 @@ import { getAvailableLayouts } from '@/core/services/configHelpers.service';
 import { WidgetProps } from '@rjsf/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import { Label } from '@/core/components/ui/label';
-import type { LocalSiteData, StructureNode } from '@/types';
+import type { LocalSiteData, StructureNode } from '@/core/types';
 import type { LayoutManifest } from '@/core/services/configHelpers.service';
 
 interface SelectOption {

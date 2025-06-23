@@ -4,7 +4,7 @@
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
-import { Manifest, ImageRef } from '@/types';
+import { Manifest, ImageRef } from '@/core/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
 import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form

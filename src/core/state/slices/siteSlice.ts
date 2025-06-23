@@ -2,7 +2,7 @@
 
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
-import { LocalSiteData, Manifest } from '@/types';
+import { LocalSiteData, Manifest } from '@/core/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { loadSiteSecretsFromDb } from '@/core/services/siteSecrets.service';
 import { toast } from 'sonner';

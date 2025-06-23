@@ -4,7 +4,7 @@
 import { useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { NEW_FILE_SLUG_MARKER } from '@/config/editorConfig';
-import type { LocalSiteData } from '@/types';
+import type { LocalSiteData } from '@/core/types';
 
 interface PageIdentifierParams {
   /** The fully loaded site data object from the Zustand store. */

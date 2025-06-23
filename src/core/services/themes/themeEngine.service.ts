@@ -6,7 +6,7 @@ import {
     PageResolutionResult,
     PageType,
     ThemeConfig,
-} from '@/types';
+} from '@/core/types';
 import {
     getJsonAsset,
     getAvailableLayouts,
@@ -18,7 +18,7 @@ import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
-import { getMergedThemeDataForForm } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/themes/theme.service';
 
 /**
  * The core rendering engine for Signum. It orchestrates the entire

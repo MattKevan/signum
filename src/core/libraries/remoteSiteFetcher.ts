@@ -1,7 +1,7 @@
 // src/lib/remoteSiteFetcher.ts
-import { LocalSiteData, ParsedMarkdownFile, Manifest } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, Manifest } from '@/core/types';
 import { parseMarkdownString } from './markdownParser';
-import { flattenStructure } from '../core/services/fileTree.service';
+import { flattenStructure } from '../services/fileTree.service';
 
 async function fetchRemoteFile(baseUrl: string, filePath: string): Promise<string> {
   const url = new URL(filePath, baseUrl).href;

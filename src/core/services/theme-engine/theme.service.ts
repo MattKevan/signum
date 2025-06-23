@@ -1,7 +1,7 @@
 // core/services/theme.service.ts
 
 import type { RJSFSchema } from '@rjsf/utils';
-import type { ThemeConfig } from '@/types';
+import type { ThemeConfig } from '@/core/types';
 
 // Extract default values from JSON schema
 const extractDefaultsFromSchema = (schema: RJSFSchema): ThemeConfig['config'] => {

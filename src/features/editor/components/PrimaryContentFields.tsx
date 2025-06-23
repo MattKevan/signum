@@ -4,7 +4,7 @@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { Label } from '@/core/components/ui/label';
-import { MarkdownFrontmatter } from '@/types';
+import { MarkdownFrontmatter } from '@/core/types';
 
 // FIXED: The interface is now much stricter and safer.
 // It only defines the properties this component actually cares about.

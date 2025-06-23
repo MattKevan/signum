@@ -2,7 +2,7 @@
 'use client';
 
 import { AnchorHTMLAttributes, FC, forwardRef } from 'react';
-import { cn } from '@/lib/utils';
+import { cn } from '@/core/libraries/utils';
 
 interface HashLinkProps extends AnchorHTMLAttributes<HTMLAnchorElement> {
   // 'to' will be the path without the hash, e.g., "/sites/123"

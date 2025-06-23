@@ -4,7 +4,7 @@
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
 import { Button } from '@/core/components/ui/button';
-import { Manifest } from '@/types';
+import { Manifest } from '@/core/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
 import { Label } from '@/core/components/ui/label';

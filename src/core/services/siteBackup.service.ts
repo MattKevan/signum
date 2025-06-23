@@ -6,8 +6,8 @@ import {
   Manifest,
   ParsedMarkdownFile,
   RawFile,
-} from '@/types';
-import { stringifyToMarkdown, parseMarkdownString } from '@/lib/markdownParser';
+} from '@/core/types';
+import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markdownParser';
 import { isCoreTheme, isCoreLayout } from './configHelpers.service';
 import * as localSiteFs from './localFileSystem.service';
 

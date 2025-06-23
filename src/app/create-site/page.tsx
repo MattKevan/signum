@@ -4,16 +4,16 @@
 import { useState, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import { LocalSiteData, Manifest, ThemeInfo } from '@/types';
+import { LocalSiteData, Manifest, ThemeInfo } from '@/core/types';
 import { Button } from '@/core/components/ui/button';
-import { generateSiteId } from '@/lib/utils';
+import { generateSiteId } from '@/core/libraries/utils';
 import { toast } from "sonner";
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
-import { getMergedThemeDataForForm } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/themes/theme.service';
 
 
 /**

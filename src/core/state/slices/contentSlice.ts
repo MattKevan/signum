@@ -2,7 +2,7 @@
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { toast } from 'sonner';
-import { ParsedMarkdownFile, StructureNode } from '@/types';
+import { ParsedMarkdownFile, StructureNode } from '@/core/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
 import {
   findAndRemoveNode,
@@ -11,7 +11,7 @@ import {
   getNodeDepth,
 } from '@/core/services/fileTree.service';
 import { SiteSlice } from '@/core/state/slices/siteSlice';
-import { stringifyToMarkdown, parseMarkdownString } from '@/lib/markdownParser';
+import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markdownParser';
 
 // Helper function remains the same.
 const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldPath: string; newPath:string }[]): ParsedMarkdownFile[] => {

@@ -1,5 +1,5 @@
 // src/config/editorConfig.ts
-import type { ThemeInfo, LayoutInfo } from '@/types';
+import type { ThemeInfo, LayoutInfo } from '@/core/types';
 import { RJSFSchema, UiSchema } from '@rjsf/utils'; 
 
 /**

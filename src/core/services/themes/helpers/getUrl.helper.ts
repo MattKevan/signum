@@ -1,7 +1,7 @@
 // src/core/services/theme-engine/helpers/getUrl.helper.ts
 import { SignumHelper } from './types';
 import { getUrlForNode as getUrlUtil } from '@/core/services/urlUtils.service';
-import type { StructureNode } from '@/types';
+import type { StructureNode } from '@/core/types';
 import { HelperOptions } from 'handlebars';
 
 // The helper factory receives the full siteData object.

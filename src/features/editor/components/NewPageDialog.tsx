@@ -4,7 +4,7 @@
 import { useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import { slugify } from '@/lib/utils';
+import { slugify } from '@/core/libraries/utils';
 import { toast } from 'sonner';
 import yaml from 'js-yaml';
 
@@ -14,7 +14,7 @@ import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
 import { Plus } from 'lucide-react';
-import type { MarkdownFrontmatter } from '@/types';
+import type { MarkdownFrontmatter } from '@/core/types';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
 
 interface NewPageDialogProps {

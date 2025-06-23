@@ -1,7 +1,7 @@
 // src/app/sites/[siteId]/settings/layout.tsx
 'use client';
 
-import ThreeColumnLayout from '@/components/layout/ThreeColumnLayout';
+import ThreeColumnLayout from '@/core/components/layout/ThreeColumnLayout';
 import SettingsNav from '@/features/site-settings/components/SettingsNav';
 import { ReactNode, useEffect } from 'react';
 import { useUIStore } from '@/core/state/uiStore';

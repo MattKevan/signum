@@ -8,7 +8,7 @@ import {
     LayoutInfo,
     ThemeInfo,
     RawFile,
-} from '@/types';
+} from '@/core/types';
 
 // --- Type Definitions ---
 

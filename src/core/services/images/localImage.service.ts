@@ -1,8 +1,8 @@
 // src/core/services/images/localImage.service.ts
 
-import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/types';
+import { ImageService, ImageRef, ImageTransformOptions, Manifest } from '@/core/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
-import { slugify } from '@/lib/utils';
+import { slugify } from '@/core/libraries/utils';
 import { getCachedDerivative, setCachedDerivative, getAllCacheKeys } from './derivativeCache.service';
 import imageCompression from 'browser-image-compression';
 

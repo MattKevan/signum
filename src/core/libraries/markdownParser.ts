@@ -1,7 +1,7 @@
 // src/lib/markdownParser.ts
 import matter, { Input } from 'gray-matter'; // Import GrayMatterOption and Input
 //import { marked } from 'marked'; // For optional direct HTML rendering, though mostly client-side
-import { MarkdownFrontmatter, ParsedMarkdownFile } from '@/types';
+import { MarkdownFrontmatter, ParsedMarkdownFile } from '@/core/types';
 import yaml from 'js-yaml'; // For more robust YAML stringification
 
 /**

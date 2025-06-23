@@ -1,15 +1,15 @@
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, ThemeConfig } from '@/types';
-import { stringifyToMarkdown } from '@/lib/markdownParser';
-import { flattenTree, FlattenedNode } from './fileTree.service';
-import { resolvePageContent } from './pageResolver.service';
-import { PageType } from '@/types';
-import { render } from './theme-engine/themeEngine.service';
-import { getUrlForNode } from './urlUtils.service';
-import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
+import { LocalSiteData, ParsedMarkdownFile, ImageRef } from '@/core/types';
+import { stringifyToMarkdown } from '@/core/libraries/markdownParser';
+import { flattenTree, FlattenedNode } from '@/core/services/fileTree.service';
+import { resolvePageContent } from '@/core/services/pageResolver.service';
+import { PageType } from '@/core/types';
+import { render } from '@/core/services/themes/themeEngine.service';
+import { getUrlForNode } from '@/core/services/urlUtils.service';
+import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from '@/core/services/configHelpers.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
-import { getMergedThemeDataForForm } from './theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/themes/theme.service';
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.

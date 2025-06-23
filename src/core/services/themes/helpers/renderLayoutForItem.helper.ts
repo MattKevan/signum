@@ -1,7 +1,7 @@
 // src/core/services/theme-engine/helpers/renderLayoutForItem.helper.ts
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
-import type { ParsedMarkdownFile } from '@/types';
+import type { ParsedMarkdownFile } from '@/core/types';
 import type { HelperOptions } from 'handlebars';
 
 export const renderLayoutForItemHelper: SignumHelper = () => ({

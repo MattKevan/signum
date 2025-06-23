@@ -36,8 +36,8 @@ import {
 import { toast } from "sonner";
 import { importSiteFromZip, exportSiteBackup } from '@/core/services/siteBackup.service';
 import { saveAllImageAssetsForSite } from '@/core/services/localFileSystem.service';
-import { LocalSiteData } from '@/types';
-import { slugify } from '@/lib/utils';
+import { LocalSiteData } from '@/core/types';
+import { slugify } from '@/core/libraries/utils';
 
 export default function HomePageDashboard() {
   const { sites, getSiteById, addSite, updateSiteSecrets, loadSite, deleteSiteAndState } = useAppStore();

@@ -5,7 +5,7 @@ import { useState } from 'react';
 import Image from 'next/image'; // FIX: Import the optimized Image component
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
-import { ImageRef } from '@/types';
+import { ImageRef } from '@/core/types';
 import { Button } from '@/core/components/ui/button';
 
 interface ImageUploadWidgetProps {
