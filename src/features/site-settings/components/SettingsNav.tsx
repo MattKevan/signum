@@ -11,9 +11,9 @@ export default function SettingsNav() {
   const siteId = pathname.split('/')[2];
 
   const navItems = [
-    { href: `/sites/${siteId}/settings`, title: 'Site Details', icon: TbUserCircle },
-    { href: `/sites/${siteId}/settings/appearance`, title: 'Appearance', icon: TbPalette },
-    { href: `/sites/${siteId}/settings/images`, title: 'Images', icon: TbPhoto },
+    { href: `/sites/${siteId}/settings`, title: 'Site details', icon: TbUserCircle },
+    { href: `/sites/${siteId}/settings/theme`, title: 'Theme config', icon: TbPalette },
+    { href: `/sites/${siteId}/settings/images`, title: 'Image handling', icon: TbPhoto },
     // Add more settings links here as needed
   ];
 

@@ -1,43 +1,93 @@
-// src/core/services/theme.service.ts
-import { getJsonAsset, ThemeManifest } from './configHelpers.service';
-import { RJSFSchema } from '@rjsf/utils';
-import { ThemeConfig } from '@/types';
+// core/services/theme.service.ts
 
-function getDefaultsFromSchema(schema: RJSFSchema | undefined): Record<string, any> {
-  if (!schema || !schema.properties) return {};
-  const defaults: Record<string, any> = {};
-  for (const key in schema.properties) {
-    const property = schema.properties[key];
-    if (typeof property === 'object' && 'default' in property) {
-      defaults[key] = property.default;
-    }
+import type { RJSFSchema } from '@rjsf/utils';
+import type { ThemeConfig } from '@/types';
+
+// Extract default values from JSON schema
+const extractDefaultsFromSchema = (schema: RJSFSchema): ThemeConfig['config'] => {
+  const defaults: ThemeConfig['config'] = {};
+  
+  if (schema.properties) {
+    Object.entries(schema.properties).forEach(([key, property]) => {
+      if (typeof property === 'object' && property !== null && 'default' in property) {
+        defaults[key] = property.default as string | number | boolean;
+      }
+    });
   }
+  
   return defaults;
-}
+};
 
-/**
- * Gets the complete, merged data needed to initialize a form or render a page.
- * It fetches the latest schema and defaults from the theme file, then intelligently
- * merges them with the user's saved configuration from the manifest.
- */
-export async function getMergedThemeDataForForm(
+// Smart field-by-field config merging
+const getMergedThemeConfig = (
+  themeSchema: RJSFSchema,
+  savedConfig: ThemeConfig['config'],
+  isThemeChange: boolean = false
+): ThemeConfig['config'] => {
+  const defaults = extractDefaultsFromSchema(themeSchema);
+  
+  if (!isThemeChange) {
+    // Same theme: Use saved values, fall back to defaults for missing fields
+    return { ...defaults, ...savedConfig };
+  }
+  
+  // Theme change: Field-by-field merge to preserve matching user preferences
+  const merged = { ...defaults };
+  
+  // For each saved setting, check if it exists in the new theme
+  Object.entries(savedConfig).forEach(([key, value]) => {
+    const fieldExists = themeSchema.properties?.[key];
+    const hasValidType = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+    
+    if (fieldExists && hasValidType) {
+      // Field exists in new theme and has valid type - preserve user's value
+      merged[key] = value;
+    }
+    // If field doesn't exist or has invalid type, use default (already set above)
+  });
+  
+  return merged;
+};
+
+// Updated main function with smart merging
+export const getMergedThemeDataForForm = async (
   themeName: string,
-  userSavedConfig: ThemeConfig['config']
-): Promise<{
-  schema: RJSFSchema | null;
-  initialConfig: ThemeConfig['config'];
-}> {
-  const mockSiteData = { manifest: { theme: { name: themeName } } };
-  const themeManifest = await getJsonAsset<ThemeManifest>(
-    mockSiteData as any, 'theme', themeName, 'theme.json'
-  );
-  
-  // [THE FIX] The optional chaining `?.` correctly produces `undefined`, which is what
-  // getDefaultsFromSchema expects. We no longer convert this to `null`.
-  const schema = themeManifest?.appearanceSchema;
+  savedConfig: ThemeConfig['config'] = {},
+  currentThemeName?: string
+): Promise<{ schema: RJSFSchema | null; initialConfig: ThemeConfig['config'] }> => {
+  try {
+    // Load the theme data (this function should already exist)
+    const themeData = await getThemeData(themeName);
+    const schema = themeData?.appearanceSchema;
+    
+    if (!schema || !schema.properties) {
+      return { schema: null, initialConfig: {} };
+    }
+    
+    // Determine if this is a theme change
+    const isThemeChange = Boolean(currentThemeName && currentThemeName !== themeName);
+    
+    // Use smart merging logic
+    const mergedConfig = getMergedThemeConfig(schema, savedConfig, isThemeChange);
+    
+    return {
+      schema,
+      initialConfig: mergedConfig
+    };
+    
+  } catch (error) {
+    console.error('Error loading theme data:', error);
+    return { schema: null, initialConfig: {} };
+  }
+};
 
-  const defaults = getDefaultsFromSchema(schema);
-  const initialConfig = { ...defaults, ...userSavedConfig };
-  
-  return { schema: schema || null, initialConfig };
-}
+// Helper function to get theme data (implement based on your existing code)
+const getThemeData = async (themeName: string) => {
+  // This should load the theme.json file for the specified theme
+  // Replace with your existing implementation
+  const response = await fetch(`/themes/${themeName}/theme.json`);
+  if (!response.ok) {
+    throw new Error(`Failed to load theme: ${themeName}`);
+  }
+  return response.json();
+};
