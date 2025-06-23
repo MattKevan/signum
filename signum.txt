@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: src/
-Excluded Directories: node_modules, public, ios
+Excluded Directories: ios, node_modules, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -2372,60 +2372,47 @@ export function useHashNavigation() {
 
 File: core/services/theme.service.ts
 // src/core/services/theme.service.ts
-
-import { Manifest, ThemeConfig } from '@/types';
 import { getJsonAsset, ThemeManifest } from './configHelpers.service';
 import { RJSFSchema } from '@rjsf/utils';
+import { ThemeConfig } from '@/types';
 
-/**
- * Parses a JSON Schema and extracts all defined default values into an object.
- * @param schema The RJSFSchema to parse.
- * @returns An object containing the key-value pairs of default properties.
- */
-function getDefaultsFromSchema(schema: RJSFSchema | null): Record<string, any> {
+function getDefaultsFromSchema(schema: RJSFSchema | undefined): Record<string, any> {
   if (!schema || !schema.properties) return {};
-  
   const defaults: Record<string, any> = {};
-  
   for (const key in schema.properties) {
     const property = schema.properties[key];
     if (typeof property === 'object' && 'default' in property) {
       defaults[key] = property.default;
     }
   }
-  
   return defaults;
 }
 
 /**
- * Synchronizes a site's manifest with its selected theme's defaults.
- * 
- * This is the single source of truth for ensuring a manifest's theme configuration
- * is valid and complete. It fetches the theme's schema, gets the default values,
- * and intelligently merges them with any existing user-saved values.
- * 
- * @param manifest The site's manifest object to be synchronized.
- * @returns A promise that resolves to the synchronized theme configuration.
+ * Gets the complete, merged data needed to initialize a form or render a page.
+ * It fetches the latest schema and defaults from the theme file, then intelligently
+ * merges them with the user's saved configuration from the manifest.
  */
-export async function synchronizeThemeDefaults(manifest: Manifest): Promise<ThemeConfig> {
-  const themeName = manifest.theme.name;
+export async function getMergedThemeDataForForm(
+  themeName: string,
+  userSavedConfig: ThemeConfig['config']
+): Promise<{
+  schema: RJSFSchema | null;
+  initialConfig: ThemeConfig['config'];
+}> {
+  const mockSiteData = { manifest: { theme: { name: themeName } } };
+  const themeManifest = await getJsonAsset<ThemeManifest>(
+    mockSiteData as any, 'theme', themeName, 'theme.json'
+  );
   
-  // We pass a minimal mock siteData object, as getJsonAsset only needs the manifest
-  // for core themes. This makes the function self-contained.
-  const mockSiteData = { manifest };
-  const themeManifest = await getJsonAsset<ThemeManifest>(mockSiteData as any, 'theme', themeName, 'theme.json');
+  // [THE FIX] The optional chaining `?.` correctly produces `undefined`, which is what
+  // getDefaultsFromSchema expects. We no longer convert this to `null`.
+  const schema = themeManifest?.appearanceSchema;
+
+  const defaults = getDefaultsFromSchema(schema);
+  const initialConfig = { ...defaults, ...userSavedConfig };
   
-  const schema = themeManifest?.appearanceSchema || null;
-  const schemaDefaults = getDefaultsFromSchema(schema);
-  
-  // Intelligently merge: start with the theme's defaults, then apply the user's saved values over them.
-  // This ensures that if a new default is added to a theme, existing sites will pick it up.
-  const synchronizedConfig = { ...schemaDefaults, ...(manifest.theme.config || {}) };
-  
-  return {
-    name: themeName,
-    config: synchronizedConfig,
-  };
+  return { schema: schema || null, initialConfig };
 }
 
 ================================================================================
@@ -2698,18 +2685,21 @@ export async function blocksToMarkdown(blocks: Block[]): Promise<string> {
 File: core/services/siteExporter.service.ts
 // src/core/services/siteExporter.service.ts
 import JSZip from 'jszip';
-import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef } from '@/types';
+import { LocalSiteData, ParsedMarkdownFile, StructureNode, ImageRef, ThemeConfig } from '@/types';
 import { stringifyToMarkdown } from '@/lib/markdownParser';
-import { flattenTree } from './fileTree.service';
+import { flattenTree, FlattenedNode } from './fileTree.service';
 import { resolvePageContent } from './pageResolver.service';
 import { PageType } from '@/types';
 import { render } from './theme-engine/themeEngine.service';
 import { getUrlForNode } from './urlUtils.service';
 import { getAssetContent, getJsonAsset, ThemeManifest, LayoutManifest } from './configHelpers.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
+import { getMergedThemeDataForForm } from './theme.service';
 
 /**
  * Escapes special XML characters in a string to make it safe for RSS/Sitemap feeds.
+ * @param {unknown} str - The input string to escape.
+ * @returns {string} The escaped string.
  */
 function escapeForXml(str: unknown): string {
     if (str === undefined || str === null) return '';
@@ -2717,18 +2707,25 @@ function escapeForXml(str: unknown): string {
 }
 
 /**
- * A helper function to find all files for a given asset (theme or layout)
- * and add them to the ZIP archive.
+ * A helper function to bundle all files for a given asset (theme or layout)
+ * into a specified ZIP folder. It reads the asset's manifest to determine which files to include.
+ * @param {JSZip} zip - The root JSZip instance.
+ * @param {LocalSiteData} siteData - The complete site data.
+ * @param {'theme' | 'layout'} assetType - The type of asset to bundle.
+ * @param {string} assetId - The ID of the asset (e.g., 'default', 'listing').
  */
 async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'theme' | 'layout', assetId: string) {
     const assetFolder = zip.folder('_signum')?.folder(`${assetType}s`)?.folder(assetId);
     if (!assetFolder) return;
+
     const manifestFileName = assetType === 'theme' ? 'theme.json' : 'layout.json';
     const manifest = await getJsonAsset<ThemeManifest | LayoutManifest>(siteData, assetType, assetId, manifestFileName);
+
     if (!manifest || !manifest.files) {
         console.warn(`Asset manifest for ${assetType}/${assetId} is missing or has no 'files' array. Skipping bundle.`);
         return;
     }
+
     for (const file of manifest.files) {
         const content = await getAssetContent(siteData, assetType, assetId, file.path);
         if (content) {
@@ -2740,7 +2737,9 @@ async function bundleAsset(zip: JSZip, siteData: LocalSiteData, assetType: 'them
 }
 
 /**
- * A helper function to recursively find all ImageRef objects within a site's data.
+ * Recursively finds all unique ImageRef objects within a site's manifest and content files.
+ * @param {LocalSiteData} siteData - The site data to search through.
+ * @returns {ImageRef[]} An array of all unique ImageRef objects found.
  */
 function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
   const refs = new Set<ImageRef>();
@@ -2750,7 +2749,6 @@ function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
     if (!obj || typeof obj !== 'object' || visited.has(obj)) return;
     visited.add(obj);
 
-    // Type guard to check if obj has the properties of an ImageRef
     if ('serviceId' in obj && 'src' in obj) {
         refs.add(obj as ImageRef);
     }
@@ -2763,40 +2761,64 @@ function findAllImageRefs(siteData: LocalSiteData): ImageRef[] {
 }
 
 /**
- * Compiles a full Signum site into a downloadable ZIP archive, ready for deployment.
+ * Compiles a full Signum site into a downloadable ZIP archive, ready for static deployment.
+ *
+ * This function follows the "Merge on Export" principle. It takes the user's saved manifest,
+ * fetches the latest defaults from the canonical theme file, and merges them to create a
+ * final, up-to-date configuration for the exported site.
+ *
+ * @param {LocalSiteData} siteData - The site data from the global store.
+ * @returns {Promise<Blob>} A promise that resolves to the generated ZIP file as a Blob.
  */
 export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const zip = new JSZip();
-    const { manifest, contentFiles } = siteData;
+    
+    // --- "Merge on Export" Logic ---
+     const savedThemeConfig = siteData.manifest.theme;
+    
+    // [FIX] Call the correct function to get the fully merged config.
+    const { initialConfig: finalMergedConfig } = await getMergedThemeDataForForm(
+        savedThemeConfig.name, 
+        savedThemeConfig.config
+    );
+    
+    const synchronizedManifest = { 
+        ...siteData.manifest, 
+        theme: { ...savedThemeConfig, config: finalMergedConfig }
+    };
+    const synchronizedSiteData = { ...siteData, manifest: synchronizedManifest };
+    const { contentFiles } = synchronizedSiteData;
+    // ---
+
     if (!contentFiles) {
         throw new Error("Cannot export site: content files are not loaded.");
     }
     
-    // --- FIX: Call the updated 'flattenTree' function with both required arguments. ---
-    const allRenderableNodes = flattenTree(manifest.structure, contentFiles);
+    const allRenderableNodes: FlattenedNode[] = flattenTree(synchronizedManifest.structure, contentFiles);
 
     // --- 1. Generate All HTML Pages ---
     for (const node of allRenderableNodes) {
-        const initialResolution = resolvePageContent(siteData, node.slug.split('/'));
+        // ... no changes to this loop ...
+        const initialResolution = resolvePageContent(synchronizedSiteData, node.slug.split('/'));
         if (initialResolution.type === PageType.NotFound) continue;
-        const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
 
+        const isPaginated = !!(initialResolution.pagination && initialResolution.pagination.totalPages > 1);
         if (isPaginated) {
             const totalPages = initialResolution.pagination!.totalPages;
             for (let i = 1; i <= totalPages; i++) {
-                const resolutionForPage = resolvePageContent(siteData, node.slug.split('/'), i);
+                const resolutionForPage = resolvePageContent(synchronizedSiteData, node.slug.split('/'), i);
                 if (resolutionForPage.type === PageType.NotFound) continue;
-                const outputPath = getUrlForNode(node, manifest, true, i);
+                const outputPath = getUrlForNode(node, synchronizedManifest, true, i);
                 const depth = (outputPath.match(/\//g) || []).length;
                 const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-                const finalHtml = await render(siteData, resolutionForPage, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
+                const finalHtml = await render(synchronizedSiteData, resolutionForPage, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
                 zip.file(outputPath, finalHtml);
             }
         } else {
-            const outputPath = getUrlForNode(node, manifest, true);
+            const outputPath = getUrlForNode(node, synchronizedManifest, true);
             const depth = (outputPath.match(/\//g) || []).length;
             const relativePrefix = '../'.repeat(depth > 0 ? depth - 1 : 0);
-            const finalHtml = await render(siteData, initialResolution, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
+            const finalHtml = await render(synchronizedSiteData, initialResolution, { siteRootPath: '/', isExport: true, relativeAssetPath: relativePrefix });
             zip.file(outputPath, finalHtml);
         }
     }
@@ -2804,16 +2826,16 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     // --- 2. Add _signum Source Content and Asset Files ---
     const signumFolder = zip.folder('_signum');
     if (signumFolder) {
-        signumFolder.file('manifest.json', JSON.stringify(manifest, null, 2));
+        signumFolder.file('manifest.json', JSON.stringify(synchronizedManifest, null, 2));
         contentFiles.forEach(file => {
             signumFolder.file(file.path, stringifyToMarkdown(file.frontmatter, file.content));
         });
     }
 
-    const allImageRefs = findAllImageRefs(siteData);
+    const allImageRefs = findAllImageRefs(synchronizedSiteData);
     if (allImageRefs.length > 0) {
-        const imageService = getActiveImageService(manifest);
-        const assetsToBundle = await imageService.getExportableAssets(siteData.siteId, allImageRefs);
+        const imageService = getActiveImageService(synchronizedManifest);
+        const assetsToBundle = await imageService.getExportableAssets(synchronizedSiteData.siteId, allImageRefs);
         for (const asset of assetsToBundle) {
             zip.file(asset.path, asset.data);
         }
@@ -2822,51 +2844,44 @@ export async function exportSiteToZip(siteData: LocalSiteData): Promise<Blob> {
     const layoutIds = new Set<string>();
     contentFiles.forEach(file => {
         if (file.frontmatter.layout) layoutIds.add(file.frontmatter.layout);
-        if (file.frontmatter.collection) {
-            layoutIds.add(file.frontmatter.collection.item_layout);
-        }
+        if (file.frontmatter.collection?.item_layout) layoutIds.add(file.frontmatter.collection.item_layout);
     });
 
-    await bundleAsset(zip, siteData, 'theme', manifest.theme.name);
+    await bundleAsset(zip, synchronizedSiteData, 'theme', synchronizedManifest.theme.name);
     for (const layoutId of Array.from(layoutIds)) {
-        await bundleAsset(zip, siteData, 'layout', layoutId);
+        await bundleAsset(zip, synchronizedSiteData, 'layout', layoutId);
     }
 
     // --- 3. Generate RSS Feed and Sitemap ---
-    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
-    type RssItemData = { node: StructureNode, file: ParsedMarkdownFile };
-
+    const siteBaseUrl = synchronizedManifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
+    
     const rssItems = allRenderableNodes
-        .map((node): RssItemData | null => {
-            const file = contentFiles.find(f => f.path === node.path);
-            return file ? { node, file } : null;
-        })
-        .filter((item): item is RssItemData => {
-            if (!item || !item.file) return false;
-            // Only include items that have a date and are not collection landing pages
-            return !!item.file.frontmatter.date && !item.file.frontmatter.collection;
-        })
+        .map(node => ({ node, file: contentFiles.find(f => f.path === node.path) }))
+        // [THE FIX] The type predicate now correctly uses FlattenedNode and asserts
+        // that `file` is of type ParsedMarkdownFile, not undefined.
+        .filter((item): item is { node: FlattenedNode; file: ParsedMarkdownFile } => 
+            !!item.file && !!item.file.frontmatter.date && !item.file.frontmatter.collection
+        )
+        // With the fix above, TypeScript now knows `a.file` and `b.file` are defined.
         .sort((a, b) => new Date(b.file.frontmatter.date as string).getTime() - new Date(a.file.frontmatter.date as string).getTime())
-        .slice(0, 20) // Limit to the 20 most recent items
-        .map((item) => {
-            const relativeUrl = getUrlForNode(item.node, manifest, false);
+        .slice(0, 20)
+        // And it knows `item.file` is defined here as well.
+        .map(item => {
+            const relativeUrl = getUrlForNode(item.node, synchronizedManifest, false);
             const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
-            const description = escapeForXml(item.file.frontmatter.description);
-            const pubDate = new Date(item.file.frontmatter.date as string).toUTCString();
-            return `<item><title>${escapeForXml(item.node.title)}</title><link>${escapeForXml(absoluteUrl)}</link><guid isPermaLink="true">${escapeForXml(absoluteUrl)}</guid><pubDate>${pubDate}</pubDate><description>${description}</description></item>`;
+            return `<item><title>${escapeForXml(item.node.title)}</title><link>${escapeForXml(absoluteUrl)}</link><guid isPermaLink="true">${escapeForXml(absoluteUrl)}</guid><pubDate>${new Date(item.file.frontmatter.date as string).toUTCString()}</pubDate><description>${escapeForXml(item.file.frontmatter.description)}</description></item>`;
         }).join('');
 
-    const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(manifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(manifest.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrl).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
+    const rssFeed = `<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom"><channel><title>${escapeForXml(synchronizedManifest.title)}</title><link>${siteBaseUrl}</link><description>${escapeForXml(synchronizedManifest.description)}</description><lastBuildDate>${new Date().toUTCString()}</lastBuildDate><atom:link href="${new URL('rss.xml', siteBaseUrl).href}" rel="self" type="application/rss+xml" />${rssItems}</channel></rss>`;
     zip.file('rss.xml', rssFeed);
 
-    const sitemapUrls = allRenderableNodes.map((node) => {
+    const sitemapUrls = allRenderableNodes.map(node => {
         const file = contentFiles.find(f => f.path === node.path);
-        const relativeUrl = getUrlForNode(node, manifest, false);
+        const relativeUrl = getUrlForNode(node, synchronizedManifest, false);
         const absoluteUrl = new URL(relativeUrl, siteBaseUrl).href;
         const lastMod = (file?.frontmatter.date as string || new Date().toISOString()).split('T')[0];
         return `<url><loc>${escapeForXml(absoluteUrl)}</loc><lastmod>${lastMod}</lastmod></url>`;
     }).join('');
-
     const sitemapXml = `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${sitemapUrls}</urlset>`;
     zip.file('sitemap.xml', sitemapXml);
 
@@ -4320,23 +4335,33 @@ import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
-// Import the new centralized service function for theme synchronization.
-import { synchronizeThemeDefaults } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/theme.service';
 
 /**
- * This service is the core rendering engine for Signum. It orchestrates the entire
- * process of converting raw site data (Markdown, manifest) into a final, viewable HTML page.
- * It is designed to be "dumb" about theme-specific logic, following these steps:
+ * The core rendering engine for Signum. It orchestrates the entire
+ * process of converting raw site data into a final, viewable HTML page.
+ * It is designed to be resilient and always work with the most current data.
  *
- * 1.  **Defensively Synchronizes Manifest:** It first ensures the manifest's theme config
- *     is complete by calling the `synchronizeThemeDefaults` service. This protects
- *     against old or corrupted data.
- * 2.  Registers all necessary helper functions (e.g., `{{formatDate}}`, `{{{image}}}`).
- * 3.  Caches all available theme partials and layout templates for performance.
- * 4.  Resolves all dynamic/asynchronous data for a page (nav links, image URLs, etc.).
- * 5.  Generates an inline `<style>` block by directly converting user-defined settings
- *     from the manifest into CSS variables.
- * 6.  Renders the main content layout and then injects it into the theme's base HTML shell.
+ * --- Core Rendering Pipeline ---
+ *
+ * 1.  **"Sync on Load":** Before any rendering occurs, it calls `syncAndHydrateTheme`.
+ *     This non-destructively merges the user's saved settings with the very latest
+ *     version of the theme's schema and defaults. This ensures that if a theme author
+ *     adds a new setting, it becomes available immediately without data loss.
+ *
+ * 2.  **Helper & Template Caching:** It registers all necessary Handlebars helpers
+ *     (e.g., `{{formatDate}}`, `{{{image}}}`) and pre-compiles all available theme
+ *     partials and layout templates for high-performance rendering.
+ *
+ * 3.  **Data Resolution:** It resolves all dynamic data needed for the page, such
+ *     as navigation links and image URLs, using the synchronized manifest.
+ *
+ * 4.  **Style Generation:** It generates a dynamic, inline `<style>` block by
+ *     converting the synchronized theme configuration into CSS variables.
+ *
+ * 5.  **Final Render:** It renders the main content layout and then injects that
+ *     HTML into the theme's base shell (`base.hbs`) to produce the final,
+ *     complete HTML document.
  */
 
 // --- Type Definitions ---
@@ -4346,9 +4371,14 @@ export interface RenderOptions {
   relativeAssetPath?: string;
 }
 
-// --- Helper Registration ---
+// --- Helper Functions ---
+
+/**
+ * Registers all core Handlebars helpers. Uses a simple flag on the Handlebars
+ * object to ensure this only happens once per application lifecycle.
+ * @param {LocalSiteData} siteData - The complete site data, passed to helper factories.
+ */
 function registerCoreHelpers(siteData: LocalSiteData) {
-    // A simple flag to prevent re-registering helpers on every render.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
@@ -4363,12 +4393,12 @@ function registerCoreHelpers(siteData: LocalSiteData) {
 }
 
 /**
- * Pre-compiles and caches all available layout templates and theme partials.
- * This is crucial for performance and allows helpers to synchronously access templates during rendering.
+ * Pre-compiles and caches all available layout and theme partials in Handlebars.
+ * This is crucial for performance and enables synchronous access to templates
+ * during rendering (e.g., via the `render_layout_for_item` helper).
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
-    // Clear all existing partials to ensure a clean state for the current render.
     for (const partial in Handlebars.partials) {
         if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
             Handlebars.unregisterPartial(partial);
@@ -4376,25 +4406,19 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
     }
 
     const { manifest } = siteData;
-
-    // 1. Get ALL layouts of ALL types (page, list, item).
     const allLayouts = await getAvailableLayouts(siteData);
 
-    // 2. Loop through every layout and register its main template as a partial using its ID.
     const layoutPromises = allLayouts.map(async (layoutManifest) => {
         if (!layoutManifest?.files) return;
-
         const templateFile = layoutManifest.files.find((f: AssetFile) => f.type === 'template');
         if (templateFile) {
             const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.id, templateFile.path);
             if (templateSource) {
-                // Register the partial using the layout's ID (e.g., 'page', 'listing', 'teaser').
                 Handlebars.registerPartial(layoutManifest.id, templateSource);
             }
         }
     });
 
-    // 3. Register the theme's global partials (header, footer, head).
     const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', manifest.theme.name, 'theme.json');
     const themePartialPromises = (themeManifest?.files || [])
         .filter((file: AssetFile) => file.type === 'partial' && file.name)
@@ -4409,113 +4433,105 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
 }
 
 /**
- * Generates an inline <style> block from the user's saved theme configuration.
- * It directly converts snake_case keys from the manifest (e.g., "font_headings")
- * into --kebab-case CSS variables (e.g., "--font-headings") and uses the
- * exact value provided by the user's selection.
- * @param themeConfig The user's saved theme settings from manifest.theme.config.
- * @returns A string containing a complete <style> tag, or an empty string if no config is present.
+ * Generates an inline <style> block from the site's theme configuration.
+ * It directly converts snake_case keys from the config (e.g., "color_primary")
+ * into --kebab-case CSS variables (e.g., "--color-primary") for the browser.
+ * @param {ThemeConfig['config']} themeConfig - The complete theme configuration object.
+ * @returns {string} A string containing a complete <style> tag.
  */
 function generateStyleOverrides(themeConfig: ThemeConfig['config']): string {
-  // Guard against empty or missing config
-  if (!themeConfig || Object.keys(themeConfig).length === 0) {
-    return '';
-  }
+  if (!themeConfig || Object.keys(themeConfig).length === 0) return '';
 
-  // Directly convert keys and use values. No special mapping logic needed.
   const variables = Object.entries(themeConfig)
     .map(([key, value]) => {
-      // Ensure the value is not null/undefined before creating a CSS rule
       if (value) {
         const cssVariable = `--${key.replace(/_/g, '-')}`;
         return `  ${cssVariable}: ${value};`;
       }
       return null;
     })
-    .filter(Boolean) // Remove any null entries from the array
+    .filter(Boolean)
     .join('\n');
 
-  // If there are no valid variables after filtering, return an empty string.
-  if (!variables) {
-    return '';
-  }
+  if (!variables) return '';
 
-  // Return the complete, formatted <style> block, ready for injection into the HTML head.
-  return `
-<style id="signum-style-overrides">
-:root {
-${variables}
+  return `<style id="signum-style-overrides">\n:root {\n${variables}\n}\n</style>`;
 }
-</style>
-  `.trim();
-}
-
 
 /**
  * Renders a resolved page into a full HTML string based on the active theme and assets.
+ * @param {LocalSiteData} siteData - The original site data from the store.
+ * @param {PageResolutionResult} resolution - The resolved content for the current page.
+ * @param {RenderOptions} options - Rendering options (e.g., for export or live preview).
+ * @returns {Promise<string>} A promise that resolves to the final HTML string.
  */
-export async function render(siteData: LocalSiteData, resolution: PageResolutionResult, options: RenderOptions): Promise<string> {
+export async function render(
+  siteData: LocalSiteData, 
+  resolution: PageResolutionResult, 
+  options: RenderOptions
+): Promise<string> {
     if (resolution.type === PageType.NotFound) {
-      // Return a basic error message for 404 pages.
       return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
     }
 
-    // --- DEFENSIVE GUARD ---
-    // Synchronize the manifest's theme config before rendering.
-    // This ensures that even if the saved manifest has an empty or outdated
-    // config, it will be populated with the correct defaults before being used.
-    // This makes the rendering process resilient to old or corrupted data.
-    const synchronizedTheme = await synchronizeThemeDefaults(siteData.manifest);
-    // Create a new `manifest` variable for this render cycle that is guaranteed to be correct.
-    const manifest = { ...siteData.manifest, theme: synchronizedTheme };
-    // We also update the siteData object to pass the corrected manifest to helpers.
-    const synchronizedSiteData = { ...siteData, manifest };
-    // --- END GUARD ---
+    // --- STEP 1: "Merge on Render" ---
+    const savedThemeConfig = siteData.manifest.theme;
     
+    const { initialConfig: finalMergedConfig } = await getMergedThemeDataForForm(
+        savedThemeConfig.name, 
+        savedThemeConfig.config
+    );    
+
+    
+    // Create a temporary, fully up-to-date manifest and siteData for this render cycle.
+     const synchronizedManifest = { 
+        ...siteData.manifest, 
+        theme: { ...savedThemeConfig, config: finalMergedConfig }
+    };
+    const synchronizedSiteData = { ...siteData, manifest: synchronizedManifest };
+    // ---
+
+    // Register helpers and cache templates using the synchronized data.
     registerCoreHelpers(synchronizedSiteData);
     await cacheAllTemplates(synchronizedSiteData);
 
-    const themePath = manifest.theme.name;
+    const themePath = synchronizedManifest.theme.name;
     const pageLayoutPath = resolution.layoutPath;
 
-    // --- STEP 1: Render the main body content first ---
+    // --- STEP 2: Render the main body content ---
     const pageLayoutSource = Handlebars.partials[pageLayoutPath];
     if (!pageLayoutSource) {
         return `Error: Page layout template "${pageLayoutPath}" not found.`;
     }
     const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
-    
-    const bodyHtml = await pageLayoutTemplate({
-      ...resolution,
-      options: options
-    });
+    const bodyHtml = await pageLayoutTemplate({ ...resolution, options });
 
-    // --- STEP 2: Resolve ALL top-level asynchronous and dynamic data ---
-    const currentPageExportPath = getUrlForNode(resolution.contentFile, manifest, true);
+    // --- STEP 3: Resolve all top-level dynamic data ---
+    const currentPageExportPath = getUrlForNode(resolution.contentFile, synchronizedManifest, true);
     const navLinks = generateNavLinks(synchronizedSiteData, currentPageExportPath, options);
-    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
+    const siteBaseUrl = synchronizedManifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
     const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
-    let logoUrl: string | undefined = undefined;
-    if (manifest.logo) {
+    const imageService = getActiveImageService(synchronizedManifest);
+    let logoUrl: string | undefined;
+    if (synchronizedManifest.logo) {
       try {
-          const service = getActiveImageService(manifest);
-          logoUrl = await service.getDisplayUrl(manifest, manifest.logo, { height: 32 }, options.isExport);
+          logoUrl = await imageService.getDisplayUrl(synchronizedManifest, synchronizedManifest.logo, { height: 32 }, options.isExport);
       } catch (e) { console.warn("Could not generate logo URL:", e); }
     }
   
-    let faviconUrl: string | undefined = undefined;
-    if (manifest.favicon) {
+    let faviconUrl: string | undefined;
+    if (synchronizedManifest.favicon) {
         try {
-            const service = getActiveImageService(manifest);
-            faviconUrl = await service.getDisplayUrl(manifest, manifest.favicon, { width: 32, height: 32 }, options.isExport);
+            faviconUrl = await imageService.getDisplayUrl(synchronizedManifest, synchronizedManifest.favicon, { width: 32, height: 32 }, options.isExport);
         } catch (e) { console.warn("Could not generate favicon URL:", e); }
     }
 
-    const styleOverrides = generateStyleOverrides(manifest.theme.config);
+    // Generate style overrides from the final merged config.
+    const styleOverrides = generateStyleOverrides(synchronizedManifest.theme.config);
 
-    // --- STEP 3: Render the final document with all data now resolved ---
+    // --- STEP 4: Render the final document in the base theme shell ---
     const themeManifest = await getJsonAsset<ThemeManifest>(synchronizedSiteData, 'theme', themePath, 'theme.json');
     if (!themeManifest) return 'Error: Could not load theme manifest.';
     const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
@@ -4526,12 +4542,12 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
     const baseTemplate = Handlebars.compile(baseTemplateSource);
 
     const finalContext = {
-      manifest,
+      manifest: synchronizedManifest,
       navLinks,
       year: new Date().getFullYear(),
       headContext: {
           pageTitle: resolution.pageTitle,
-          manifest: manifest,
+          manifest: synchronizedManifest,
           contentFile: resolution.contentFile,
           canonicalUrl: canonicalUrl,
           baseUrl: baseUrl,
@@ -4542,11 +4558,9 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       logoUrl: logoUrl,
       options: options,
       ...resolution,
-  };
+    };
 
-  const finalHtml = baseTemplate(finalContext);
-
-  return finalHtml;
+    return baseTemplate(finalContext);
 }
 
 ================================================================================
@@ -6241,107 +6255,94 @@ export default function ImageSettingsPage() {
 
 File: app/sites/[siteId]/settings/appearance/page.tsx
 // src/app/sites/[siteId]/settings/appearance/page.tsx
-
 'use client';
 
 import { useParams } from 'next/navigation';
 import { useAppStore } from '@/core/state/useAppStore';
-import AppearanceSettingsForm from '@/features/site-settings/components/AppearanceSettingsForm';
+import AppearanceSettingsForm, { AppearanceFormRef } from '@/features/site-settings/components/AppearanceSettingsForm';
 import { Button } from '@/core/components/ui/button';
 import { Manifest, ThemeConfig, ThemeInfo } from '@/types';
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { toast } from "sonner";
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
-import { getAvailableThemes, getJsonAsset, ThemeManifest } from '@/core/services/configHelpers.service';
+import { getAvailableThemes } from '@/core/services/configHelpers.service';
+import { getMergedThemeDataForForm } from '@/core/services/theme.service';
 import { RJSFSchema } from '@rjsf/utils';
-import { synchronizeThemeDefaults } from '@/core/services/theme.service';
-
 
 export default function AppearanceSettingsPage() {
   const params = useParams();
   const siteId = params.siteId as string;
+  const formRef = useRef<AppearanceFormRef>(null);
 
-  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
+  const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
 
-  const [formData, setFormData] = useState<ThemeConfig | null>(null);
-  const [appearanceSchema, setAppearanceSchema] = useState<RJSFSchema | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+  
+  const [formSchema, setFormSchema] = useState<RJSFSchema | null>(null);
+  const [initialConfigForForm, setInitialConfigForForm] = useState<ThemeConfig['config'] | null>(null);
+  
+  // This state tracks the theme selected in the dropdown UI.
+  const [selectedThemeName, setSelectedThemeName] = useState<string | undefined>(undefined);
 
-  const availableThemes = useMemo(() => {
-    return getAvailableThemes(site?.manifest);
-  }, [site?.manifest]);
+  const availableThemes = useMemo(() => getAvailableThemes(site?.manifest), [site?.manifest]);
 
-  // This effect correctly initializes the form's state.
+  // Effect 1: Initialize the UI's selected theme from the saved manifest.
   useEffect(() => {
-    // Only re-initialize from the global store IF the user has no unsaved changes.
-    // This guard prevents wiping out the user's work.
-    if (site?.manifest && !hasChanges) {
-      setIsLoading(true);
-      synchronizeThemeDefaults(site.manifest)
-        .then(synchronizedTheme => {
-          setFormData(synchronizedTheme);
-          return getJsonAsset<ThemeManifest>(site, 'theme', synchronizedTheme.name, 'theme.json');
-        })
-        .then(themeManifest => {
-          setAppearanceSchema(themeManifest?.appearanceSchema || null);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+    if (site?.manifest.theme.name && !selectedThemeName) {
+      setSelectedThemeName(site.manifest.theme.name);
     }
-  }, [site, hasChanges]);
+  }, [site?.manifest.theme.name, selectedThemeName]);
 
+  // Effect 2: The main data-loading effect. It runs ONLY when the theme selection changes.
+  // It does NOT depend on the `site` object, which was the source of the feedback loop.
+  useEffect(() => {
+    if (!selectedThemeName) return;
 
-  // --- FIX: This is the corrected state update handler ---
-  // It uses the functional form of the state setter to avoid stale closures.
-  const handleConfigChange = useCallback((newConfig: ThemeConfig['config']) => {
-    // `setFormData`'s callback receives the guaranteed latest state (`prevFormData`),
-    // preventing any race conditions or work with stale data.
-    setFormData(prevFormData => {
-      if (!prevFormData) return null;
-      // react-jsonschema-form's onChange provides the *entire* updated form data.
-      // We don't need to merge; we simply replace the old config with the new one.
-      return { ...prevFormData, config: newConfig };
+    setIsLoading(true);
+    
+    const savedThemeName = site?.manifest.theme.name;
+    const userSavedConfig = site?.manifest.theme.config || {};
+    
+    const configToMerge = (selectedThemeName === savedThemeName) ? userSavedConfig : {};
+
+    getMergedThemeDataForForm(selectedThemeName, configToMerge).then(({ schema, initialConfig }) => {
+      setFormSchema(schema);
+      setInitialConfigForForm(initialConfig);
+      setIsLoading(false);
     });
-    setHasChanges(true);
-  }, []); // The dependency array can safely be empty.
+  }, [selectedThemeName]); // Intentionally does NOT depend on `site`.
 
-  const handleThemeChange = (newThemePath: string) => {
-    if (site) {
-      setIsLoading(true);
+  const handleDirty = useCallback(() => {
+    setHasChanges(true);
+  }, []);
+
+  const handleThemeChange = (newThemeName: string) => {
+    if (newThemeName !== selectedThemeName) {
+      setSelectedThemeName(newThemeName);
       setHasChanges(true);
-      const tempManifest = { ...site.manifest, theme: { name: newThemePath, config: {} } };
-      synchronizeThemeDefaults(tempManifest)
-        .then(synchronizedTheme => {
-          setFormData(synchronizedTheme);
-          return getJsonAsset<ThemeManifest>(site, 'theme', newThemePath, 'theme.json');
-        })
-        .then(themeManifest => {
-          setAppearanceSchema(themeManifest?.appearanceSchema || null);
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
     }
   };
 
   const handleSave = async () => {
-    if (!site?.manifest || !formData) return;
-    
+    if (!site?.manifest || !formRef.current || !selectedThemeName) return;
     setIsLoading(true);
+    
+    const currentFormData = formRef.current.getFormData();
+    
     const newManifest: Manifest = {
       ...site.manifest,
-      theme: formData,
+      theme: {
+        name: selectedThemeName,
+        config: currentFormData,
+      },
     };
 
     try {
       await updateManifestAction(siteId, newManifest);
       toast.success('Appearance settings saved successfully!');
-      // After saving, reset the change flag. This will allow the main `useEffect`
-      // to re-sync with the global state if the user navigates away and back.
       setHasChanges(false);
     } catch(error) {
       toast.error(`Failed to save settings: ${(error as Error).message}`);
@@ -6350,38 +6351,46 @@ export default function AppearanceSettingsPage() {
     }
   };
 
-  if (isLoading || !formData) {
-    return <div className="p-6">Loading settings...</div>;
+  if (isLoading || !initialConfigForForm || !selectedThemeName) {
+    return <div className="p-6 text-muted-foreground">Loading...</div>;
   }
   
   return (
     <div className="space-y-6 max-w-2xl p-6">
       <div>
         <h1 className="text-2xl font-bold">Appearance</h1>
-        <p className="text-muted-foreground">Customize the visual style of your site.</p>
+        <p className="text-muted-foreground">Customize the visual style and branding of your site.</p>
       </div>
       <div className="border-t pt-6 space-y-6">
         <div>
-            <Label htmlFor="theme-select">Active Theme</Label>
-            <Select value={formData.name} onValueChange={handleThemeChange}>
-                <SelectTrigger id="theme-select" className="mt-1">
-                    <SelectValue placeholder="Select a theme..." />
-                </SelectTrigger>
-                <SelectContent>
-                    {availableThemes.map((theme: ThemeInfo) => (
-                        <SelectItem key={theme.path} value={theme.path}>
-                            {theme.name}
-                        </SelectItem>
-                    ))}
-                </SelectContent>
-            </Select>
+          <Label htmlFor="theme-select">Active Theme</Label>
+          <Select value={selectedThemeName} onValueChange={handleThemeChange}>
+            <SelectTrigger id="theme-select" className="mt-1">
+              <SelectValue placeholder="Select a theme..." />
+            </SelectTrigger>
+            <SelectContent>
+              {availableThemes.map((theme: ThemeInfo) => (
+                <SelectItem key={theme.path} value={theme.path}>
+                  {theme.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
+        
         <AppearanceSettingsForm 
-            isLoading={isLoading}
-            schema={appearanceSchema}
-            themePath={formData.name}
-            themeConfig={formData.config}
-            onConfigChange={handleConfigChange}
+          // [THE FIX] By giving the component a `key`, React will destroy and
+          // re-create it whenever the theme name changes, forcing it to
+          // correctly re-initialize its state with the new theme's data.
+          // This `key` does NOT change on save, so the component persists.
+          key={selectedThemeName}
+          ref={formRef}
+          // These props are now only for initialization.
+          initialConfig={initialConfigForForm}
+          schema={formSchema}
+          // Other props
+          onDirty={handleDirty}
+          themePath={selectedThemeName}
         />
       </div>
       <div className="flex justify-end pt-4">
@@ -6636,8 +6645,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
-// Import the new centralized service function for theme synchronization.
-import { synchronizeThemeDefaults } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/theme.service';
+
 
 /**
  * Renders the "Create New Site" page.
@@ -6653,63 +6662,44 @@ import { synchronizeThemeDefaults } from '@/core/services/theme.service';
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
-
-  // --- Local State for the Form ---
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
   const availableThemes = useMemo(() => CORE_THEMES, []);
-  // Set the default theme on initial render.
   const [selectedTheme, setSelectedTheme] = useState<ThemeInfo | null>(availableThemes[0] || null);
 
-  /**
-   * Handles the form submission to create a new site.
-   */
   const handleSubmit = async () => {
     if (!siteTitle.trim() || !selectedTheme) {
       toast.error('Site title and a theme are required.');
       return;
     }
     setIsLoading(true);
-
     try {
       const newSiteId = generateSiteId(siteTitle);
+      // [FIX] Use the hydrateTheme function as intended.
+       const { initialConfig } = await getMergedThemeDataForForm(selectedTheme.path, {});
       
-      // 1. Create a preliminary manifest with just the basic user choices.
-      // The `config` object is intentionally left empty, as the service will populate it.
-      const preliminaryManifest: Manifest = {
+      const newManifest: Manifest = {
         siteId: newSiteId,
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: { 
-          name: selectedTheme.path, 
-          config: {} 
+        theme: {
+          name: selectedTheme.path,
+          config: initialConfig, // Use the fetched defaults as the initial config.
         },
         structure: [],
       };
-      
-      // 2. Use the central `synchronizeThemeDefaults` service to get the
-      //    fully populated and correct theme configuration object.
-      const synchronizedTheme = await synchronizeThemeDefaults(preliminaryManifest);
-      
-      // 3. Construct the final site data object, injecting the synchronized theme.
-      //    This ensures the manifest is saved correctly from the very beginning.
       const newSiteData: LocalSiteData = {
         siteId: newSiteId,
-        manifest: { ...preliminaryManifest, theme: synchronizedTheme },
-        // These are always empty for a brand new site.
+        manifest: newManifest,
         contentFiles: [],
         themeFiles: [],
         layoutFiles: [],
       };
-
-      // 4. Save the complete site data to storage and update the global state.
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
       router.push(`/sites/${newSiteId}/edit`);
-
     } catch (error) {
       console.error("Error during site creation:", error);
       toast.error(`Failed to create site: ${(error as Error).message}`);
@@ -7124,67 +7114,68 @@ export default function MarkdownRenderer({ markdown }: MarkdownRendererProps) {
 
 File: features/site-settings/components/AppearanceSettingsForm.tsx
 // src/features/site-settings/components/AppearanceSettingsForm.tsx
-
 'use client';
 
 import { RJSFSchema } from '@rjsf/utils';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { ThemeConfig } from '@/types';
+// useEffect is no longer needed and is removed.
+import { useState, forwardRef, useImperativeHandle } from 'react';
 
-// The props interface is simplified. It now expects to receive the schema directly.
 interface AppearanceSettingsFormProps {
-  schema: RJSFSchema | null; // Receive the schema as a prop.
-  isLoading: boolean; // Receive loading state from the parent.
-  themePath: string; // Keep this for displaying messages.
-  themeConfig: ThemeConfig['config'];
-  onConfigChange: (newConfig: ThemeConfig['config']) => void;
+  // These props are passed by the parent to initialize the form.
+  schema: RJSFSchema | null;
+  initialConfig: ThemeConfig['config'];
+  onDirty: () => void;
+  themePath: string; // Keep for display purposes
 }
 
-export default function AppearanceSettingsForm({ 
-  schema, 
-  isLoading,
-  themePath,
-  themeConfig, 
-  onConfigChange 
-}: AppearanceSettingsFormProps) {
+export interface AppearanceFormRef {
+  getFormData: () => ThemeConfig['config'];
+}
 
-  // The internal state and useEffect for loading the schema are now REMOVED.
-  
+const AppearanceSettingsForm = forwardRef<AppearanceFormRef, AppearanceSettingsFormProps>(({ 
+  schema, 
+  initialConfig, 
+  onDirty,
+  themePath
+}, ref) => {
+
+  // The form's state is initialized ONCE from the initialConfig prop when the
+  // component mounts. It will NOT be updated by parent re-renders.
+  const [formData, setFormData] = useState(initialConfig);
+
+  // The problematic useEffect hook has been removed entirely.
+
+  useImperativeHandle(ref, () => ({
+    getFormData: () => formData,
+  }));
+
   const handleChange = (event: { formData?: Record<string, unknown> }) => {
-    onConfigChange(event.formData as ThemeConfig['config'] || {});
+    setFormData(event.formData as ThemeConfig['config'] || {});
+    onDirty();
   };
 
-  if (isLoading) {
-    return (
-        <div className="flex items-center justify-center p-4 text-muted-foreground">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Loading appearance options...</span>
-        </div>
-    );
-  }
-
-  // If the parent passes a null schema, it means there are no settings.
   if (!schema) {
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable settings.</p>
       </div>
     );
   }
 
-  // The component now just renders the form with the props it was given.
   return (
     <SchemaDrivenForm
       schema={schema}
-      formData={themeConfig}
+      formData={formData}
       onFormChange={handleChange}
     />
   );
-}
+});
+
+AppearanceSettingsForm.displayName = 'AppearanceSettingsForm';
+export default AppearanceSettingsForm;
 
 ================================================================================
 

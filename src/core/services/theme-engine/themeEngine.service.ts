@@ -18,23 +18,33 @@ import { coreHelpers } from './helpers';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getActiveImageService } from '@/core/services/images/images.service';
-// Import the new centralized service function for theme synchronization.
-import { synchronizeThemeDefaults } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/theme.service';
 
 /**
- * This service is the core rendering engine for Signum. It orchestrates the entire
- * process of converting raw site data (Markdown, manifest) into a final, viewable HTML page.
- * It is designed to be "dumb" about theme-specific logic, following these steps:
+ * The core rendering engine for Signum. It orchestrates the entire
+ * process of converting raw site data into a final, viewable HTML page.
+ * It is designed to be resilient and always work with the most current data.
  *
- * 1.  **Defensively Synchronizes Manifest:** It first ensures the manifest's theme config
- *     is complete by calling the `synchronizeThemeDefaults` service. This protects
- *     against old or corrupted data.
- * 2.  Registers all necessary helper functions (e.g., `{{formatDate}}`, `{{{image}}}`).
- * 3.  Caches all available theme partials and layout templates for performance.
- * 4.  Resolves all dynamic/asynchronous data for a page (nav links, image URLs, etc.).
- * 5.  Generates an inline `<style>` block by directly converting user-defined settings
- *     from the manifest into CSS variables.
- * 6.  Renders the main content layout and then injects it into the theme's base HTML shell.
+ * --- Core Rendering Pipeline ---
+ *
+ * 1.  **"Sync on Load":** Before any rendering occurs, it calls `syncAndHydrateTheme`.
+ *     This non-destructively merges the user's saved settings with the very latest
+ *     version of the theme's schema and defaults. This ensures that if a theme author
+ *     adds a new setting, it becomes available immediately without data loss.
+ *
+ * 2.  **Helper & Template Caching:** It registers all necessary Handlebars helpers
+ *     (e.g., `{{formatDate}}`, `{{{image}}}`) and pre-compiles all available theme
+ *     partials and layout templates for high-performance rendering.
+ *
+ * 3.  **Data Resolution:** It resolves all dynamic data needed for the page, such
+ *     as navigation links and image URLs, using the synchronized manifest.
+ *
+ * 4.  **Style Generation:** It generates a dynamic, inline `<style>` block by
+ *     converting the synchronized theme configuration into CSS variables.
+ *
+ * 5.  **Final Render:** It renders the main content layout and then injects that
+ *     HTML into the theme's base shell (`base.hbs`) to produce the final,
+ *     complete HTML document.
  */
 
 // --- Type Definitions ---
@@ -44,9 +54,14 @@ export interface RenderOptions {
   relativeAssetPath?: string;
 }
 
-// --- Helper Registration ---
+// --- Helper Functions ---
+
+/**
+ * Registers all core Handlebars helpers. Uses a simple flag on the Handlebars
+ * object to ensure this only happens once per application lifecycle.
+ * @param {LocalSiteData} siteData - The complete site data, passed to helper factories.
+ */
 function registerCoreHelpers(siteData: LocalSiteData) {
-    // A simple flag to prevent re-registering helpers on every render.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     if ((Handlebars as any)._helpersRegistered) return;
 
@@ -61,12 +76,12 @@ function registerCoreHelpers(siteData: LocalSiteData) {
 }
 
 /**
- * Pre-compiles and caches all available layout templates and theme partials.
- * This is crucial for performance and allows helpers to synchronously access templates during rendering.
+ * Pre-compiles and caches all available layout and theme partials in Handlebars.
+ * This is crucial for performance and enables synchronous access to templates
+ * during rendering (e.g., via the `render_layout_for_item` helper).
  * @param {LocalSiteData} siteData - The complete site data.
  */
 async function cacheAllTemplates(siteData: LocalSiteData) {
-    // Clear all existing partials to ensure a clean state for the current render.
     for (const partial in Handlebars.partials) {
         if (Object.prototype.hasOwnProperty.call(Handlebars.partials, partial)) {
             Handlebars.unregisterPartial(partial);
@@ -74,25 +89,19 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
     }
 
     const { manifest } = siteData;
-
-    // 1. Get ALL layouts of ALL types (page, list, item).
     const allLayouts = await getAvailableLayouts(siteData);
 
-    // 2. Loop through every layout and register its main template as a partial using its ID.
     const layoutPromises = allLayouts.map(async (layoutManifest) => {
         if (!layoutManifest?.files) return;
-
         const templateFile = layoutManifest.files.find((f: AssetFile) => f.type === 'template');
         if (templateFile) {
             const templateSource = await getAssetContent(siteData, 'layout', layoutManifest.id, templateFile.path);
             if (templateSource) {
-                // Register the partial using the layout's ID (e.g., 'page', 'listing', 'teaser').
                 Handlebars.registerPartial(layoutManifest.id, templateSource);
             }
         }
     });
 
-    // 3. Register the theme's global partials (header, footer, head).
     const themeManifest = await getJsonAsset<ThemeManifest>(siteData, 'theme', manifest.theme.name, 'theme.json');
     const themePartialPromises = (themeManifest?.files || [])
         .filter((file: AssetFile) => file.type === 'partial' && file.name)
@@ -107,113 +116,105 @@ async function cacheAllTemplates(siteData: LocalSiteData) {
 }
 
 /**
- * Generates an inline <style> block from the user's saved theme configuration.
- * It directly converts snake_case keys from the manifest (e.g., "font_headings")
- * into --kebab-case CSS variables (e.g., "--font-headings") and uses the
- * exact value provided by the user's selection.
- * @param themeConfig The user's saved theme settings from manifest.theme.config.
- * @returns A string containing a complete <style> tag, or an empty string if no config is present.
+ * Generates an inline <style> block from the site's theme configuration.
+ * It directly converts snake_case keys from the config (e.g., "color_primary")
+ * into --kebab-case CSS variables (e.g., "--color-primary") for the browser.
+ * @param {ThemeConfig['config']} themeConfig - The complete theme configuration object.
+ * @returns {string} A string containing a complete <style> tag.
  */
 function generateStyleOverrides(themeConfig: ThemeConfig['config']): string {
-  // Guard against empty or missing config
-  if (!themeConfig || Object.keys(themeConfig).length === 0) {
-    return '';
-  }
+  if (!themeConfig || Object.keys(themeConfig).length === 0) return '';
 
-  // Directly convert keys and use values. No special mapping logic needed.
   const variables = Object.entries(themeConfig)
     .map(([key, value]) => {
-      // Ensure the value is not null/undefined before creating a CSS rule
       if (value) {
         const cssVariable = `--${key.replace(/_/g, '-')}`;
         return `  ${cssVariable}: ${value};`;
       }
       return null;
     })
-    .filter(Boolean) // Remove any null entries from the array
+    .filter(Boolean)
     .join('\n');
 
-  // If there are no valid variables after filtering, return an empty string.
-  if (!variables) {
-    return '';
-  }
+  if (!variables) return '';
 
-  // Return the complete, formatted <style> block, ready for injection into the HTML head.
-  return `
-<style id="signum-style-overrides">
-:root {
-${variables}
+  return `<style id="signum-style-overrides">\n:root {\n${variables}\n}\n</style>`;
 }
-</style>
-  `.trim();
-}
-
 
 /**
  * Renders a resolved page into a full HTML string based on the active theme and assets.
+ * @param {LocalSiteData} siteData - The original site data from the store.
+ * @param {PageResolutionResult} resolution - The resolved content for the current page.
+ * @param {RenderOptions} options - Rendering options (e.g., for export or live preview).
+ * @returns {Promise<string>} A promise that resolves to the final HTML string.
  */
-export async function render(siteData: LocalSiteData, resolution: PageResolutionResult, options: RenderOptions): Promise<string> {
+export async function render(
+  siteData: LocalSiteData, 
+  resolution: PageResolutionResult, 
+  options: RenderOptions
+): Promise<string> {
     if (resolution.type === PageType.NotFound) {
-      // Return a basic error message for 404 pages.
       return `<h1>404 - Not Found</h1><p>${resolution.errorMessage}</p>`;
     }
 
-    // --- DEFENSIVE GUARD ---
-    // Synchronize the manifest's theme config before rendering.
-    // This ensures that even if the saved manifest has an empty or outdated
-    // config, it will be populated with the correct defaults before being used.
-    // This makes the rendering process resilient to old or corrupted data.
-    const synchronizedTheme = await synchronizeThemeDefaults(siteData.manifest);
-    // Create a new `manifest` variable for this render cycle that is guaranteed to be correct.
-    const manifest = { ...siteData.manifest, theme: synchronizedTheme };
-    // We also update the siteData object to pass the corrected manifest to helpers.
-    const synchronizedSiteData = { ...siteData, manifest };
-    // --- END GUARD ---
+    // --- STEP 1: "Merge on Render" ---
+    const savedThemeConfig = siteData.manifest.theme;
     
+    const { initialConfig: finalMergedConfig } = await getMergedThemeDataForForm(
+        savedThemeConfig.name, 
+        savedThemeConfig.config
+    );    
+
+    
+    // Create a temporary, fully up-to-date manifest and siteData for this render cycle.
+     const synchronizedManifest = { 
+        ...siteData.manifest, 
+        theme: { ...savedThemeConfig, config: finalMergedConfig }
+    };
+    const synchronizedSiteData = { ...siteData, manifest: synchronizedManifest };
+    // ---
+
+    // Register helpers and cache templates using the synchronized data.
     registerCoreHelpers(synchronizedSiteData);
     await cacheAllTemplates(synchronizedSiteData);
 
-    const themePath = manifest.theme.name;
+    const themePath = synchronizedManifest.theme.name;
     const pageLayoutPath = resolution.layoutPath;
 
-    // --- STEP 1: Render the main body content first ---
+    // --- STEP 2: Render the main body content ---
     const pageLayoutSource = Handlebars.partials[pageLayoutPath];
     if (!pageLayoutSource) {
         return `Error: Page layout template "${pageLayoutPath}" not found.`;
     }
     const pageLayoutTemplate = Handlebars.compile(pageLayoutSource);
-    
-    const bodyHtml = await pageLayoutTemplate({
-      ...resolution,
-      options: options
-    });
+    const bodyHtml = await pageLayoutTemplate({ ...resolution, options });
 
-    // --- STEP 2: Resolve ALL top-level asynchronous and dynamic data ---
-    const currentPageExportPath = getUrlForNode(resolution.contentFile, manifest, true);
+    // --- STEP 3: Resolve all top-level dynamic data ---
+    const currentPageExportPath = getUrlForNode(resolution.contentFile, synchronizedManifest, true);
     const navLinks = generateNavLinks(synchronizedSiteData, currentPageExportPath, options);
-    const siteBaseUrl = manifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
+    const siteBaseUrl = synchronizedManifest.baseUrl?.replace(/\/$/, '') || 'https://example.com';
     const canonicalUrl = new URL(currentPageExportPath, siteBaseUrl).href;
     const baseUrl = options.isExport ? (options.relativeAssetPath ?? '') : (typeof window !== 'undefined' ? window.location.origin : '');
 
-    let logoUrl: string | undefined = undefined;
-    if (manifest.logo) {
+    const imageService = getActiveImageService(synchronizedManifest);
+    let logoUrl: string | undefined;
+    if (synchronizedManifest.logo) {
       try {
-          const service = getActiveImageService(manifest);
-          logoUrl = await service.getDisplayUrl(manifest, manifest.logo, { height: 32 }, options.isExport);
+          logoUrl = await imageService.getDisplayUrl(synchronizedManifest, synchronizedManifest.logo, { height: 32 }, options.isExport);
       } catch (e) { console.warn("Could not generate logo URL:", e); }
     }
   
-    let faviconUrl: string | undefined = undefined;
-    if (manifest.favicon) {
+    let faviconUrl: string | undefined;
+    if (synchronizedManifest.favicon) {
         try {
-            const service = getActiveImageService(manifest);
-            faviconUrl = await service.getDisplayUrl(manifest, manifest.favicon, { width: 32, height: 32 }, options.isExport);
+            faviconUrl = await imageService.getDisplayUrl(synchronizedManifest, synchronizedManifest.favicon, { width: 32, height: 32 }, options.isExport);
         } catch (e) { console.warn("Could not generate favicon URL:", e); }
     }
 
-    const styleOverrides = generateStyleOverrides(manifest.theme.config);
+    // Generate style overrides from the final merged config.
+    const styleOverrides = generateStyleOverrides(synchronizedManifest.theme.config);
 
-    // --- STEP 3: Render the final document with all data now resolved ---
+    // --- STEP 4: Render the final document in the base theme shell ---
     const themeManifest = await getJsonAsset<ThemeManifest>(synchronizedSiteData, 'theme', themePath, 'theme.json');
     if (!themeManifest) return 'Error: Could not load theme manifest.';
     const baseTemplateFile = themeManifest.files.find((f: AssetFile) => f.type === 'base');
@@ -224,12 +225,12 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
     const baseTemplate = Handlebars.compile(baseTemplateSource);
 
     const finalContext = {
-      manifest,
+      manifest: synchronizedManifest,
       navLinks,
       year: new Date().getFullYear(),
       headContext: {
           pageTitle: resolution.pageTitle,
-          manifest: manifest,
+          manifest: synchronizedManifest,
           contentFile: resolution.contentFile,
           canonicalUrl: canonicalUrl,
           baseUrl: baseUrl,
@@ -240,9 +241,7 @@ export async function render(siteData: LocalSiteData, resolution: PageResolution
       logoUrl: logoUrl,
       options: options,
       ...resolution,
-  };
+    };
 
-  const finalHtml = baseTemplate(finalContext);
-
-  return finalHtml;
+    return baseTemplate(finalContext);
 }

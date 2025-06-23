@@ -1,62 +1,63 @@
 // src/features/site-settings/components/AppearanceSettingsForm.tsx
-
 'use client';
 
 import { RJSFSchema } from '@rjsf/utils';
 import SchemaDrivenForm from '@/components/publishing/SchemaDrivenForm';
 import { ThemeConfig } from '@/types';
+// useEffect is no longer needed and is removed.
+import { useState, forwardRef, useImperativeHandle } from 'react';
 
-// The props interface is simplified. It now expects to receive the schema directly.
 interface AppearanceSettingsFormProps {
-  schema: RJSFSchema | null; // Receive the schema as a prop.
-  isLoading: boolean; // Receive loading state from the parent.
-  themePath: string; // Keep this for displaying messages.
-  themeConfig: ThemeConfig['config'];
-  onConfigChange: (newConfig: ThemeConfig['config']) => void;
+  // These props are passed by the parent to initialize the form.
+  schema: RJSFSchema | null;
+  initialConfig: ThemeConfig['config'];
+  onDirty: () => void;
+  themePath: string; // Keep for display purposes
 }
 
-export default function AppearanceSettingsForm({ 
-  schema, 
-  isLoading,
-  themePath,
-  themeConfig, 
-  onConfigChange 
-}: AppearanceSettingsFormProps) {
+export interface AppearanceFormRef {
+  getFormData: () => ThemeConfig['config'];
+}
 
-  // The internal state and useEffect for loading the schema are now REMOVED.
-  
+const AppearanceSettingsForm = forwardRef<AppearanceFormRef, AppearanceSettingsFormProps>(({ 
+  schema, 
+  initialConfig, 
+  onDirty,
+  themePath
+}, ref) => {
+
+  // The form's state is initialized ONCE from the initialConfig prop when the
+  // component mounts. It will NOT be updated by parent re-renders.
+  const [formData, setFormData] = useState(initialConfig);
+
+  // The problematic useEffect hook has been removed entirely.
+
+  useImperativeHandle(ref, () => ({
+    getFormData: () => formData,
+  }));
+
   const handleChange = (event: { formData?: Record<string, unknown> }) => {
-    onConfigChange(event.formData as ThemeConfig['config'] || {});
+    setFormData(event.formData as ThemeConfig['config'] || {});
+    onDirty();
   };
 
-  if (isLoading) {
-    return (
-        <div className="flex items-center justify-center p-4 text-muted-foreground">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Loading appearance options...</span>
-        </div>
-    );
-  }
-
-  // If the parent passes a null schema, it means there are no settings.
   if (!schema) {
     return (
       <div className="text-center border-2 border-dashed p-6 rounded-lg">
         <p className="font-semibold">No Appearance Options</p>
-        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable appearance settings.</p>
+        <p className="text-sm text-muted-foreground">The current theme "{themePath}" does not provide any customizable settings.</p>
       </div>
     );
   }
 
-  // The component now just renders the form with the props it was given.
   return (
     <SchemaDrivenForm
       schema={schema}
-      formData={themeConfig}
+      formData={formData}
       onFormChange={handleChange}
     />
   );
-}
+});
+
+AppearanceSettingsForm.displayName = 'AppearanceSettingsForm';
+export default AppearanceSettingsForm;

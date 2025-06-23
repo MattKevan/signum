@@ -13,8 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
-// Import the new centralized service function for theme synchronization.
-import { synchronizeThemeDefaults } from '@/core/services/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/theme.service';
+
 
 /**
  * Renders the "Create New Site" page.
@@ -30,63 +30,44 @@ import { synchronizeThemeDefaults } from '@/core/services/theme.service';
 export default function CreateSitePage() {
   const router = useRouter();
   const addSite = useAppStore((state) => state.addSite);
-
-  // --- Local State for the Form ---
   const [siteTitle, setSiteTitle] = useState('');
   const [siteDescription, setSiteDescription] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
   const availableThemes = useMemo(() => CORE_THEMES, []);
-  // Set the default theme on initial render.
   const [selectedTheme, setSelectedTheme] = useState<ThemeInfo | null>(availableThemes[0] || null);
 
-  /**
-   * Handles the form submission to create a new site.
-   */
   const handleSubmit = async () => {
     if (!siteTitle.trim() || !selectedTheme) {
       toast.error('Site title and a theme are required.');
       return;
     }
     setIsLoading(true);
-
     try {
       const newSiteId = generateSiteId(siteTitle);
+      // [FIX] Use the hydrateTheme function as intended.
+       const { initialConfig } = await getMergedThemeDataForForm(selectedTheme.path, {});
       
-      // 1. Create a preliminary manifest with just the basic user choices.
-      // The `config` object is intentionally left empty, as the service will populate it.
-      const preliminaryManifest: Manifest = {
+      const newManifest: Manifest = {
         siteId: newSiteId,
         generatorVersion: GENERATOR_VERSION,
         title: siteTitle.trim(),
         description: siteDescription.trim(),
-        theme: { 
-          name: selectedTheme.path, 
-          config: {} 
+        theme: {
+          name: selectedTheme.path,
+          config: initialConfig, // Use the fetched defaults as the initial config.
         },
         structure: [],
       };
-      
-      // 2. Use the central `synchronizeThemeDefaults` service to get the
-      //    fully populated and correct theme configuration object.
-      const synchronizedTheme = await synchronizeThemeDefaults(preliminaryManifest);
-      
-      // 3. Construct the final site data object, injecting the synchronized theme.
-      //    This ensures the manifest is saved correctly from the very beginning.
       const newSiteData: LocalSiteData = {
         siteId: newSiteId,
-        manifest: { ...preliminaryManifest, theme: synchronizedTheme },
-        // These are always empty for a brand new site.
+        manifest: newManifest,
         contentFiles: [],
         themeFiles: [],
         layoutFiles: [],
       };
-
-      // 4. Save the complete site data to storage and update the global state.
       await addSite(newSiteData);
       toast.success(`Site "${siteTitle}" created successfully!`);
       router.push(`/sites/${newSiteId}/edit`);
-
     } catch (error) {
       console.error("Error during site creation:", error);
       toast.error(`Failed to create site: ${(error as Error).message}`);
