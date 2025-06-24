@@ -8,7 +8,7 @@ import {
   RawFile,
 } from '@/core/types';
 import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markdownParser';
-import { isCoreTheme, isCoreLayout } from './configHelpers.service';
+import { isCoreTheme, isCoreLayout } from './config/configHelpers.service';
 import * as localSiteFs from './localFileSystem.service';
 
 const SIGNUM_FOLDER = '_signum';

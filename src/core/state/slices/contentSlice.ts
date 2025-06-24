@@ -4,7 +4,7 @@ import { produce } from 'immer';
 import { toast } from 'sonner';
 import { ParsedMarkdownFile, StructureNode, LocalSiteData } from '@/core/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
-import { getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
+import { getLayoutManifest, LayoutManifest } from '@/core/services/config/configHelpers.service';
 import {
   findAndRemoveNode,
   updatePathsRecursively,

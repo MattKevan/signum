@@ -3,7 +3,7 @@
 
 // Imports are identical to PageLayoutSchemaForm
 import { MarkdownFrontmatter } from '@/core/types';
-import { LayoutManifest } from '@/core/services/configHelpers.service';
+import { LayoutManifest } from '@/core/services/config/configHelpers.service';
 import SchemaDrivenForm from '@/core/components/SchemaDrivenForm';
 import ImageUploadWidget from '../ImageUploadWidget';
 

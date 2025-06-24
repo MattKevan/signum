@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { GENERATOR_VERSION, CORE_THEMES } from '@/config/editorConfig';
-import { getMergedThemeDataForForm } from '@/core/services/themes/theme.service';
+import { getMergedThemeDataForForm } from '@/core/services/config/theme.service';
 
 
 /**

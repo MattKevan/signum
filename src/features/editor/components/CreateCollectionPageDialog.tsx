@@ -16,7 +16,7 @@ import { Label } from "@/core/components/ui/label";
 import { Plus } from 'lucide-react';
 import type { MarkdownFrontmatter } from '@/core/types';
 //import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-import { getAvailableLayouts, LayoutManifest } from '@/core/services/configHelpers.service';
+import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
 
 interface CreateCollectionPageDialogProps {
   siteId: string;

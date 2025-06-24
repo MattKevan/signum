@@ -99,7 +99,6 @@ export function findNodeByPath(nodes: StructureNode[], path: string): StructureN
   return undefined;
 }
 
-// --- FIX: Re-added the exported findChildNodes function ---
 /**
  * Finds all direct child nodes of a given parent node path.
  * This is a simple utility used by the page resolver for collection pages.
@@ -111,7 +110,6 @@ export function findChildNodes(nodes: StructureNode[], parentPath: string): Stru
     const parentNode = findNodeByPath(nodes, parentPath);
     return parentNode?.children || [];
 }
-
 
 /**
  * Finds and removes a node from a tree structure immutably.

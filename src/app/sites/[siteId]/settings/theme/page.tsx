@@ -8,7 +8,7 @@ import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { useEffect, useState } from 'react';
 import { toast } from "sonner";
-import { getAvailableThemes } from '@/core/services/configHelpers.service';
+import { getAvailableThemes } from '@/core/services/config/configHelpers.service';
 import type { Manifest, ThemeConfig, ThemeInfo } from '@/core/types';
 import type { RJSFSchema } from '@rjsf/utils';
 import SchemaDrivenForm from '@/core/components/SchemaDrivenForm';

@@ -2,7 +2,7 @@
 import { LocalSiteData, NavLinkItem, StructureNode } from '@/core/types';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { getRelativePath } from '@/core/services/relativePaths.service';
-import { RenderOptions } from '@/core/services/themes/themeEngine.service';
+import { RenderOptions } from '@/core/services/renderer/render.service';
 
 /**
  * Recursively builds a navigation link structure with context-aware paths.

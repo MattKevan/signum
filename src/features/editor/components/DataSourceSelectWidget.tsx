@@ -2,12 +2,12 @@
 'use client';
 
 import { useEffect, useState, useMemo } from 'react';
-import { getAvailableLayouts } from '@/core/services/configHelpers.service';
+import { getAvailableLayouts } from '@/core/services/config/configHelpers.service';
 import { WidgetProps } from '@rjsf/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/core/components/ui/select";
 import { Label } from '@/core/components/ui/label';
 import type { LocalSiteData, StructureNode } from '@/core/types';
-import type { LayoutManifest } from '@/core/services/configHelpers.service';
+import type { LayoutManifest } from '@/core/services/config/configHelpers.service';
 
 interface SelectOption {
   label: string;

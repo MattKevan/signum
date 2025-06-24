@@ -1,149 +1,167 @@
-// src/features/editor/components/CollectionSettings.tsx
+// src/features/editor/components/forms/CollectionCollectionSettingsForm.tsx (FIXED)
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { MarkdownFrontmatter, CollectionConfig, LocalSiteData } from '@/core/types';
-import { getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
+import { useCallback } from 'react';
+// FIX 1: Import the missing types.
+import { MarkdownFrontmatter, CollectionConfig, DisplayOption, DisplayOptionChoice } from '@/core/types';
+import { LayoutManifest } from '@/core/services/config/configHelpers.service';
+
+// UI Component Imports
 import { Label } from '@/core/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/core/components/ui/select';
 import { Input } from '@/core/components/ui/input';
 
-/**
- * Defines the props for the CollectionSettings component.
- */
-interface CollectionSettingsProps {
-  site: Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
-  frontmatter: MarkdownFrontmatter;
-  onFrontmatterChange: (update: Partial<MarkdownFrontmatter>) => void;
+// Strongly-typed props for the helper component.
+interface StyleSelectorProps {
+  optionKey: keyof CollectionConfig;
+  optionConfig: DisplayOption | undefined;
+  currentValue: string | undefined;
+  // The value from a Select is always a string.
+  onChange: (key: keyof CollectionConfig, value: string) => void;
 }
 
 /**
- * A component that dynamically renders the settings UI for a "Collection Page".
+ * A reusable helper component to render a single dynamic style selector dropdown.
  */
-export default function CollectionSettings({ site, frontmatter, onFrontmatterChange }: CollectionSettingsProps) {
-  const [layoutManifest, setLayoutManifest] = useState<LayoutManifest | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+const StyleSelector = ({ optionKey, optionConfig, currentValue, onChange }: StyleSelectorProps) => {
+  if (!optionConfig) {
+    return null;
+  }
+  
+  return (
+    <div className="space-y-2">
+      <Label htmlFor={`style-select-${optionKey}`}>{optionConfig.name}</Label>
+      <Select
+        value={currentValue || optionConfig.default}
+        onValueChange={(value) => onChange(optionKey, value)}
+      >
+        <SelectTrigger id={`style-select-${optionKey}`}>
+          <SelectValue placeholder={optionConfig.description || 'Select a style...'} />
+        </SelectTrigger>
+        <SelectContent>
+          {Object.entries(optionConfig.options).map(([key, choice]: [string, DisplayOptionChoice]) => (
+            <SelectItem key={key} value={key}>{choice.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {optionConfig.description && (
+        <p className="text-xs text-muted-foreground">{optionConfig.description}</p>
+      )}
+    </div>
+  );
+};
 
-  useEffect(() => {
-    async function fetchLayoutData() {
-      if (!frontmatter.layout) {
-        setIsLoading(false);
-        return;
-      }
-      setIsLoading(true);
-      const manifest = await getLayoutManifest(site, frontmatter.layout);
-      setLayoutManifest(manifest);
-      setIsLoading(false);
-    }
-    fetchLayoutData();
-  }, [site, frontmatter.layout]);
 
-  /**
-   * --- FIX: Update the signature to accept `undefined`. ---
-   * This allows us to clear a field from the frontmatter.
-   */
+interface CollectionSettingsFormProps {
+  frontmatter: MarkdownFrontmatter;
+  onFrontmatterChange: (update: Partial<MarkdownFrontmatter>) => void;
+  layoutManifest: LayoutManifest | null;
+}
+
+export default function CollectionSettingsForm({
+  frontmatter,
+  onFrontmatterChange,
+  layoutManifest,
+}: CollectionSettingsFormProps) {
+
   const handleCollectionConfigChange = useCallback((key: keyof CollectionConfig, value: string | number | undefined) => {
     const currentConfig = frontmatter.collection || {};
-    let updatedCollectionConfig: CollectionConfig;
+    let updatedConfig: CollectionConfig;
 
-    if (value === undefined) {
-      // If the new value is undefined, we remove the key from the object.
-      // This keeps the final YAML frontmatter clean.
+    if (value === undefined || value === '') {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars, @typescript-eslint/no-explicit-any
       const { [key as any]: _, ...rest } = currentConfig;
-      updatedCollectionConfig = rest;
+      updatedConfig = rest;
     } else {
-      // Otherwise, we update or add the key with the new value.
-      updatedCollectionConfig = { ...currentConfig, [key]: value };
+      updatedConfig = { ...currentConfig, [key]: value };
     }
-    
+
     onFrontmatterChange({
-      collection: updatedCollectionConfig
+      collection: updatedConfig
     });
   }, [frontmatter.collection, onFrontmatterChange]);
+  
+  if (!frontmatter.collection) {
+    return (
+      <div className="text-sm text-center text-muted-foreground p-4 border border-dashed rounded-md">
+        <p>This page is not configured as a collection.</p>
+      </div>
+    );
+  }
 
   const collectionConfig = frontmatter.collection;
-
-  if (isLoading) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading collection settings...</div>;
-  }
-
-  if (!collectionConfig) {
-      return (
-           <div className="p-4 text-center text-sm text-destructive border border-destructive/50 bg-destructive/10 rounded-lg">
-              <h3 className="font-semibold">Not a Collection Page</h3>
-              <p>To enable these settings, add a `collection` block to this page's frontmatter.</p>
-          </div>
-      );
-  }
+  const displayOptions = layoutManifest?.display_options;
 
   return (
-    <div className="space-y-6">
-      {/* --- DYNAMIC VARIANT SELECTORS --- */}
-      {layoutManifest?.display_options && (
-        <div className="space-y-4">
-          <h4 className='font-semibold text-card-foreground'>Display Options</h4>
-          {Object.entries(layoutManifest.display_options).map(([key, displayOption]) => (
-            <div className="space-y-2" key={key}>
-              <Label htmlFor={`variant-${key}`}>{displayOption.name}</Label>
-              <Select
-                value={collectionConfig[key] as string || displayOption.default}
-                onValueChange={(value) => handleCollectionConfigChange(key, value)}
-              >
-                <SelectTrigger id={`variant-${key}`} className="w-full">
-                  <SelectValue placeholder="Select a style..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {Object.entries(displayOption.options).map(([optionKey, choice]) => (
-                    <SelectItem key={optionKey} value={optionKey}>{choice.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {displayOption.description && (
-                <p className="text-xs text-muted-foreground">{displayOption.description}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
+    <div className="space-y-8">
+      {/* Section 1: List Settings */}
+      <div className="space-y-4">
+        <h4 className="font-semibold text-sm text-foreground">List Settings</h4>
+        
+        <StyleSelector
+          optionKey="listingStyle"
+          optionConfig={displayOptions?.listingStyle}
+          // FIX 2: Use a type assertion to satisfy the prop type.
+          currentValue={collectionConfig.listingStyle as string | undefined}
+          onChange={handleCollectionConfigChange}
+        />
+        
+        <StyleSelector
+          optionKey="teaserStyle"
+          optionConfig={displayOptions?.teaserStyle}
+          // FIX 3: Use a type assertion here as well.
+          currentValue={collectionConfig.teaserStyle as string | undefined}
+          onChange={handleCollectionConfigChange}
+        />
 
-      {/* --- SORTING & PAGINATION --- */}
-      <div className="space-y-4 pt-4 border-t">
-        <h4 className='font-semibold text-card-foreground'>Sorting & Pagination</h4>
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="sort-by">Sort by</Label>
+          <Select value={collectionConfig.sort_by || 'date'} onValueChange={(v) => handleCollectionConfigChange('sort_by', v)}>
+            <SelectTrigger id="sort-by"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="date">Publication Date</SelectItem>
+              <SelectItem value="title">Title (Alphabetical)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        
         <div className="space-y-2">
-            <Label htmlFor="sort-by">Sort items by</Label>
-            <Select value={collectionConfig.sort_by || 'date'} onValueChange={(v) => handleCollectionConfigChange('sort_by', v)}>
-              <SelectTrigger id="sort-by" className='w-full'><SelectValue /></SelectTrigger>
-              <SelectContent>
-                  <SelectItem value="date">Publication Date</SelectItem>
-                  <SelectItem value="title">Title (Alphabetical)</SelectItem>
-              </SelectContent>
-            </Select>
+          <Label htmlFor="sort-order">Sort order</Label>
+          <Select value={collectionConfig.sort_order || 'desc'} onValueChange={(v) => handleCollectionConfigChange('sort_order', v)}>
+            <SelectTrigger id="sort-order"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="desc">Descending</SelectItem>
+              <SelectItem value="asc">Ascending</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
+
         <div className="space-y-2">
-            <Label htmlFor="sort-order">Sort order</Label>
-              <Select value={collectionConfig.sort_order || 'desc'} onValueChange={(v) => handleCollectionConfigChange('sort_order', v)}>
-              <SelectTrigger id="sort-order"  className='w-full'><SelectValue /></SelectTrigger>
-              <SelectContent>
-                  <SelectItem value="desc">Descending</SelectItem>
-                  <SelectItem value="asc">Ascending</SelectItem>
-              </SelectContent>
-            </Select>
+          <Label htmlFor="items-per-page">Items Per Page</Label>
+          <Input
+            id="items-per-page"
+            type="number"
+            min="1"
+            placeholder="e.g., 10"
+            value={collectionConfig.items_per_page || ''}
+            onChange={(e) => handleCollectionConfigChange('items_per_page', e.target.value ? parseInt(e.target.value, 10) : undefined)}
+          />
+          <p className="text-xs text-muted-foreground">Leave blank to show all items on one page.</p>
         </div>
-          <div className="space-y-2">
-              <Label htmlFor="items-per-page">Items Per Page</Label>
-              <Input
-                  id="items-per-page"
-                  type="number"
-                  placeholder="e.g., 10"
-                  // Use `|| ''` to ensure the input field is clear when the value is undefined.
-                  value={collectionConfig.items_per_page || ''}
-                  // --- FIX: The expression now correctly returns number | undefined ---
-                  onChange={(e) => handleCollectionConfigChange('items_per_page', e.target.value ? parseInt(e.target.value, 10) : undefined)}
-                  className="w-full block"
-              />
-              <p className="text-xs text-muted-foreground">Leave blank to show all items on one page.</p>
-          </div>
-        </div>
+      </div>
+
+      {/* Section 2: Item Settings */}
+      <div className="space-y-4 pt-6 border-t">
+        <h4 className="font-semibold text-sm text-foreground">Item Settings</h4>
+        
+        <StyleSelector
+          optionKey="itemPageLayout"
+          optionConfig={displayOptions?.itemPageLayout}
+          // FIX 4: And the final type assertion here.
+          currentValue={collectionConfig.itemPageLayout as string | undefined}
+          onChange={handleCollectionConfigChange}
+        />
+      </div>
     </div>
   );
 }

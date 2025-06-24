@@ -1,11 +1,10 @@
-// src/app/sites/[siteId]/edit/content/[[...slug]]/page.tsx
+// src/app/sites/[siteId]/edit/content/[[...slug]]/page.tsx (FULLY CORRECTED)
 'use client';
 
 import { useMemo, useEffect, useRef } from 'react';
 import { useUIStore } from '@/core/state/uiStore';
 import { useAppStore } from '@/core/state/useAppStore';
 import { EditorProvider } from '@/features/editor/contexts/EditorContext';
-import type { LocalSiteData } from '@/core/types';
 
 // Component Imports
 import { Button } from '@/core/components/ui/button';
@@ -28,11 +27,15 @@ import { useFilePersistence } from '@/features/editor/hooks/useFilePersistence';
 function EditContentPageInternal() {
   const editorRef = useRef<BlocknoteEditorRef>(null);
 
-  // --- FIX: Use the new `activeSiteId` to get the correct site data ---
   const activeSiteId = useAppStore(state => state.activeSiteId);
   const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
   
-  const { siteId, isNewFileMode, filePath } = usePageIdentifier({ site });
+  // --- FIX: Destructure the site object into the granular props needed by child hooks/components ---
+  const siteStructure = site?.manifest.structure || [];
+  const allContentFiles = site?.contentFiles || [];
+
+  // Pass the new granular props to the hook.
+  const { siteId, isNewFileMode, filePath } = usePageIdentifier({ siteStructure, allContentFiles });
   
   const { status, frontmatter, initialBlocks, slug, setSlug, handleFrontmatterChange, onContentModified } = useFileContent(siteId, filePath, isNewFileMode);
   const { handleDelete } = useFilePersistence({ siteId, filePath, isNewFileMode, frontmatter, slug, getEditorContent: () => editorRef.current?.getBlocks() ?? [] });
@@ -41,9 +44,25 @@ function EditContentPageInternal() {
   const isCollectionPage = useMemo(() => !!frontmatter?.collection, [frontmatter]);
 
   const rightSidebarComponent = useMemo(() => {
-    if (status !== 'ready' || !frontmatter || !site) return null;
-    return <FrontmatterSidebar siteId={siteId} filePath={filePath} site={site as LocalSiteData} frontmatter={frontmatter} onFrontmatterChange={handleFrontmatterChange} isNewFileMode={isNewFileMode} slug={slug} onSlugChange={setSlug} onDelete={handleDelete} />;
-  }, [status, site, frontmatter, siteId, filePath, isNewFileMode, slug, handleFrontmatterChange, setSlug, handleDelete]);
+    // We add a guard to ensure siteId is available before rendering.
+    if (status !== 'ready' || !frontmatter || !siteId) return null;
+    return (
+      <FrontmatterSidebar
+        siteId={siteId}
+        filePath={filePath}
+        // FIX: Pass the granular props, not the whole site object.
+        siteStructure={siteStructure}
+        allContentFiles={allContentFiles}
+        frontmatter={frontmatter}
+        onFrontmatterChange={handleFrontmatterChange}
+        isNewFileMode={isNewFileMode}
+        slug={slug}
+        onSlugChange={setSlug}
+        onDelete={handleDelete}
+      />
+    );
+  // Update the dependency array to use the new granular variables.
+  }, [status, frontmatter, siteId, filePath, siteStructure, allContentFiles, handleFrontmatterChange, isNewFileMode, slug, setSlug, handleDelete]);
 
   useEffect(() => {
     setLeftAvailable(true);
@@ -62,7 +81,8 @@ function EditContentPageInternal() {
     return () => { setRightAvailable(false); setRightSidebarContent(null); };
   }, [rightSidebarComponent, setRightAvailable, setRightSidebarContent]);
 
-  const isSiteEmpty = site && site.manifest.structure.length === 0 && !isNewFileMode;
+  // Use the derived `siteId` here for the check.
+  const isSiteEmpty = siteId && siteStructure.length === 0 && !isNewFileMode;
 
   return (
     <ThreeColumnLayout

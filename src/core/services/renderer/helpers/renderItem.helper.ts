@@ -3,7 +3,7 @@
 import Handlebars from 'handlebars';
 import { SignumHelper } from './types';
 import type { ParsedMarkdownFile, CollectionConfig } from '@/core/types';
-import type { LayoutManifest } from '@/core/services/configHelpers.service';
+import type { LayoutManifest } from '@/core/services/config/configHelpers.service';
 import type { HelperOptions } from 'handlebars';
 
 /**
