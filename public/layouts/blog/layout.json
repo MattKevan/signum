@@ -1,0 +1,152 @@
+{
+  "name": "Blog",
+  "version": "1.1.0",
+  "layoutType": "collection",
+  "description": "A complete layout bundle for a classic blog with posts, categories, image presets, and dynamic archive pages.",
+  
+  "schema": {
+    "title": "Collection Page Fields",
+    "type": "object",
+    "properties": {
+       "banner_image": { 
+         "title": "Banner Image", 
+         "description": "A wide image displayed at the top of the collection page.", 
+         "type": "string" 
+       }
+    }
+  },
+  "uiSchema": {
+    "banner_image": { "ui:widget": "imageUploader" }
+  },
+
+  "display_options": {
+    "listing": {
+      "name": "Listing Page Style",
+      "description": "Choose how the main list of posts is arranged.",
+      "default": "list_view",
+      "options": {
+        "list_view": { 
+          "name": "Vertical List",
+          "template": "index.hbs"
+        },
+        "grid_view": { 
+          "name": "Grid",
+          "template": "grid-index.hbs"
+        }
+      }
+    },
+    "teaser": {
+      "name": "Teaser Card Style",
+      "description": "Choose the appearance of each post summary.",
+      "default": "standard_card",
+      "options": {
+        "standard_card": {
+          "name": "Standard Card",
+          "template": "partials/card.hbs"
+        },
+        "compact_list_item": {
+          "name": "Compact List Item",
+          "template": "partials/compact.hbs"
+        }
+      }
+    },
+    "item_page": {
+      "name": "Full Post Layout",
+      "description": "The layout for a single blog post.",
+      "default": "default",
+      "options": {
+        "default": {
+          "name": "Default Post",
+          "template": "item.hbs"
+        }
+      }
+    },
+    "taxonomy_term_page": {
+      "name": "Category Page Layout",
+      "description": "The layout for a category archive page.",
+      "default": "default",
+      "options": {
+        "default": {
+          "name": "Default Category Page",
+          "template": "category.hbs"
+        }
+      }
+    }
+  },
+
+  "itemSchema": {
+    "title": "Blog Post Fields",
+    "type": "object",
+    "properties": {
+      "featured_image": { "title": "Featured Image", "description": "The main image for this post, used in cards and social sharing.", "type": "string" },
+      "banner_image": { "title": "Banner Image", "description": "A wide image displayed at the top of the post.", "type": "string" },
+      "summary": { "title": "Post Summary", "description": "A short summary for teaser cards.", "type": "string", "format": "textarea" },
+      "author": { "title": "Author", "type": "string" },
+      "date": { "title": "Publication Date", "type": "string", "format": "date" },
+      "tags": { "title": "Tags", "type": "array", "items": { "type": "string" } },
+      "categories": {
+        "title": "Categories",
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["date"]
+  },
+  
+  "itemUiSchema": {
+    "featured_image": { "ui:widget": "imageUploader" },
+    "banner_image": { "ui:widget": "imageUploader" },
+    "categories": {
+      "ui:widget": "checkboxes",
+      "ui:options": {
+        "fromDataFile": {
+          "id": "categories",
+          "labelField": "name",
+          "valueField": "slug"
+        }
+      }
+    }
+  },
+
+  "image_presets": {
+    "og_image": { "source": "featured_image", "width": 1200, "height": 630, "crop": "fill" },
+    "banner": { "source": "banner_image", "width": 800, "crop": "scale" },
+    "teaser_thumbnail": { "source": "featured_image", "width": 400, "height": 300, "crop": "fill" }
+  },
+
+  "data_files": [
+    {
+      "id": "categories",
+      "path_template": "data/{{collection.slug}}_categories.json",
+      "schema": {
+        "type": "array",
+        "title": "Blog Categories",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "title": "Category Name" },
+            "slug": { "type": "string", "title": "URL Slug" },
+            "description": { "type": "string", "title": "Description", "format": "textarea" }
+          },
+          "required": ["name", "slug"]
+        }
+      },
+      "initial_content": []
+    }
+  ],
+  
+  "dynamic_routes": {
+    "category_archive": {
+      "description": "Generates a page for each category, listing all posts within it.",
+      "data_source": {
+        "id": "categories"
+      },
+      "path_template": "{{collection.slug}}/category/{{item.slug}}",
+      "layout": "category.hbs",
+      "content_filter": {
+        "by_frontmatter_field": "categories",
+        "contains_value_from": "slug"
+      }
+    }
+  }
+}

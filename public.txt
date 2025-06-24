@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: node_modules, ios, public
+Excluded Directories: public, node_modules, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -29,40 +29,190 @@ File: layouts/page/layout.json
 
 ================================================================================
 
-File: layouts/page/page.hbs
-{{! page.hbs }}
+File: layouts/page/index.hbs
+{{! layouts/page/page.hbs }}
 <article class="prose">
+    {{!-- 
+      Display a wide banner image at the top of the article if it exists.
+      We use the `{{{image}}}` helper to generate the full <img> tag.
+      `crop='scale'` will resize it to fit the width without distortion.
+    --}}
+    {{#if contentFile.frontmatter.banner_image}}
+        <figure class="banner-image-wrapper">
+            {{{image src=contentFile.frontmatter.banner_image width=800 crop='scale' class="w-100" alt=(concat contentFile.frontmatter.title " banner")}}}
+        </figure>
+    {{/if}}
+    
     <h1>{{contentFile.frontmatter.title}}</h1>
+
+    {{!-- Display the featured image below the title if it exists. --}}
+    {{#if contentFile.frontmatter.featured_image}}
+        <figure class="featured-image-wrapper">
+            {{{image src=contentFile.frontmatter.featured_image width=600 crop='scale' class="db center" alt=contentFile.frontmatter.title}}}
+        </figure>
+    {{/if}}
+
     <p class="f4">{{contentFile.frontmatter.description}} </p>
+    
     {{{markdown contentFile.content}}}
 
     {{#if collectionItems}}
         <hr/>
-        {{! The helper now implicitly has the context it needs }}
         {{{render_collection}}}
     {{/if}}
 </article>
 
 ================================================================================
 
-File: layouts/teaser/layout.json
+File: layouts/blog/layout.json
 {
-  "name": "Teaser Card",
-  "version": "1.0.0",
-  "description": "A simple card for list items, showing a title and summary.",
-  "layoutType": "item",
-  "files": [
-    { "path": "layout.json", "type": "manifest" },
-    { "path": "template.hbs", "type": "template" }
-  ],
+  "name": "Blog",
+  "version": "1.1.0",
+  "layoutType": "collection",
+  "description": "A complete layout bundle for a classic blog with posts, categories, image presets, and dynamic archive pages.",
+  
   "schema": {
-    "title": "Teaser Card Frontmatter",
+    "title": "Collection Page Fields",
     "type": "object",
     "properties": {
-      "summary": {
-        "title": "Summary",
-        "description": "A short summary for the teaser card, shown in lists.",
-        "type": "string"
+       "banner_image": { 
+         "title": "Banner Image", 
+         "description": "A wide image displayed at the top of the collection page.", 
+         "type": "string" 
+       }
+    }
+  },
+  "uiSchema": {
+    "banner_image": { "ui:widget": "imageUploader" }
+  },
+
+  "display_options": {
+    "listing": {
+      "name": "Listing Page Style",
+      "description": "Choose how the main list of posts is arranged.",
+      "default": "list_view",
+      "options": {
+        "list_view": { 
+          "name": "Vertical List",
+          "template": "index.hbs"
+        },
+        "grid_view": { 
+          "name": "Grid",
+          "template": "grid-index.hbs"
+        }
+      }
+    },
+    "teaser": {
+      "name": "Teaser Card Style",
+      "description": "Choose the appearance of each post summary.",
+      "default": "standard_card",
+      "options": {
+        "standard_card": {
+          "name": "Standard Card",
+          "template": "partials/card.hbs"
+        },
+        "compact_list_item": {
+          "name": "Compact List Item",
+          "template": "partials/compact.hbs"
+        }
+      }
+    },
+    "item_page": {
+      "name": "Full Post Layout",
+      "description": "The layout for a single blog post.",
+      "default": "default",
+      "options": {
+        "default": {
+          "name": "Default Post",
+          "template": "item.hbs"
+        }
+      }
+    },
+    "taxonomy_term_page": {
+      "name": "Category Page Layout",
+      "description": "The layout for a category archive page.",
+      "default": "default",
+      "options": {
+        "default": {
+          "name": "Default Category Page",
+          "template": "category.hbs"
+        }
+      }
+    }
+  },
+
+  "itemSchema": {
+    "title": "Blog Post Fields",
+    "type": "object",
+    "properties": {
+      "featured_image": { "title": "Featured Image", "description": "The main image for this post, used in cards and social sharing.", "type": "string" },
+      "banner_image": { "title": "Banner Image", "description": "A wide image displayed at the top of the post.", "type": "string" },
+      "summary": { "title": "Post Summary", "description": "A short summary for teaser cards.", "type": "string", "format": "textarea" },
+      "author": { "title": "Author", "type": "string" },
+      "date": { "title": "Publication Date", "type": "string", "format": "date" },
+      "tags": { "title": "Tags", "type": "array", "items": { "type": "string" } },
+      "categories": {
+        "title": "Categories",
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "required": ["date"]
+  },
+  
+  "itemUiSchema": {
+    "featured_image": { "ui:widget": "imageUploader" },
+    "banner_image": { "ui:widget": "imageUploader" },
+    "categories": {
+      "ui:widget": "checkboxes",
+      "ui:options": {
+        "fromDataFile": {
+          "id": "categories",
+          "labelField": "name",
+          "valueField": "slug"
+        }
+      }
+    }
+  },
+
+  "image_presets": {
+    "og_image": { "source": "featured_image", "width": 1200, "height": 630, "crop": "fill" },
+    "banner": { "source": "banner_image", "width": 800, "crop": "scale" },
+    "teaser_thumbnail": { "source": "featured_image", "width": 400, "height": 300, "crop": "fill" }
+  },
+
+  "data_files": [
+    {
+      "id": "categories",
+      "path_template": "data/{{collection.slug}}_categories.json",
+      "schema": {
+        "type": "array",
+        "title": "Blog Categories",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string", "title": "Category Name" },
+            "slug": { "type": "string", "title": "URL Slug" },
+            "description": { "type": "string", "title": "Description", "format": "textarea" }
+          },
+          "required": ["name", "slug"]
+        }
+      },
+      "initial_content": []
+    }
+  ],
+  
+  "dynamic_routes": {
+    "category_archive": {
+      "description": "Generates a page for each category, listing all posts within it.",
+      "data_source": {
+        "id": "categories"
+      },
+      "path_template": "{{collection.slug}}/category/{{item.slug}}",
+      "layout": "category.hbs",
+      "content_filter": {
+        "by_frontmatter_field": "categories",
+        "contains_value_from": "slug"
       }
     }
   }
@@ -70,9 +220,86 @@ File: layouts/teaser/layout.json
 
 ================================================================================
 
-File: layouts/teaser/template.hbs
-{{! The context 'this' is a single content item (ParsedMarkdownFile) }}
-<div class="mb3 pb3 bb b--black-10">
+File: layouts/blog/item.hbs
+{{! layouts/blog/item.hbs }}
+<article class="prose">
+    {{!-- Use the 'banner' image preset defined in the layout.json --}}
+    {{#if images.banner}}
+        <figure class="banner-image-wrapper">
+            <img src="{{images.banner.url}}" alt="{{contentFile.frontmatter.title}} banner" class="w-100">
+        </figure>
+    {{/if}}
+    
+    <h1>{{contentFile.frontmatter.title}}</h1>
+
+    {{#if contentFile.frontmatter.date}}
+        <p class="text-sm text-muted-foreground -mt3">Published on {{formatDate contentFile.frontmatter.date}}</p>
+    {{/if}}
+
+    {{#if contentFile.frontmatter.summary}}
+      <p class="f4 i">{{contentFile.frontmatter.summary}}</p>
+    {{/if}}
+    
+    {{{markdown contentFile.content}}}
+</article>
+
+================================================================================
+
+File: layouts/blog/index.hbs
+{{! layouts/blog/index.hbs }}
+<article class="w-100">
+    <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
+    {{#if contentFile.frontmatter.description}}
+        <p class="lh-copy measure mb4">{{contentFile.frontmatter.description}}</p>
+    {{/if}}
+
+    <div class="item-loop">
+        {{#each collectionItems}}
+            {{!-- 
+              This generic helper is the key. It will look up the user's chosen teaser style
+              (e.g., 'standard_card') and render the correct partial for this item.
+            --}}
+            {{{render_item this}}}
+        {{/each}}
+    </div>
+
+    {{!-- The pager helper will only render if pagination data exists. --}}
+    {{{pager pagination}}}
+</article>
+
+================================================================================
+
+File: layouts/blog/category.hbs
+{{! layouts/blog/category.hbs }}
+<article class="w-100">
+    <h1 class="f1 fw8 mt0 mb3">Category: {{term.name}}</h1>
+    {{#if term.description}}
+        <p class="lh-copy measure mb4">{{term.description}}</p>
+    {{/if}}
+
+    <div class="item-loop">
+        {{#each collectionItems}}
+            {{{render_item this}}}
+        {{/each}}
+    </div>
+
+    {{{pager pagination}}}
+</article>
+
+================================================================================
+
+File: layouts/blog/partials/card.hbs
+{{! layouts/blog/partials/card.hbs }}
+{{! The context 'this' is an enriched item with its own `images` object. }}
+<div class="mb4 pb3 bb b--black-10">
+    
+    {{!-- Use the 'teaser_thumbnail' image preset. --}}
+    {{#if this.images.teaser_thumbnail}}
+        <a href="{{this.url}}" class="db link dim mb2">
+            <img src="{{this.images.teaser_thumbnail.url}}" width="{{this.images.teaser_thumbnail.width}}" height="{{this.images.teaser_thumbnail.height}}" alt="{{this.frontmatter.title}}" class="w-100 br2">
+        </a>
+    {{/if}}
+
     <a href="{{this.url}}" class="link black dim">
         <h3 class="f4 fw6 mv0">{{this.frontmatter.title}}</h3>
     </a>
@@ -85,41 +312,21 @@ File: layouts/teaser/template.hbs
 
 ================================================================================
 
-File: layouts/listing/layout.json
-{
-  "name": "Listing",
-  "version": "1.0.0",
-  "description": "A layout for pages that display lists of content, such as a blog index or project gallery.",
-  "layoutType": "list",
-  "files": [
-    { "path": "layout.json", "type": "manifest" },
-    { "path": "listing.hbs", "type": "template" }
-  ]
-}
-
-================================================================================
-
-File: layouts/listing/listing.hbs
-<article class="w-100">
-    <h1 class="f1 fw8 mt0 mb3">{{contentFile.frontmatter.title}}</h1>
-    {{#if contentFile.frontmatter.description}}
-        <p class="lh-copy measure mb4">{{contentFile.frontmatter.description}}</p>
+File: layouts/blog/partials/compact.hbs
+{{! layouts/blog/partials/compact.hbs }}
+<div class="flex items-center mb3 pb3 bb b--black-10">
+    {{#if this.images.teaser_thumbnail}}
+        <a href="{{this.url}}" class="w4 h3 mr3 flex-shrink-0 db link dim">
+            <img src="{{this.images.teaser_thumbnail.url}}" width="{{this.images.teaser_thumbnail.width}}" height="{{this.images.teaser_thumbnail.height}}" alt="{{this.frontmatter.title}}" class="w-100 h-100 br2 object-cover">
+        </a>
     {{/if}}
-
-    <div class="item-loop">
-        {{#each collectionItems}}
-            {{!-- Use the `assign` helper to add a `url` property to this item's context --}}
-            {{#assign this "url" (getUrlForNode this @root.options.isExport)}}
-                {{!-- Now, the item layout template will have access to {{this.url}} --}}
-                {{{render_layout_for_item this layout=@root.contentFile.frontmatter.collection.item_layout}}}
-            {{/assign}}
-        {{/each}}
+    <div class="flex-auto">
+        <a href="{{this.url}}" class="link black dim">
+            <h3 class="f5 fw6 mv0">{{this.frontmatter.title}}</h3>
+        </a>
+        <p class="f7 gray mt1 mb0">{{formatDate this.frontmatter.date}}</p>
     </div>
-
-    <div class="pager-wrapper mt4">
-        {{{pager pagination}}}
-    </div>
-</article>
+</div>
 
 ================================================================================
 
@@ -209,13 +416,20 @@ File: themes/default/base.hbs
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    {{!-- The head partial now receives its own scoped context --}}
     {{> head headContext}}
 </head>
 <body class="sans-serif">
     <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
         {{> header}}
         <main class="flex-auto mw8 center pa3 pa4-ns">
-            {{{body}}}
+            {{!-- 
+              --- FIX: Use the new async render_layout helper ---
+              This helper will render the layout specified by `pageLayoutName`
+              using the data from `pageContext`, and it will correctly `await`
+              any async helpers (like `{{{image}}}`) used inside it.
+            --}}
+            {{{render_layout pageLayoutName pageContext}}}
         </main>
         {{> footer}}
     </div>
@@ -433,70 +647,63 @@ File: themes/default/partials/footer.hbs
 
 File: themes/default/partials/head.hbs
 {{! src/partials/head.hbs }}
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{pageTitle}} | {{manifest.title}}</title>
-    
-    {{!-- SEO Tags --}}
-    {{!-- The canonical URL is now fully constructed by the theme engine for safety --}}
-    <link rel="canonical" href="{{canonicalUrl}}">
-    
-    {{!-- Other meta/OpenGraph/Twitter tags would also use the full canonicalUrl --}}
-    <meta property="og:url" content="{{canonicalUrl}}">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{pageTitle}} | {{manifest.title}}</title>
+<link rel="canonical" href="{{canonicalUrl}}">
 
-    
-    {{#if contentFile.frontmatter.description}}
-        <meta name="description" content="{{contentFile.frontmatter.description}}">
-    {{else if collectionNode.description}}
-        <meta name="description" content="{{collectionNode.description}}">
-    {{else}}
-        <meta name="description" content="{{manifest.description}}">
-    {{/if}}
+{{!-- Description Meta Tag --}}
+{{#if contentFile.frontmatter.description}}
+    <meta name="description" content="{{contentFile.frontmatter.description}}">
+{{else if collectionNode.description}}
+    <meta name="description" content="{{collectionNode.description}}">
+{{else}}
+    <meta name="description" content="{{manifest.description}}">
+{{/if}}
 
-    {{!-- Open Graph Tags (for Facebook, LinkedIn, etc.) --}}
-    <meta property="og:title" content="{{pageTitle}}">
-    {{#if contentFile.frontmatter.description}}
-        <meta property="og:description" content="{{contentFile.frontmatter.description}}">
-    {{else}}
-        <meta property="og:description" content="{{manifest.description}}">
-    {{/if}}
-    <meta property="og:url" content="{{manifest.baseUrl}}{{../pageUrl}}">
-    <meta property="og:site_name" content="{{manifest.title}}">
-    {{#if contentFile.frontmatter.image}}
-        <meta property="og:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
-    {{/if}}
-    <meta property="og:type" content="{{#if contentFile}}article{{else}}website{{/if}}">
+{{!-- Open Graph Tags (for Facebook, LinkedIn, etc.) --}}
+<meta property="og:title" content="{{pageTitle}}">
+{{#if contentFile.frontmatter.description}}
+    <meta property="og:description" content="{{contentFile.frontmatter.description}}">
+{{else}}
+    <meta property="og:description" content="{{manifest.description}}">
+{{/if}}
+<meta property="og:url" content="{{canonicalUrl}}">
+<meta property="og:site_name" content="{{manifest.title}}">
+<meta property="og:type" content="{{#if contentFile}}article{{else}}website{{/if}}">
 
-    {{!-- Twitter Card Tags --}}
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="{{pageTitle}}">
-    {{#if contentFile.frontmatter.description}}
-        <meta name="twitter:description" content="{{contentFile.frontmatter.description}}">
-    {{else}}
-        <meta name="twitter:description" content="{{manifest.description}}">
-    {{/if}}
-    {{#if contentFile.frontmatter.image}}
-        <meta name="twitter:image" content="{{manifest.baseUrl}}{{contentFile.frontmatter.image}}">
-    {{/if}}
+{{!-- Twitter Card Tags --}}
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{{pageTitle}}">
+{{#if contentFile.frontmatter.description}}
+    <meta name="twitter:description" content="{{contentFile.frontmatter.description}}">
+{{else}}
+    <meta name="twitter:description" content="{{manifest.description}}">
+{{/if}}
 
-    {{!-- Favicon Placeholder - Users should replace these --}}
-    {{#if faviconUrl}}
-        <link rel="icon" href="{{faviconUrl}}" sizes="any">
-        <link rel="apple-touch-icon" href="{{faviconUrl}}">
-    {{else}}
-        {{!-- Fallback to default public icons --}}
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-    {{/if}}
+{{#if contentFile.frontmatter.featured_image}}
+    <meta property="og:image" content="{{image_url src=contentFile.frontmatter.featured_image width=1200 height=630 crop='fill'}}">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta name="twitter:image" content="{{image_url src=contentFile.frontmatter.featured_image width=1200 height=630 crop='fill'}}">
+{{/if}}
+
+
+{{!-- Favicon Placeholder - Users should replace these --}}
+{{#if faviconUrl}}
+    <link rel="icon" href="{{faviconUrl}}" sizes="any">
+    <link rel="apple-touch-icon" href="{{faviconUrl}}">
+{{else}}
+    <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+{{/if}}
 
-     {{!-- STYLESHEETS --}}
-    <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
-    <link rel="stylesheet" href="{{baseUrl}}/themes/{{manifest.theme.name}}/css/theme.css">
+ {{!-- STYLESHEETS --}}
+<link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
+<link rel="stylesheet" href="{{baseUrl}}/themes/{{manifest.theme.name}}/css/theme.css">
 
-    {{!-- This is where the user's custom choices are injected as CSS variables --}}
-    {{{styleOverrides}}}
-
+{{!-- This is where the user's custom choices are injected as CSS variables --}}
+{{{styleOverrides}}}
 
 ================================================================================
 

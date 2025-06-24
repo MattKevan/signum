@@ -32,26 +32,29 @@ export const AUTOSAVE_DELAY = 2500;
  */
 export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 
+
 /**
- * The default layout path used for any new collection.
- * This ensures that when a user creates a new collection, it has a sensible
- * default appearance without requiring an immediate decision.
- * The path is relative to '/public/layouts/'.
- * e.g., 'listing'
+ * The master list of all built-in layouts. The system uses this
+ * array to discover and load all core layout manifests.
  */
-export const DEFAULT_VIEW_LAYOUT_PATH = 'listing';
-
 export const CORE_LAYOUTS: LayoutInfo[] = [
-  // Page Layouts
-  { id: 'page', name: 'Standard Page', type: 'page', path: 'page', description: "A clean, single-column page layout." },
-  // Add other page layouts like 'post' here if they exist
-
-  // List Layouts
-  { id: 'listing', name: 'Vertical List', type: 'list', path: 'listing', description: "A standard, top-to-bottom list of items." },
-  // Add other list layouts like 'grid' here if they exist
-
-  // Item Layouts
-  { id: 'teaser', name: 'Teaser Card', type: 'item', path: 'teaser', description: "A compact card with a title and summary." },
+  // --- Page Layouts ---
+  { 
+    id: 'page', 
+    name: 'Standard Page', 
+    type: 'page', // This type is used for initial filtering in dialogs
+    path: 'page', 
+    description: "A clean, single-column page layout." 
+  },
+  
+  // --- Collection Layouts ---
+  { 
+    id: 'blog', 
+    name: 'Blog Layout', 
+    type: 'collection', // This is critical for the "Create Collection" dialog
+    path: 'blog', 
+    description: "A full-featured layout for blog posts and categories."
+  },
 ];
 
 export const CORE_THEMES: ThemeInfo[] = [
@@ -76,23 +79,27 @@ export const DEFAULT_HOMEPAGE_CONFIG = {
 /**
  * The universal base schema for all content frontmatter.
  * This object is imported directly, eliminating network requests.
- * Fields like 'title' and 'description' are not included here because they
- * are handled by dedicated UI components, not the generic form generator.
  */
 export const BASE_SCHEMA: { schema: RJSFSchema; uiSchema: UiSchema } = {
   schema: {
     title: 'Base content fields',
     type: 'object',
     properties: {
+      // --- CORRECTED SECTION ---
+      featured_image: {
+        title: 'Featured Image',
+        description: 'The main image for this content, used in listings and social sharing.',
+        type: 'string',
+      },
+      banner_image: {
+        title: 'Banner Image',
+        description: 'A large, wide image for the top of the page.',
+        type: 'string', 
+      },
       slug: {
         type: 'string',
         title: 'Slug (URL Path)',
         description: 'The URL-friendly version of the title. Auto-generated, but can be edited.',
-      },
-      image: {
-        type: 'string',
-        title: 'Image',
-        description: 'URL or path to a featured image for this content.',
       },
       date: {
         type: 'string',
@@ -118,7 +125,15 @@ export const BASE_SCHEMA: { schema: RJSFSchema; uiSchema: UiSchema } = {
       },
     },
   },
-  uiSchema: {
+   uiSchema: {
+    featured_image: {
+      'ui:widget': 'imageUploader',
+      'ui:options': {
+      }
+    },
+    banner_image: {
+      'ui:widget': 'imageUploader',
+    },
     slug: {
       'ui:widget': 'hidden',
     },
@@ -130,3 +145,38 @@ export const BASE_SCHEMA: { schema: RJSFSchema; uiSchema: UiSchema } = {
     },
   },
 };
+
+export const MEMORY_CONFIG = {
+  /**
+   * The maximum file size in bytes for a single raster image upload (e.g., JPG, PNG).
+   * This is a critical check to prevent memory spikes from loading large files.
+   */
+  MAX_UPLOAD_SIZE: 5 * 1024 * 1024,      // 5MB upload limit
+
+  /**
+   * A stricter, smaller size limit for SVG files, as they are text-based and can
+   * contain excessively complex paths or malicious scripts.
+   */
+  MAX_SVG_SIZE: 512 * 1024,              // 512KB SVG limit
+
+  /**
+   * A list of supported image MIME types for backend validation.
+   * This ensures the application only processes file types it understands.
+   */
+  SUPPORTED_IMAGE_TYPES: [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml'
+  ] as const,
+
+  /**
+   * A list of supported file extensions for the UI file picker.
+   * This provides a better user experience by filtering files in the dialog.
+   */
+  SUPPORTED_EXTENSIONS: [
+    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg'
+  ] as const,
+
+} as const;

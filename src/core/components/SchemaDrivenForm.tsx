@@ -49,7 +49,7 @@ function CustomFieldTemplate(props: FieldTemplateProps) {
         </Label>
       )}
       
-      {description}
+      
       
       {children}
       

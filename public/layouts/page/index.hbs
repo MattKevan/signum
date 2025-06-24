@@ -1,0 +1,31 @@
+{{! layouts/page/page.hbs }}
+<article class="prose">
+    {{!-- 
+      Display a wide banner image at the top of the article if it exists.
+      We use the `{{{image}}}` helper to generate the full <img> tag.
+      `crop='scale'` will resize it to fit the width without distortion.
+    --}}
+    {{#if contentFile.frontmatter.banner_image}}
+        <figure class="banner-image-wrapper">
+            {{{image src=contentFile.frontmatter.banner_image width=800 crop='scale' class="w-100" alt=(concat contentFile.frontmatter.title " banner")}}}
+        </figure>
+    {{/if}}
+    
+    <h1>{{contentFile.frontmatter.title}}</h1>
+
+    {{!-- Display the featured image below the title if it exists. --}}
+    {{#if contentFile.frontmatter.featured_image}}
+        <figure class="featured-image-wrapper">
+            {{{image src=contentFile.frontmatter.featured_image width=600 crop='scale' class="db center" alt=contentFile.frontmatter.title}}}
+        </figure>
+    {{/if}}
+
+    <p class="f4">{{contentFile.frontmatter.description}} </p>
+    
+    {{{markdown contentFile.content}}}
+
+    {{#if collectionItems}}
+        <hr/>
+        {{{render_collection}}}
+    {{/if}}
+</article>

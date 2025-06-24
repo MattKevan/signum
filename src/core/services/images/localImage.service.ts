@@ -5,11 +5,14 @@ import * as localSiteFs from '@/core/services/localFileSystem.service';
 import { slugify } from '@/core/libraries/utils';
 import { getCachedDerivative, setCachedDerivative, getAllCacheKeys } from './derivativeCache.service';
 import imageCompression from 'browser-image-compression';
+import { MEMORY_CONFIG } from '@/config/editorConfig';
+import { toast } from 'sonner';
 
 /**
  * This service manages images stored locally within the browser's IndexedDB.
  * It handles uploading, generating transformed "derivatives" (e.g., thumbnails),
  * caching those derivatives for performance, and bundling all necessary assets for a static site export.
+ * It acts as the "backend" for the local storage image strategy.
  */
 
 // In-memory caches to reduce redundant processing and DB reads within a session.
@@ -59,7 +62,37 @@ class LocalImageService implements ImageService {
   id = 'local';
   name = 'Store in Site Bundle';
 
+  /**
+   * Validates and uploads a user-provided image file.
+   * This is the primary entry point for adding a new local image asset. It performs
+   * validation against `MEMORY_CONFIG` before saving the file to IndexedDB.
+   * @param {File} file The user's selected file.
+   * @param {string} siteId The ID of the site the image belongs to.
+   * @returns {Promise<ImageRef>} A promise that resolves to an ImageRef object representing the saved file.
+   * @throws {Error} If the file type is unsupported or the file size exceeds the configured limits.
+   */
   public async upload(file: File, siteId: string): Promise<ImageRef> {
+    // --- Validation Block ---
+    const isSvg = file.type === 'image/svg+xml';
+
+    // 1. Check if the MIME type is supported.
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+      const errorMsg = `Unsupported file type: ${file.type}.`;
+      toast.error(errorMsg);
+      throw new Error(errorMsg);
+    }
+
+    // 2. Check if the file exceeds its specific size limit.
+    const maxSize = isSvg ? MEMORY_CONFIG.MAX_SVG_SIZE : MEMORY_CONFIG.MAX_UPLOAD_SIZE;
+    if (file.size > maxSize) {
+        const maxSizeFormatted = (maxSize / 1024 / (isSvg ? 1 : 1024)).toFixed(1);
+        const unit = isSvg ? 'KB' : 'MB';
+        const errorMsg = `Image is too large. Max size is ${maxSizeFormatted}${unit}.`;
+        toast.error(errorMsg);
+        throw new Error(errorMsg);
+    }
+    // --- End Validation Block ---
+
     const extIndex = file.name.lastIndexOf('.');
     if (extIndex === -1) {
       throw new Error("Uploaded file is missing an extension.");
@@ -72,7 +105,6 @@ class LocalImageService implements ImageService {
 
     await localSiteFs.saveImageAsset(siteId, relativePath, file as Blob);
 
-    // For SVGs, width/height can be 0, which is acceptable.
     const { width, height } = await getImageDimensions(file as Blob);
 
     return {
@@ -84,68 +116,72 @@ class LocalImageService implements ImageService {
     };
   }
 
+  /**
+   * Generates a URL for an image, potentially creating a transformed derivative.
+   * It handles SVGs, cached derivatives, and new processing requests.
+   * @param {Manifest} manifest The site's manifest.
+   * @param {ImageRef} ref The reference to the source image.
+   * @param {ImageTransformOptions} options The requested transformations (width, height, etc.).
+   * @param {boolean} isExport If true, returns a relative path for static export. If false, returns a temporary `blob:` URL for live preview.
+   * @returns {Promise<string>} A promise that resolves to the displayable URL or relative path.
+   */
   public async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions, isExport: boolean): Promise<string> {
-
-    // Check if the image is an SVG. If so, bypass all derivative processing.
-    const isSvg = ref.src.toLowerCase().endsWith('.svg');
-    if (isSvg) {
-      if (isExport) {
-        // For static exports, simply return the original, relative path.
-        return ref.src;
-      }
-      // For live preview display, get the original SVG blob and create a temporary object URL.
+    // SVGs are returned directly without processing.
+    if (ref.src.toLowerCase().endsWith('.svg')) {
+      if (isExport) return ref.src;
       const sourceBlob = await this.getSourceBlob(manifest.siteId, ref.src);
       return URL.createObjectURL(sourceBlob);
     }
-    // --- END SVG FIX ---
 
+    // Construct a unique filename and cache key for the requested derivative.
     const { width, height, crop = 'scale', gravity = 'center' } = options;
     const extIndex = ref.src.lastIndexOf('.');
     if (extIndex === -1) throw new Error("Source image has no extension.");
     
     const pathWithoutExt = ref.src.substring(0, extIndex);
     const ext = ref.src.substring(extIndex);
-
-    // This is the public-facing filename for the generated derivative.
     const derivativeFileName = `${pathWithoutExt}_w${width || 'auto'}_h${height || 'auto'}_c-${crop}_g-${gravity}${ext}`;
-
-    // --- FIX #1: SCOPED CACHE KEY ---
-    // The key used for the IndexedDB cache is now namespaced with the siteId.
     const cacheKey = `${manifest.siteId}/${derivativeFileName}`;
 
     const finalBlob = await this.getOrProcessDerivative(manifest.siteId, ref.src, cacheKey, options);
     
-    // For export, return the relative filename. For display, create a temporary URL.
     return isExport ? derivativeFileName : URL.createObjectURL(finalBlob);
   }
 
   /**
-   * Core processing pipeline. It checks caches and processes the image
-   * only if necessary, preventing race conditions and improving quality.
+   * Retrieves a derivative blob, either from the cache or by initiating a new processing job.
+   * This method uses an in-memory map of promises to prevent race conditions where the same
+   * derivative is requested multiple times before the first job completes.
+   * @private
+   * @param {string} siteId The site's ID.
+   * @param {string} srcPath The path to the original source image.
+   * @param {string} cacheKey The unique, namespaced key for the derivative.
+   * @param {ImageTransformOptions} options The transformation options.
+   * @returns {Promise<Blob>} A promise that resolves to the final derivative blob.
    */
   private async getOrProcessDerivative(siteId: string, srcPath: string, cacheKey: string, options: ImageTransformOptions): Promise<Blob> {
+    // 1. Check persistent cache (IndexedDB) first.
     const cachedBlob = await getCachedDerivative(cacheKey);
     if (cachedBlob) return cachedBlob;
 
+    // 2. Check if this exact derivative is already being processed.
     if (processingPromises.has(cacheKey)) return processingPromises.get(cacheKey)!;
     
+    // 3. If not, create and store a new processing promise.
     const processingPromise = (async (): Promise<Blob> => {
       try {
         const sourceBlob = await this.getSourceBlob(siteId, srcPath);
-        
-        // Get original dimensions to prevent upscaling.
         const sourceDimensions = await getImageDimensions(sourceBlob);
 
         const compressionOptions: CompressionOptions = {
             maxSizeMB: 1.5,
-            initialQuality: 0.85, // Increased from 0.8 for better quality.
+            initialQuality: 0.85,
             useWebWorker: true,
             exifOrientation: -1,
         };
 
+        // Prevent upscaling by capping requested dimensions at the source's dimensions.
         const { width, height, crop } = options;
-
-        // Cap requested dimensions at the source's dimensions to prevent upscaling and pixelation.
         const targetWidth = width ? Math.min(width, sourceDimensions.width) : undefined;
         const targetHeight = height ? Math.min(height, sourceDimensions.height) : undefined;
 
@@ -154,20 +190,17 @@ class LocalImageService implements ImageService {
           compressionOptions.maxHeight = targetHeight;
         } else {
           const maxDim = Math.max(targetWidth || 0, targetHeight || 0);
-          // Only set maxWidthOrHeight if a dimension was actually requested.
-          if (maxDim > 0) {
-            compressionOptions.maxWidthOrHeight = maxDim;
-          }
+          if (maxDim > 0) compressionOptions.maxWidthOrHeight = maxDim;
         }
-        // --- END IMAGE QUALITY FIX ---
 
         console.log(`[ImageService] Processing new derivative: ${cacheKey}`);
         const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
         
+        // 4. Store the result in the persistent cache.
         await setCachedDerivative(cacheKey, derivativeBlob);
-        
         return derivativeBlob;
       } finally {
+        // 5. Clean up the promise map once the job is complete.
         processingPromises.delete(cacheKey);
       }
     })();
@@ -176,6 +209,14 @@ class LocalImageService implements ImageService {
     return processingPromise;
   }
 
+  /**
+   * Retrieves the original source image blob, using an in-memory cache for the current session
+   * to avoid repeated reads from IndexedDB.
+   * @private
+   * @param {string} siteId The site's ID.
+   * @param {string} srcPath The path of the source image to retrieve.
+   * @returns {Promise<Blob>} A promise that resolves to the source image blob.
+   */
   private async getSourceBlob(siteId: string, srcPath: string): Promise<Blob> {
     let sourceBlob = sourceImageCache.get(srcPath);
     if (!sourceBlob) {
@@ -187,6 +228,12 @@ class LocalImageService implements ImageService {
     return sourceBlob;
   }
 
+  /**
+   * Gathers all assets (source images and cached derivatives) needed for a full site export.
+   * @param {string} siteId The ID of the site to export.
+   * @param {ImageRef[]} allImageRefs An array of all image references found in the site's content and manifest.
+   * @returns {Promise<{ path: string; data: Blob; }[]>} A promise resolving to an array of assets to be zipped.
+   */
   public async getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]> {
     const exportableMap = new Map<string, Blob>();
     
@@ -200,15 +247,10 @@ class LocalImageService implements ImageService {
       }
     }
     
-    // 2. Get derivative keys ONLY for the current siteId.
+    // 2. Add all of this site's existing derivatives from the cache to the export map.
     const derivativeKeys = await getAllCacheKeys(siteId);
-
-    // 3. Add all of this site's derivatives to the export map.
     for (const key of derivativeKeys) {
-      // The key is in the format "siteId/path/to/image.jpg"
-      // The filename for the ZIP archive should only be "path/to/image.jpg"
       const filename = key.substring(siteId.length + 1);
-
       if (!exportableMap.has(filename)) {
         const derivativeBlob = await getCachedDerivative(key);
         if (derivativeBlob) {
@@ -216,10 +258,10 @@ class LocalImageService implements ImageService {
         }
       }
     }
-    // --- END SCOPED EXPORT FIX ---
     
     return Array.from(exportableMap.entries()).map(([path, data]) => ({ path, data }));
   }
 }
 
+// Export a singleton instance of the service.
 export const localImageService = new LocalImageService();

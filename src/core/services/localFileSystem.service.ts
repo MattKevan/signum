@@ -30,6 +30,11 @@ const siteImageAssetsStore = localforage.createInstance({
   storeName: 'siteImageAssets',
 });
 
+const siteDataFilesStore = localforage.createInstance({
+  name: DB_NAME,
+  storeName: 'siteDataFiles',
+});
+
 // --- Function to load only manifests for a fast initial load ---
 export async function loadAllSiteManifests(): Promise<Manifest[]> {
   const manifests: Manifest[] = [];
@@ -200,4 +205,36 @@ export async function getAllImageAssetsForSite(siteId: string): Promise<Record<s
  */
 export async function saveAllImageAssetsForSite(siteId: string, assets: Record<string, Blob>): Promise<void> {
   await siteImageAssetsStore.setItem(siteId, assets);
+}
+
+/**
+ * Saves a single data file (e.g., categories.json) for a site.
+ * @param siteId The ID of the site.
+ * @param dataFilePath The path to the data file (e.g., 'data/blog_categories.json').
+ * @param content The JSON string content to save.
+ */
+export async function saveDataFile(siteId: string, dataFilePath: string, content: string): Promise<void> {
+    const dataFileMap = await siteDataFilesStore.getItem<Record<string, string>>(siteId) || {};
+    dataFileMap[dataFilePath] = content;
+    await siteDataFilesStore.setItem(siteId, dataFileMap);
+}
+
+/**
+ * Retrieves the content of a single data file for a site.
+ * @param siteId The ID of the site.
+ * @param dataFilePath The path to the data file.
+ * @returns The file's content as a string, or null if not found.
+ */
+export async function getDataFileContent(siteId: string, dataFilePath: string): Promise<string | null> {
+    const dataFileMap = await siteDataFilesStore.getItem<Record<string, string>>(siteId);
+    return dataFileMap?.[dataFilePath] || null;
+}
+
+/**
+ * Retrieves all data files for a site as a path-to-content map.
+ * @param siteId The ID of the site.
+ * @returns A record mapping data file paths to their string content.
+ */
+export async function getAllDataFiles(siteId: string): Promise<Record<string, string>> {
+    return (await siteDataFilesStore.getItem<Record<string, string>>(siteId)) || {};
 }

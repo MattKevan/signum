@@ -8,28 +8,29 @@ import {
     LayoutInfo,
     ThemeInfo,
     RawFile,
+    DisplayOption,
+    ImageTransformOptions
 } from '@/core/types';
 
-// --- Type Definitions ---
+// ============================================================================
+// TYPE DEFINITIONS FOR LAYOUT AND THEME MANIFESTS
+// ============================================================================
 
+/** A stricter version of UiSchema for internal use, allowing for custom grouping options. */
 export type StrictUiSchema = UiSchema & { 'ui:groups'?: { title: string; fields: string[] }[] };
 
-export type AssetFileType =
-  | 'manifest'
-  | 'base'
-  | 'template'
-  | 'partial'
-  | 'stylesheet'
-  | 'script'
-  | 'asset';
+/** Defines the types of files that can be declared in an asset manifest. */
+export type AssetFileType = 'manifest' | 'base' | 'template' | 'partial' | 'stylesheet' | 'script' | 'asset';
 
+/** Represents a single file entry within an asset manifest's `files` array. */
 export interface AssetFile {
   path: string;
   type: AssetFileType;
+  /** A name used for registering partials (e.g., 'header', 'footer'). */
   name?: string;
 }
 
-/** The base properties shared by all asset manifests. */
+/** The base properties shared by all asset manifests (layouts and themes). */
 export interface BaseAssetManifest {
   name: string;
   version: string;
@@ -40,45 +41,115 @@ export interface BaseAssetManifest {
 
 /** The structure of a theme.json file. */
 export interface ThemeManifest extends BaseAssetManifest {
+  /** A JSON schema defining theme-wide appearance options (colors, fonts). */
   appearanceSchema?: RJSFSchema;
 }
+/**
+ * Defines a single, named image transformation preset within a layout.
+ */
+interface ImagePreset extends ImageTransformOptions {
+    /** The frontmatter field to use as the source for this image (e.g., "featured_image"). */
+    source: string;
+}
 
-/** The structure of a layout.json file. */
+/**
+ * Defines the structure of a single entry in a layout's `data_files` array.
+ */
+interface DataFileDefinition {
+  id: string;
+  path_template: string;
+  schema: RJSFSchema;
+  initial_content: any[];
+}
+
+/**
+ * Defines the structure of a single entry in a layout's `dynamic_routes` map.
+ */
+interface DynamicRoute {
+  data_source: { id: string; };
+  path_template: string;
+  layout: string;
+  content_filter: {
+    by_frontmatter_field: string;
+    contains_value_from: string;
+  };
+}
+
+/** 
+ * The structure for a layout.json file. It defines a self-contained
+ * layout bundle, including its data requirements and display options.
+ */
 export interface LayoutManifest extends BaseAssetManifest {
   id: string;
-  layoutType: 'page' | 'list' | 'item';
-  schema?: RJSFSchema;
+  /** The fundamental type of the layout: 'page' for single content, 'collection' for groups. */
+  layoutType: 'page' | 'collection';
+  /** For Collection Layouts, this defines the schema for each item in the collection. */
+  itemSchema?: RJSFSchema;
+  /** The corresponding UI Schema for the itemSchema. */
+  itemUiSchema?: StrictUiSchema;
+  /** A map of user-selectable display variants (e.g., list vs. grid view). */
+  display_options?: Record<string, DisplayOption>;
+  image_presets?: Record<string, ImagePreset>;
+  data_files?: DataFileDefinition[];
+  dynamic_routes?: Record<string, DynamicRoute>;
+  /** For Page/Collection Layouts, this defines the schema for the page itself. */
+   schema?: RJSFSchema;
+  /** The corresponding UI Schema for the main schema. */
   uiSchema?: StrictUiSchema;
 }
 
+/** A minimal subset of site data needed by the asset helper functions. */
 export type SiteDataForAssets = Pick<LocalSiteData, 'manifest' | 'layoutFiles' | 'themeFiles'>;
 
-// --- Helper Functions ---
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
 
+/** An in-memory cache to prevent re-fetching public asset files during a session. */
 const fileContentCache = new Map<string, Promise<string | null>>();
 
-// --- FIX: Exported the helper functions for use in siteBackup.service ---
 /**
  * Checks if a given theme path corresponds to a core (built-in) theme.
  * @param path The path/ID of the theme (e.g., 'default').
- * @returns {boolean} True if the theme is a core theme.
  */
 export const isCoreTheme = (path: string) => CORE_THEMES.some((t: ThemeInfo) => t.path === path);
 
 /**
  * Checks if a given layout path corresponds to a core (built-in) layout.
- * @param path The path/ID of the layout (e.g., 'page', 'listing').
- * @returns {boolean} True if the layout is a core layout.
+ * @param path The path/ID of the layout (e.g., 'page', 'blog').
  */
 export const isCoreLayout = (path: string) => CORE_LAYOUTS.some((l: LayoutInfo) => l.id === path);
 
 /**
- * Provides a base schema for all content, ensuring common fields are available.
- * @returns An object containing the base RJSFSchema and UiSchema.
+ * A helper function to merge multiple JSON Schemas into one.
+ * It combines properties and required fields from all provided schemas.
  */
-function getBaseSchema(): { schema: RJSFSchema, uiSchema: UiSchema } {
-    return BASE_SCHEMA;
+export function mergeSchemas(...schemas: (RJSFSchema | null | undefined)[]): RJSFSchema {
+    const finalSchema: RJSFSchema = { type: 'object', properties: {}, required: [] };
+    for (const schema of schemas) {
+        if (schema?.properties) {
+            finalSchema.properties = { ...finalSchema.properties, ...schema.properties };
+        }
+        if (schema?.required) {
+            finalSchema.required = [...new Set([...(finalSchema.required || []), ...schema.required])];
+        }
+    }
+    return finalSchema;
 }
+
+/**
+ * A helper function to merge multiple UI Schemas into one.
+ */
+export function mergeUiSchemas(...schemas: (UiSchema | null | undefined)[]): UiSchema {
+    let finalUiSchema: UiSchema = {};
+    for (const schema of schemas) {
+        if (schema) {
+            finalUiSchema = { ...finalUiSchema, ...schema };
+        }
+    }
+    return finalUiSchema;
+}
+
 
 /**
  * Fetches the raw string content of a theme or layout asset.
@@ -99,6 +170,8 @@ export async function getAssetContent(siteData: SiteDataForAssets, assetType: 't
       fileContentCache.set(sourcePath, promise);
       return promise;
     } else {
+      // Logic for custom, user-uploaded layouts/themes would go here.
+      // For now, it reads from the in-memory store.
       const fileStore: RawFile[] | undefined =
           assetType === 'theme' ? siteData.themeFiles
           : assetType === 'layout' ? siteData.layoutFiles
@@ -110,7 +183,7 @@ export async function getAssetContent(siteData: SiteDataForAssets, assetType: 't
 }
 
 /**
- * A generic function to fetch and parse any JSON asset manifest (theme, layout).
+ * A generic function to fetch and parse any JSON asset manifest (theme.json, layout.json).
  */
 export async function getJsonAsset<T>(siteData: SiteDataForAssets, assetType: 'theme' | 'layout', path: string, fileName: string): Promise<T | null> {
     const content = await getAssetContent(siteData, assetType, path, fileName);
@@ -123,69 +196,56 @@ export async function getJsonAsset<T>(siteData: SiteDataForAssets, assetType: 't
     }
 }
 
-/**
- * Merges a layout's specific schema with the universal base schema.
- */
-function mergeSchemas(base: RJSFSchema, specific?: RJSFSchema): RJSFSchema {
-    if (!specific) return { ...base };
-    return {
-        ...base,
-        ...specific,
-        properties: { ...(base.properties || {}), ...(specific.properties || {}) },
-        required: [...new Set([...(base.required || []), ...(specific.required || [])])]
-    };
-}
-
-// --- Public API ---
+// ============================================================================
+// PUBLIC API
+// ============================================================================
 
 /**
  * Gets a list of all available themes (core and custom).
  */
+/**
+ * Gets a list of all available themes (core and custom) for a site.
+ * This is used to populate the theme selection dropdown in the site settings.
+ * It ensures that custom themes from the site's manifest are included and
+ * that there are no duplicates if a custom theme shares an ID with a core theme.
+ * @param {Manifest | undefined} manifest The site's manifest, which may contain a list of custom themes.
+ * @returns {ThemeInfo[]} A de-duplicated array of all available themes.
+ */
 export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
+  // Start with a fresh copy of the core, built-in themes.
   const available = [...CORE_THEMES];
+  
+  // If a manifest is provided and it contains custom theme definitions...
   if (manifest?.themes) {
-    const customThemes = manifest.themes.filter(ct => !available.some(coreT => coreT.path === ct.path));
+    // Filter the custom themes to only include those that don't already exist in the core list.
+    // This prevents duplicates and ensures core themes can't be accidentally overridden by name.
+    const customThemes = manifest.themes.filter(customTheme => 
+      !available.some(coreTheme => coreTheme.path === customTheme.path)
+    );
+    // Add the unique custom themes to the list.
     available.push(...customThemes);
   }
+  
   return available;
 }
 
 /**
- * Fetches and processes the manifest for a specific layout, merging its
- * schema with the base content schema.
+ * Fetches and processes the manifest for a specific layout.
+ * This is a simple fetch-and-parse operation now, as schema merging is handled
+ * by the component that needs it (e.g., FrontmatterSidebar).
+ *
+ * @param siteData The site's data.
+ * @param layoutPath The ID of the layout to fetch (e.g., 'blog').
+ * @returns The parsed LayoutManifest object, or null if not found.
  */
 export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath: string): Promise<LayoutManifest | null> {
-    const layoutManifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
-    const baseSchemaData = getBaseSchema();
-
-    if (!layoutManifest) {
-      // Fallback for a missing layout.json.
-      return {
-          id: layoutPath,
-          name: layoutPath,
-          version: '1.0.0',
-          layoutType: 'page',
-          files: [],
-          schema: baseSchemaData.schema,
-          uiSchema: baseSchemaData.uiSchema,
-      }
-    }
-
-    layoutManifest.schema = mergeSchemas(baseSchemaData.schema, layoutManifest.schema);
-    layoutManifest.uiSchema = { ...baseSchemaData.uiSchema, ...(layoutManifest.uiSchema || {}) };
-
-    if (layoutManifest.schema?.properties) {
-      delete layoutManifest.schema.properties.title;
-      delete layoutManifest.schema.properties.description;
-      delete layoutManifest.schema.properties.slug;
-    }
-
-    return { ...layoutManifest, id: layoutPath };
+    return getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
 }
 
 /**
  * Gets a list of the full manifest objects for all available layouts,
- * optionally filtered by a specific layout type.
+ * optionally filtered by a specific layout type ('page' or 'collection').
+ * This is used to populate UI dropdowns for layout selection.
  */
 export async function getAvailableLayouts(
   siteData: SiteDataForAssets,

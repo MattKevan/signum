@@ -16,6 +16,7 @@ import { Label } from "@/core/components/ui/label";
 import { Plus } from 'lucide-react';
 import type { MarkdownFrontmatter } from '@/core/types';
 //import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
+import { getAvailableLayouts, LayoutManifest } from '@/core/services/configHelpers.service';
 
 interface CreateCollectionPageDialogProps {
   siteId: string;
@@ -35,8 +36,30 @@ export default function CreateCollectionPageDialog({ siteId, children, onComplet
   const [slug, setSlug] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
+  const [selectedLayoutId, setSelectedLayoutId] = useState<string>('');
+  
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { addOrUpdateContentFile } = useAppStore.getState();
+
+
+  useEffect(() => {
+    async function fetchCollectionLayouts() {
+      if (isOpen && site) {
+        const collectionLayouts = await getAvailableLayouts(site, 'collection'); // Keep this filter here for the dialog
+        setAvailableLayouts(collectionLayouts);
+        if (collectionLayouts.length > 0) {
+          // --- THIS IS THE FIX ---
+          // Explicitly set the 'blog' layout as the default if it exists,
+          // otherwise fall back to the first one.
+          const blogLayout = collectionLayouts.find(l => l.id === 'blog');
+          setSelectedLayoutId(blogLayout ? blogLayout.id : collectionLayouts[0].id);
+        }
+      }
+    }
+    fetchCollectionLayouts();
+  }, [isOpen, site]);
+
 
   useEffect(() => {
     setSlug(slugify(name));

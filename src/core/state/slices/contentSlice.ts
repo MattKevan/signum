@@ -2,8 +2,9 @@
 import { StateCreator } from 'zustand';
 import { produce } from 'immer';
 import { toast } from 'sonner';
-import { ParsedMarkdownFile, StructureNode } from '@/core/types';
+import { ParsedMarkdownFile, StructureNode, LocalSiteData } from '@/core/types';
 import * as localSiteFs from '@/core/services/localFileSystem.service';
+import { getLayoutManifest, LayoutManifest } from '@/core/services/configHelpers.service';
 import {
   findAndRemoveNode,
   updatePathsRecursively,
@@ -13,7 +14,68 @@ import {
 import { SiteSlice } from '@/core/state/slices/siteSlice';
 import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markdownParser';
 
-// Helper function remains the same.
+/**
+ * A simple template renderer for path strings.
+ * Replaces {{key}} with the corresponding value from the context object.
+ * @param {string} templateString - The string containing placeholders (e.g., "data/{{collection.slug}}_categories.json").
+ * @param {Record<string, any>} context - An object with keys matching the placeholders.
+ * @returns {string} The resolved string.
+ */
+function renderPathTemplate(templateString: string, context: Record<string, any>): string {
+    let result = templateString;
+    const regex = /{{\s*([^}]+)\s*}}/g;
+    let match;
+    while ((match = regex.exec(templateString)) !== null) {
+        const keyPath = match[1]; // e.g., 'collection.slug'
+        const keys = keyPath.split('.');
+        let value: any = context;
+        for (const k of keys) {
+            value = value?.[k];
+        }
+        
+        // --- FIX: Ensure the replacement value is a primitive before calling replace. ---
+        // This prevents passing an object to String.prototype.replace().
+        if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            result = result.replace(match[0], String(value));
+        } else {
+            console.warn(`[renderPathTemplate] Could not resolve complex value for placeholder: ${match[0]}`);
+        }
+    }
+    return result;
+}
+
+/**
+ * Checks a layout manifest for a `data_files` contract and initializes any
+ * missing data files for the site. This is a critical part of the "plug-and-play"
+ * layout system.
+ * @param {LocalSiteData} site The full site data object.
+ * @param {LayoutManifest} layoutManifest The manifest of the layout being applied.
+ * @param {ParsedMarkdownFile} collectionPageFile The content file for the collection page itself.
+ */
+async function initializeLayoutDataFiles(site: LocalSiteData, layoutManifest: LayoutManifest, collectionPageFile: ParsedMarkdownFile) {
+    if (!layoutManifest.data_files || layoutManifest.data_files.length === 0) {
+        return; // No data files to initialize for this layout.
+    }
+
+    const allDataFiles = await localSiteFs.getAllDataFiles(site.siteId);
+
+    for (const dataFileDef of layoutManifest.data_files) {
+        const pathContext = { collection: { slug: collectionPageFile.slug } };
+        const finalPath = renderPathTemplate(dataFileDef.path_template, pathContext);
+
+        // Only create the file if it does not already exist.
+        if (!allDataFiles[finalPath]) {
+            console.log(`[Data Init] Data file not found at "${finalPath}". Creating...`);
+            const initialContent = JSON.stringify(dataFileDef.initial_content || [], null, 2);
+            await localSiteFs.saveDataFile(site.siteId, finalPath, initialContent);
+            toast.info(`Initialized data file for "${dataFileDef.id}".`);
+        }
+    }
+}
+
+/**
+ * Helper function to update file paths in an array of content files.
+ */
 const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldPath: string; newPath:string }[]): ParsedMarkdownFile[] => {
     const pathMap = new Map(pathsToMove.map(p => [p.oldPath, p.newPath]));
     return files.map(file => {
@@ -22,10 +84,15 @@ const updateContentFilePaths = (files: ParsedMarkdownFile[], pathsToMove: { oldP
             const newSlug = newPath.split('/').pop()?.replace('.md', '') ?? '';
             return { ...file, path: newPath, slug: newSlug };
         }
+        // --- FIX: Always return the file, even if it hasn't changed. ---
+        // This ensures the .map() function doesn't return `undefined`.
         return file;
     });
 };
 
+/**
+ * The interface for all actions related to content file management.
+ */
 export interface ContentSlice {
   addOrUpdateContentFile: (siteId: string, filePath: string, rawMarkdownContent: string) => Promise<boolean>;
   deleteContentFileAndState: (siteId: string, filePath: string) => Promise<void>;
@@ -33,8 +100,14 @@ export interface ContentSlice {
   updateContentFileOnly: (siteId: string, savedFile: ParsedMarkdownFile) => Promise<void>;
 }
 
+/**
+ * Creates the content management slice of the Zustand store.
+ */
 export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], ContentSlice> = (set, get) => ({
 
+  /**
+   * A lightweight action to save changes to an existing file without modifying the site structure.
+   */
   updateContentFileOnly: async (siteId, savedFile) => {
     await localSiteFs.saveContentFile(siteId, savedFile.path, stringifyToMarkdown(savedFile.frontmatter, savedFile.content));
     set(produce((draft: SiteSlice) => {
@@ -47,23 +120,37 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     }));
   },
 
+  /**
+   * The primary action for creating or updating a content file. This function is now responsible
+   * for initializing associated data files when a new Collection Page is created.
+   */
   addOrUpdateContentFile: async (siteId, filePath, rawMarkdownContent) => {
     const site = get().getSiteById(siteId);
     if (!site) return false;
 
+    // --- Standard logic for parsing and saving the file ---
+    let { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
     const isFirstFile = site.manifest.structure.length === 0 && !site.contentFiles?.some(f => f.path === filePath);
-    let { frontmatter } = parseMarkdownString(rawMarkdownContent);
-    const { content } = parseMarkdownString(rawMarkdownContent);
-
     if (isFirstFile) {
         toast.info("First page created. It has been set as the permanent homepage.");
         frontmatter = { ...frontmatter, homepage: true };
         rawMarkdownContent = stringifyToMarkdown(frontmatter, content);
     }
-    
     const savedFile = await localSiteFs.saveContentFile(siteId, filePath, rawMarkdownContent);
     const isNewFileInStructure = !findNodeByPath(site.manifest.structure, filePath);
 
+    // --- NEW: Data File Initialization Logic ---
+    // If we are creating a new Collection Page, check its layout for data dependencies.
+    if (isNewFileInStructure && savedFile.frontmatter.collection) {
+        const layoutManifest = await getLayoutManifest(site, savedFile.frontmatter.layout);
+        if (layoutManifest) {
+            // Call the helper to create any missing data files.
+            await initializeLayoutDataFiles(site, layoutManifest, savedFile);
+        }
+    }
+    // --- END NEW ---
+
+    // --- Standard logic for updating the manifest and in-memory state ---
     const newManifest = produce(site.manifest, draft => {
       if (isNewFileInStructure) {
         const newNode: StructureNode = {

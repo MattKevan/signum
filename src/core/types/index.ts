@@ -1,42 +1,78 @@
-// src/types/index.ts
+// src/core/types/index.ts
+
+import { RJSFSchema, UiSchema } from '@rjsf/utils';
+
+// ============================================================================
+// NEW & REFACTORED TYPES FOR THE LAYOUT-DRIVEN ARCHITECTURE
+// ============================================================================
+
+/**
+ * Represents a single choice within a `DisplayOption` variant group.
+ * e.g., A "Grid View" option within a "Listing Style" variant.
+ */
+export interface DisplayOptionChoice {
+  name: string;
+  description?: string;
+  template: string;
+}
+
+/**
+ * Defines a group of user-selectable display variants in a layout manifest.
+ * e.g., The "Listing Style" variant, which contains "List" and "Grid" options.
+ */
+export interface DisplayOption {
+  name: string;
+  description?: string;
+  default: string;
+  options: Record<string, DisplayOptionChoice>;
+}
+
+/**
+ * Represents the configuration stored in the frontmatter of a "Collection Page".
+ * It stores the user's selected keys from the `display_options` defined in the layout.
+ */
+export interface CollectionConfig {
+  [key: string]: string | number | undefined;
+  sort_by?: string;
+  sort_order?: 'asc' | 'desc';
+  items_per_page?: number;
+}
+
+/**
+ * Represents metadata for a layout asset in the file system.
+ */
+export interface LayoutInfo {
+  id: string;
+  name: string;
+  type: 'page' | 'collection';
+  path: string;
+  description?: string;
+}
+
+// ============================================================================
+// CORE DATA STRUCTURES
+// ============================================================================
 
 /**
  * Represents a node in the site's hierarchical structure, as defined in `manifest.json`.
- * Every node is a page, which can have child pages nested under it.
- * Whether a page acts as a "Collection Page" is determined by its frontmatter,
- * not by a property on this node.
  */
 export interface StructureNode {
-  type: 'page'; // The 'type' is now always 'page'.
+  type: 'page';
   title: string;
   menuTitle?: string;
-  path: string; // The full path to the .md file (e.g., 'content/blog.md').
-  slug: string; // The URL-friendly version of the path (e.g., 'blog').
+  path: string;
+  slug: string;
   navOrder?: number;
   children?: StructureNode[];
   [key: string]: unknown;
 }
 
 /**
- * Represents the theme configuration saved in the manifest, including
- * the theme's name and any user-defined overrides.
+ * Represents the theme-specific appearance configuration saved in the manifest.
  */
 export interface ThemeConfig {
   name: string;
-  config: {
-    [key: string]: string | boolean | number;
-  };
-}
-
-/**
- * Represents metadata for a layout asset, used for populating UI selectors.
- */
-export interface LayoutInfo {
-  id: string;
-  name: string;
-  type: 'page' | 'list' | 'item';
-  path: string;
-  description?: string;
+  config: Record<string, string | boolean | number>;
 }
 
 /**
@@ -47,27 +83,6 @@ export interface ThemeInfo {
   name: string;
   path: string;
 }
-
-/**
- * Defines the structure for a remote data source query (future feature).
- */
-export interface DataSourceConfig {
-  url: string;
-  format: 'json' | 'csv';
-  array_path?: string; // e.g., "results.items" for nested JSON
-}
-
-
-
-export interface CollectionConfig {
-  item_layout: string;
-  item_page_layout: string; 
-  sort_by?: string;
-  sort_order?: 'asc' | 'desc';
-  items_per_page?: number;
-  // Future: filter config
-}
-
 
 /**
  * Represents the fields within a content file's YAML frontmatter.
@@ -81,7 +96,7 @@ export interface MarkdownFrontmatter {
 }
 
 /**
- * Represents a raw markdown file that has been parsed from storage into its constituent parts.
+ * Represents a raw markdown file that has been parsed from storage.
  */
 export interface ParsedMarkdownFile {
   slug: string;
@@ -112,8 +127,7 @@ export interface PaginationData {
 }
 
 /**
- * Represents the main `manifest.json` file for a single site. This is the
- * top-level configuration and site map.
+ * Represents the main `manifest.json` file for a single site.
  */
 export interface Manifest {
   siteId: string;
@@ -146,13 +160,16 @@ export interface LocalSiteData {
   contentFiles?: ParsedMarkdownFile[];
   layoutFiles?: RawFile[];
   themeFiles?: RawFile[];
+  dataFiles?: Record<string, string>; // Added for storing data like categories.json
   secrets?: SiteSecrets;
-  // Future: viewFiles?: RawFile[]
 }
+
+// ============================================================================
+// DERIVED & HELPER TYPES FOR RENDERING
+// ============================================================================
 
 /**
  * Represents a link used for rendering navigation menus.
- * This is a derived type, not part of the core manifest data.
  */
 export interface NavLinkItem {
   href: string;
@@ -166,25 +183,67 @@ export interface NavLinkItem {
  */
 export enum PageType {
   SinglePage,
+  DynamicPage, // Added for dynamically generated pages like category archives
   NotFound,
 }
 
 /**
- * Represents the complete, resolved data package for a single page render.
- * This object is the output of the pageResolver and the input for the themeEngine.
+ * Represents a single term from a taxonomy data file (e.g., a single category).
  */
-export type PageResolutionResult = {
-  type: PageType.SinglePage;
+export interface TaxonomyTerm {
+  slug: string;
+  name: string;
+  description?: string;
+  [key: string]: unknown; // Allows for other properties
+}
+
+/**
+ * The base structure for a page resolution result, containing common properties.
+ */
+interface BasePageResolution {
   pageTitle: string;
-  contentFile: ParsedMarkdownFile;
   layoutPath: string;
   collectionItems?: ParsedMarkdownFile[]; 
   pagination?: PaginationData;
-} | {
-  type: PageType.NotFound;
-  errorMessage: string;
-};
+}
 
+/**
+ * Represents the resolved data for a standard, static page from the `structure.json`.
+ */
+interface SinglePageResolution extends BasePageResolution {
+  type: PageType.SinglePage;
+  contentFile: ParsedMarkdownFile;
+}
+
+/**
+ * --- NEW ---
+ * Represents the resolved data for a dynamically generated page, like a category archive.
+ * It includes the `term` (e.g., the specific category object) that this page represents.
+ */
+interface DynamicPageResolution extends BasePageResolution {
+  type: PageType.DynamicPage;
+  /** The content file of the parent collection (e.g., the main 'blog' page). */
+  contentFile: ParsedMarkdownFile;
+  /** The specific taxonomy term object (e.g., the category) this page is for. */
+  term: TaxonomyTerm;
+}
+
+/**
+ * Represents the complete, resolved data package for any page render.
+ * This is the primary object passed to the theme engine.
+ */
+export type PageResolutionResult = 
+  | SinglePageResolution
+  | DynamicPageResolution
+  | {
+      type: PageType.NotFound;
+      errorMessage: string;
+    };
+
+
+// ============================================================================
+// IMAGE & SERVICE TYPES
+// ============================================================================
 
 /** The storable reference to an uploaded image. This goes in frontmatter. */
 export interface ImageRef {
@@ -195,12 +254,11 @@ export interface ImageRef {
   height?: number;
 }
 
-/** Transformation options requested by a template's image helper. */
+/** Transformation options requested by the theme engine. */
 export interface ImageTransformOptions {
   width?: number;
   height?: number;
-  // --- FIX: Adopt Cloudinary's 'crop' and 'gravity' terminology ---
-  crop?: 'fill' | 'fit' | 'scale'; // 'scale' is a simple resize, 'fit' is letterbox, 'fill' is crop
+  crop?: 'fill' | 'fit' | 'scale';
   gravity?: 'center' | 'north' | 'south' | 'east' | 'west' | 'auto';
   format?: 'webp' | 'avif' | 'jpeg';
 }
@@ -214,8 +272,7 @@ export interface ImageService {
   getExportableAssets(siteId: string, allImageRefs: ImageRef[]): Promise<{ path: string; data: Blob; }[]>;
 }
 
-// Define the shape of the secrets object for a site.
-
+/** Defines the shape of the sensitive, non-public data for a site. */
 export interface SiteSecrets {
   cloudinary?: {
     uploadPreset?: string;
