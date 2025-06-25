@@ -65,7 +65,21 @@ export default function LeftSidebar() {
 
   const flattenedItems = useMemo(() => {
     if (!site?.manifest.structure || !site.contentFiles) return [];
-    return flattenTree(site.manifest.structure, site.contentFiles);
+    const allItems = flattenTree(site.manifest.structure, site.contentFiles);
+    
+    // Filter out collection items - they should not appear in the main file tree
+    // Only show collection pages themselves and regular pages
+    return allItems.filter(item => {
+      // Keep the item if it's a collection page (has collection frontmatter)
+      if (item.frontmatter?.collection) return true;
+      
+      // Keep the item if it's not a child of another item (depth 0 = top level)
+      if (item.depth === 0) return true;
+      
+      // For nested items, only keep if parent is NOT a collection
+      const parentItem = allItems.find(parent => parent.path === item.parentId);
+      return !parentItem?.frontmatter?.collection;
+    });
   }, [site?.manifest.structure, site?.contentFiles]);
   
   const homepageItem = useMemo(() => flattenedItems.find(item => item.frontmatter?.homepage === true), [flattenedItems]);

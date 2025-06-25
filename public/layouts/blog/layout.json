@@ -3,6 +3,14 @@
   "version": "1.2.0",
   "layoutType": "collection",
   "description": "A full-featured layout for blog posts and categories.",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "index.hbs", "type": "template" },
+    { "path": "item.hbs", "type": "template" },
+    { "path": "category.hbs", "type": "template" },
+    { "path": "partials/card.hbs", "type": "partial", "name": "card" },
+    { "path": "partials/compact.hbs", "type": "partial", "name": "compact" }
+  ],
   
   "display_options": {
     "listingStyle": {
@@ -14,7 +22,7 @@
         "grid_view": { "name": "Grid", "template": "grid-index.hbs" }
       }
     },
-    "teaserStyle": {
+    "teaser": {
       "name": "Summary Style",
       "description": "Choose the appearance of each post summary in the list.",
       "default": "standard_card",

@@ -34,9 +34,15 @@ async function cacheAllTemplates(siteData: LocalSiteData): Promise<void> {
     const allLayouts = await getAvailableLayouts(siteData);
     
     const layoutPromises = allLayouts.flatMap(layout =>
-        layout.files.map(async file => {
+        (layout.files || []).map(async file => {
             const source = await getAssetContent(siteData, 'layout', layout.id, file.path);
-            if (source) Handlebars.registerPartial(file.name || `${layout.id}/${file.path.replace('.hbs', '')}`, source);
+            if (source) {
+                // Register partials with namespaced names to match render_item helper expectations
+                const partialName = file.type === 'partial' ? 
+                    `${layout.id}/${file.path.replace('.hbs', '')}` : 
+                    (file.name || `${layout.id}/${file.path.replace('.hbs', '')}`);
+                Handlebars.registerPartial(partialName, source);
+            }
         })
     );
 

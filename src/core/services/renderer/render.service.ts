@@ -65,7 +65,7 @@ export async function render(
     // 4. Compile and Render Body
     const bodyTemplatePath = getBodyTemplatePath(resolution, pageLayoutManifest);
     const bodyTemplateSource = await getAssetContent(synchronizedSiteData, 'layout', resolution.layoutPath, bodyTemplatePath);
-    if (!bodyTemplateSource) throw new Error(`Body template not found: ${bodyTemplatePath}`);
+    if (!bodyTemplateSource) throw new Error(`Body template not found: layouts/${resolution.layoutPath}/${bodyTemplatePath}`);
     const bodyHtml = Handlebars.compile(bodyTemplateSource)(pageContext);
 
     // 5. Compile and Render Final Page Shell

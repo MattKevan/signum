@@ -5,7 +5,7 @@
   "layoutType": "page",
   "files": [
     { "path": "layout.json", "type": "manifest" },
-    { "path": "page.hbs", "type": "template" }
+    { "path": "index.hbs", "type": "template" }
   ],
   "schema": {
     "title": "Page Options",

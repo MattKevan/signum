@@ -60,14 +60,31 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
       let markdownContent = '';
 
       if (isNewFileMode) {
-        // Setup for a brand new, unsaved file.
-        setFrontmatter({
-          title: '',
-          layout: DEFAULT_PAGE_LAYOUT_PATH,
-          date: new Date().toISOString().split('T')[0],
-          status: 'draft',
-        });
-        markdownContent = '# Start Writing...';
+        // Check if this is a collection item by looking at the parent directory
+        const parentPath = `${filePath}.md`; // Convert parent dir to collection page path
+        const parentFile = site.contentFiles.find(f => f.path === parentPath);
+        const isCollectionItem = !!parentFile?.frontmatter.collection;
+        
+        if (isCollectionItem) {
+          // Setup for a new collection item - use parent's item_layout or empty string
+          const itemLayout = String(parentFile?.frontmatter.collection?.item_layout || '');
+          setFrontmatter({
+            title: '',
+            layout: itemLayout,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+          });
+        } else {
+          // Setup for a brand new regular page
+          setFrontmatter({
+            title: '',
+            layout: DEFAULT_PAGE_LAYOUT_PATH,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+          });
+        }
+        
+        markdownContent = 'Start writing...';
         setSlug('');
       } else {
         // **The Core Fix: Read directly from the hydrated Zustand store.**

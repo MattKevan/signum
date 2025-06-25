@@ -33,7 +33,11 @@ function buildNavLinks(
         href = `${options.siteRootPath}${path === '/' ? '' : path}`;
       }
 
-      const children = (node.children && node.children.length > 0)
+      // Filter out collection items from navigation
+      const nodeFile = siteData.contentFiles?.find(f => f.path === node.path);
+      const isCollectionPage = !!nodeFile?.frontmatter.collection;
+      
+      const children = (node.children && node.children.length > 0 && !isCollectionPage)
         ? buildNavLinks(siteData, node.children, currentPagePath, options)
         : [];
 

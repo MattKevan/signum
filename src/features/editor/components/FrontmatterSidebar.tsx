@@ -4,7 +4,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Manifest, RawFile, StructureNode, ParsedMarkdownFile, MarkdownFrontmatter } from '@/core/types';
 import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
-import { findNodeByPath } from '@/core/services/fileTree.service';
 
 // UI Component Imports
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
@@ -59,13 +58,42 @@ export default function FrontmatterSidebar({
     const isCollection = !!frontmatter.collection;
     if (isCollection) return { isCollectionPage: true, isCollectionItem: false, parentFile: null };
     
-    const node = findNodeByPath(manifest.structure, filePath);
-    if (node?.parentId) {
-      const pFile = allContentFiles.find(f => f.path === node.parentId);
-      if (pFile?.frontmatter.collection) return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+    // For new files, check if the parent directory is a collection
+    if (isNewFileMode) {
+      const parentPath = `${filePath}.md`; // Convert parent dir to collection page path
+      const pFile = allContentFiles.find(f => f.path === parentPath);
+      if (pFile?.frontmatter.collection) {
+        return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+      }
+    } else {
+      // For existing files, check if this file is a child of a collection page by searching the structure
+      function findParentCollection(nodes: StructureNode[], targetPath: string): string | null {
+        for (const node of nodes) {
+          if (node.children) {
+            // Check if targetPath is in this node's children
+            const isChild = node.children.some(child => child.path === targetPath);
+            if (isChild) {
+              return node.path;
+            }
+            // Recursively search in children
+            const found = findParentCollection(node.children, targetPath);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      
+      const parentPath = findParentCollection(manifest.structure, filePath);
+      if (parentPath) {
+        const pFile = allContentFiles.find(f => f.path === parentPath);
+        if (pFile?.frontmatter.collection) {
+          return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+        }
+      }
     }
+    
     return { isCollectionPage: false, isCollectionItem: false, parentFile: null };
-  }, [frontmatter.collection, manifest.structure, allContentFiles, filePath]);
+  }, [frontmatter.collection, manifest.structure, allContentFiles, filePath, isNewFileMode]);
 
   const currentLayoutManifest = useMemo(() => {
     if (!frontmatter.layout) return null;

@@ -1,5 +1,6 @@
 // src/core/services/rendering/context.service.ts
 
+import Handlebars from 'handlebars';
 import {
     LocalSiteData,
     PageResolutionResult,
@@ -14,6 +15,7 @@ import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateStyleOverrides } from './asset.service';
 import { RenderOptions } from './render.service';
+import { getRelativePath } from '@/core/services/relativePaths.service';
 
 // Define a reusable type for the resolved image presets.
 type ResolvedImagePresets = Record<string, { url: string; width?: number; height?: number }>;
@@ -60,7 +62,7 @@ async function resolveImagePresets(context: {
 export async function assemblePageContext(
     siteData: LocalSiteData,
     resolution: PageResolutionResult,
-    options: Pick<RenderOptions, 'isExport'>,
+    options: RenderOptions,
     imageService: ImageService,
     pageLayoutManifest: LayoutManifest | null
 ): Promise<EnrichedPageContext> {
@@ -72,18 +74,35 @@ export async function assemblePageContext(
     const imageContext = await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: resolution.contentFile, options, manifest });
 
     const processedCollectionItems = resolution.collectionItems
-        ? await Promise.all(resolution.collectionItems.map(async (item: ParsedMarkdownFile) => ({
-            ...item,
-            images: await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: item, options, manifest }),
-        })))
+        ? await Promise.all(resolution.collectionItems.map(async (item: ParsedMarkdownFile) => {
+            const urlSegment = getUrlForNode(item, manifest, options.isExport);
+            const currentPagePath = getUrlForNode(resolution.contentFile, manifest, options.isExport);
+            
+            let itemUrl: string;
+            if (options.isExport) {
+                itemUrl = getRelativePath(currentPagePath, urlSegment);
+            } else {
+                const path = `/${urlSegment}`.replace(/\/$/, '') || '/';
+                itemUrl = `${options.siteRootPath}${path === '/' ? '' : path}`;
+            }
+            
+            return {
+                ...item,
+                url: itemUrl,
+                images: await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: item, options, manifest }),
+            };
+        }))
         : [];
 
-    return {
+    const result = {
         ...resolution,
         images: imageContext,
         collectionItems: processedCollectionItems,
         layoutManifest: pageLayoutManifest,
     };
+
+
+    return result;
 }
 
 /**

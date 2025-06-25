@@ -68,11 +68,11 @@ export const renderItemHelper: SignumHelper = () => ({
     // The partial name is namespaced to prevent collisions, e.g., 'blog/partials/card'.
     const partialName = `${layoutId}/${templatePath.replace('.hbs', '')}`;
 
-    const template = Handlebars.partials[partialName];
+    const templateSource = Handlebars.partials[partialName];
 
-    if (template) {
-        // This is a synchronous call because all async data (like image URLs)
-        // has been pre-resolved by the theme engine and added to the `item` object.
+    if (templateSource) {
+        // Compile the template source and render with the item context
+        const template = typeof templateSource === 'function' ? templateSource : Handlebars.compile(templateSource);
         const renderedHtml = template(item);
         return new Handlebars.SafeString(renderedHtml);
     } else {

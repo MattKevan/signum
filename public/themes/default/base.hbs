@@ -9,12 +9,8 @@
     <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
         {{> header}}
         <main class="flex-auto mw8 center pa3 pa4-ns">
-            {{!-- 
-              This helper will render the layout specified by `pageLayoutName`
-              using the data from `pageContext`, and it will correctly `await`
-              any async helpers (like `{{{image}}}`) used inside it.
-            --}}
-            {{{render_layout pageLayoutName pageContext}}}
+            {{!-- The body content is pre-rendered by the render service --}}
+            {{{body}}}
         </main>
         {{> footer}}
     </div>
