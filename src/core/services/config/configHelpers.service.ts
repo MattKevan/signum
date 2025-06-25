@@ -239,7 +239,12 @@ export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
  * @returns The parsed LayoutManifest object, or null if not found.
  */
 export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath: string): Promise<LayoutManifest | null> {
-    return getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
+    const manifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
+    if (manifest) {
+        // Set the id field from the layoutPath since it's not included in the JSON files
+        manifest.id = layoutPath;
+    }
+    return manifest;
 }
 
 /**

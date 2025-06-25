@@ -52,7 +52,6 @@ export default function HomePageDashboard() {
    */
   const finishImport = useCallback(async (data: LocalSiteData & { imageAssetsToSave?: Record<string, Blob> }) => {
     try {
-      // --- FIX: Separate the binary data from the serializable data ---
       // The `imageAssetsToSave` property is transient and must not be passed
       // to the main `addSite` action, as it will cause a serialization error.
       const { imageAssetsToSave, ...siteDataToSave } = data;

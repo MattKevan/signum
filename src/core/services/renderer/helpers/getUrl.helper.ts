@@ -13,7 +13,7 @@ export const getUrlHelper: SignumHelper = (siteData) => ({
    * @example
    * <a href="{{getUrlForNode this isExport=../options.isExport}}">Link</a>
    */
-  // --- FIX: Corrected the function signature to match SignumHelperFunction ---
+
   getUrlForNode: function(this: unknown, ...args: unknown[]): string {
     // The options object from Handlebars is always the last argument.
     const options = args.pop() as HelperOptions;
@@ -30,7 +30,6 @@ export const getUrlHelper: SignumHelper = (siteData) => ({
         return '#error-invalid-node';
     }
 
-    // --- FIX: Pass the required `manifest` object from the factory's scope ---
     // The utility function needs the full manifest to determine if the node is the homepage.
     return getUrlUtil(node, siteData.manifest, isExport);
   }

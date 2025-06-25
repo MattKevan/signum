@@ -18,8 +18,6 @@ import { RenderOptions } from './render.service';
 // Define a reusable type for the resolved image presets.
 type ResolvedImagePresets = Record<string, { url: string; width?: number; height?: number }>;
 
-// FIX 1: Define the final, fully-typed EnrichedPageContext.
-// This now includes a specific type for nested images and the layoutManifest.
 type EnrichedPageContext = (PageResolutionResult & {
     images?: ResolvedImagePresets;
     collectionItems?: (ParsedMarkdownFile & { images?: ResolvedImagePresets })[];
@@ -80,8 +78,6 @@ export async function assemblePageContext(
         })))
         : [];
 
-    // FIX 2: The return object now perfectly matches the EnrichedPageContext type,
-    // including the layoutManifest property.
     return {
         ...resolution,
         images: imageContext,

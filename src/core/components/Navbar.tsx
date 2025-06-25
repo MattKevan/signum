@@ -32,13 +32,6 @@ export default function Navbar() {
     if (remoteUrl.trim()) {
       try {
         const url = new URL(remoteUrl.trim()); // Basic URL validation
-        // We need a way to signify this is a remote URL to our browsing pages.
-        // Option 1: Special prefix for siteId, e.g., "remote::http://localhost:8080"
-        // Option 2: A different route, e.g., /browse/remote?url=...
-        // Option 3: Pass state via router.push (can be complex with SSR/layouts)
-
-        // Let's use Option 1: Prefix the siteId with "remote@" or similar marker
-        // and encode the URL. The browsing page will then decode it.
         const encodedUrl = encodeURIComponent(url.origin); // Use origin (scheme + hostname + port)
         router.push(`/remote@${encodedUrl}`); // Navigate to /remote@http%3A%2F%2Flocalhost%3A8080
         setRemoteUrl(''); // Clear input

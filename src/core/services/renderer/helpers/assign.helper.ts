@@ -12,7 +12,7 @@ export const assignHelper: SignumHelper = () => ({
    *   <a href="{{this.newUrl}}">{{this.title}}</a>
    * {{/assign}}
    */
-  // --- FIX: The function signature now correctly matches SignumHelperFunction ---
+
   assign: function(this: unknown, ...args: unknown[]): string {
     // The last argument passed by Handlebars is always the options object.
     const options = args.pop() as HelperOptions;

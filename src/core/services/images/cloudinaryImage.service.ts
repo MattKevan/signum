@@ -6,7 +6,6 @@ import { fill, fit, scale } from "@cloudinary/url-gen/actions/resize";
 import { Gravity } from "@cloudinary/url-gen/qualifiers/gravity";
 import { format, quality } from "@cloudinary/url-gen/actions/delivery";
 
-// --- FIX: Added types for Cloudinary upload widget for type safety ---
 interface UploadWidgetResultInfo {
   public_id: string;
   version: number;
@@ -56,7 +55,6 @@ class CloudinaryImageService implements ImageService {
           }
 
           if (result && result.event === 'success') {
-            // FIX: Removed unused `version` and `format` variables.
             const { public_id, width, height } = result.info;
             const srcPath = public_id;
             
@@ -72,7 +70,6 @@ class CloudinaryImageService implements ImageService {
     });
   }
 
-  // FIX: Removed unused `isExport` parameter.
   async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions): Promise<string> {
     const cloudName = manifest.settings?.cloudinary?.cloudName;
     if (!cloudName) return ''; // Return empty string or a placeholder if not configured
@@ -98,7 +95,6 @@ class CloudinaryImageService implements ImageService {
     return cldImage.toURL();
   }
 
-  // FIX: Removed unused `siteId` and `allImageRefs` parameters.
   async getExportableAssets(): Promise<{ path: string; data: Blob; }[]> {
     // Cloudinary assets are remote, so there are no local files to export.
     return Promise.resolve([]);

@@ -44,7 +44,6 @@ export default function CreateSitePage() {
     setIsLoading(true);
     try {
       const newSiteId = generateSiteId(siteTitle);
-      // [FIX] Use the hydrateTheme function as intended.
        const { initialConfig } = await getMergedThemeDataForForm(selectedTheme.path, {});
       
       const newManifest: Manifest = {

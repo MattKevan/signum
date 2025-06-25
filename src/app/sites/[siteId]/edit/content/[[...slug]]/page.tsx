@@ -30,10 +30,11 @@ function EditContentPageInternal() {
   const activeSiteId = useAppStore(state => state.activeSiteId);
   const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
   
-  // --- FIX: Destructure the site object into the granular props needed by child hooks/components ---
   const siteStructure = site?.manifest.structure || [];
   const allContentFiles = site?.contentFiles || [];
-
+  const siteManifest = site?.manifest;
+  const siteLayoutFiles = site?.layoutFiles;
+  const siteThemeFiles = site?.themeFiles;
   // Pass the new granular props to the hook.
   const { siteId, isNewFileMode, filePath } = usePageIdentifier({ siteStructure, allContentFiles });
   
@@ -45,13 +46,17 @@ function EditContentPageInternal() {
 
   const rightSidebarComponent = useMemo(() => {
     // We add a guard to ensure siteId is available before rendering.
-    if (status !== 'ready' || !frontmatter || !siteId) return null;
-    return (
+  if (status !== 'ready' || !frontmatter || !siteId || !siteManifest) {
+      return null;
+    }    
+    
+  return (
       <FrontmatterSidebar
         siteId={siteId}
         filePath={filePath}
-        // FIX: Pass the granular props, not the whole site object.
-        siteStructure={siteStructure}
+        manifest={siteManifest}
+        layoutFiles={siteLayoutFiles}
+        themeFiles={siteThemeFiles}
         allContentFiles={allContentFiles}
         frontmatter={frontmatter}
         onFrontmatterChange={handleFrontmatterChange}

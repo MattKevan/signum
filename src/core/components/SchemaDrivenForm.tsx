@@ -77,7 +77,6 @@ function CustomObjectFieldTemplate(props: ObjectFieldTemplateProps) {
 }
 
 // --- Custom Submit Button Template (to hide it) ---
-// FIXED: The 'props' parameter was defined but never used, so it has been removed.
 function HideSubmitButton() {
     return null;
 }

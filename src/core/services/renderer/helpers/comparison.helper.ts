@@ -20,7 +20,7 @@ export const comparisonHelpers: SignumHelper = () => ({
    * Only compares numbers or strings. Returns false for other types.
    */
   gt: (a: unknown, b: unknown): boolean => {
-    // --- FIX: Add type guards to safely perform the comparison ---
+
     // Only proceed if both 'a' and 'b' are of the same comparable type.
     if (typeof a === 'number' && typeof b === 'number') {
       return a > b;
@@ -37,7 +37,7 @@ export const comparisonHelpers: SignumHelper = () => ({
    * Only compares numbers or strings. Returns false for other types.
    */
   lt: (a: unknown, b: unknown): boolean => {
-    // --- FIX: Add type guards to safely perform the comparison ---
+
     if (typeof a === 'number' && typeof b === 'number') {
       return a < b;
     }

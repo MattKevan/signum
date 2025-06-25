@@ -9,7 +9,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
 import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form
 
-// --- FIX: Define the complete form data shape in one place ---
 interface PageFormData {
   title: string;
   description: string;
@@ -26,7 +25,6 @@ export default function SiteSettingsPage() {
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
 
-  // --- FIX: Manage the entire form's data in a single state object ---
   const [formData, setFormData] = useState<PageFormData | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -97,7 +95,6 @@ export default function SiteSettingsPage() {
       </div>
 
       <div className="border-t pt-6">
-        {/* --- FIX: Render the single, encapsulated form component --- */}
         <SiteSettingsForm
           siteId={siteId}
           formData={formData}

@@ -106,7 +106,7 @@ export async function importSiteFromZip(zipFile: File): Promise<LocalSiteData & 
         }
     }
 
-    // --- FIX: Use Promise.all with JSZip's forEach callback for async operations ---
+
     const themePromises: Promise<RawFile>[] = [];
     signumFolder.folder('themes')?.forEach((relativePath, fileObject) => {
         if (!fileObject.dir) {

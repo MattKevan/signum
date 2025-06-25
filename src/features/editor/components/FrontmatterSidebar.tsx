@@ -2,7 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { StructureNode, ParsedMarkdownFile, MarkdownFrontmatter } from '@/core/types';
+import { Manifest, RawFile, StructureNode, ParsedMarkdownFile, MarkdownFrontmatter } from '@/core/types';
 import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
 import { findNodeByPath } from '@/core/services/fileTree.service';
 
@@ -21,7 +21,9 @@ import AdvancedSettingsForm from '@/features/editor/components/forms/AdvancedSet
 interface FrontmatterSidebarProps {
   siteId: string;
   filePath: string;
-  siteStructure: StructureNode[];
+  manifest: Manifest;
+  layoutFiles: RawFile[] | undefined;
+  themeFiles: RawFile[] | undefined;
   allContentFiles: ParsedMarkdownFile[];
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (newFrontmatter: Partial<MarkdownFrontmatter>) => void;
@@ -31,47 +33,41 @@ interface FrontmatterSidebarProps {
   onDelete: () => Promise<void>;
 }
 
-/**
- * REFACTORED: The orchestrator for the editor's right sidebar.
- * This version uses a declarative approach. UI state is derived directly
- * from the `frontmatter` props, ensuring the sidebar reacts instantly
- * to changes in the selected Content Type.
- */
 export default function FrontmatterSidebar({
-  siteId, filePath, siteStructure, allContentFiles,
+  siteId, filePath, manifest, layoutFiles, themeFiles, allContentFiles,
   frontmatter, onFrontmatterChange, isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
 
-  // 1. STATE MANAGEMENT: Simplified to just the master list of all possible layouts.
   const [allLayouts, setAllLayouts] = useState<LayoutManifest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAllLayouts() {
-      setIsLoading(true);
-      // getAvailableLayouts needs a minimal site-like object, which we can construct.
-      const minimalSiteData = { manifest: { structure: siteStructure }, contentFiles: allContentFiles };
-      const layouts = await getAvailableLayouts(minimalSiteData);
+      // Ensure we don't re-fetch if already loading
+      if (!isLoading) setIsLoading(true);
+      
+      const siteDataForAssets = { manifest, layoutFiles, themeFiles };
+      const layouts = await getAvailableLayouts(siteDataForAssets);
       setAllLayouts(layouts);
       setIsLoading(false);
     }
     fetchAllLayouts();
-  }, [siteStructure, allContentFiles]);
+    // This effect should only re-run if the core site assets change.
+  }, [manifest, layoutFiles, themeFiles]);
 
   const { isCollectionPage, isCollectionItem, parentFile } = useMemo(() => {
     const isCollection = !!frontmatter.collection;
     if (isCollection) return { isCollectionPage: true, isCollectionItem: false, parentFile: null };
     
-    const node = findNodeByPath(siteStructure, filePath);
+    const node = findNodeByPath(manifest.structure, filePath);
     if (node?.parentId) {
       const pFile = allContentFiles.find(f => f.path === node.parentId);
       if (pFile?.frontmatter.collection) return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
     }
     return { isCollectionPage: false, isCollectionItem: false, parentFile: null };
-  }, [frontmatter.collection, siteStructure, allContentFiles, filePath]);
+  }, [frontmatter.collection, manifest.structure, allContentFiles, filePath]);
 
-  // 3. KEY CHANGE: Derive the current layout manifest and filtered lists declaratively.
-   const currentLayoutManifest = useMemo(() => {
+  const currentLayoutManifest = useMemo(() => {
     if (!frontmatter.layout) return null;
     return allLayouts.find(l => l.id === frontmatter.layout) ?? null;
   }, [allLayouts, frontmatter.layout]);
@@ -81,23 +77,26 @@ export default function FrontmatterSidebar({
     return allLayouts.find(l => l.id === parentFile.frontmatter.layout) ?? null;
   }, [allLayouts, isCollectionItem, parentFile]);
 
-  // Filter the list for the Content Type dropdown based on the page's role.
   const availableContentTypes = useMemo(() => {
     const requiredType = isCollectionPage ? 'collection' : 'page';
-    return allLayouts.filter(layout => layout.layoutType === requiredType);
+    const filtered = allLayouts.filter(layout => layout.layoutType === requiredType);
+
+    // De-duplicate by id to prevent React key warnings
+    const unique = Array.from(new Map(filtered.map(item => [item.id, item])).values());
+    return unique;
+    
   }, [allLayouts, isCollectionPage]);
 
-  // Callback for when the user selects a new Content Type.
   const handleContentTypeChange = useCallback((newLayoutId: string) => {
     onFrontmatterChange({ layout: newLayoutId });
   }, [onFrontmatterChange]);
 
-  // 4. RENDER LOGIC: Structure the JSX according to the new design.
+  // FIX #2: Add a loading guard to prevent rendering with incomplete data.
+  // This ensures `currentLayoutManifest` is populated before children render.
   if (isLoading || !frontmatter) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading settings...</div>;
+    return <div className="p-4 text-sm text-center text-muted-foreground">Loading settings...</div>;
   }
 
-  // Define default open sections for the accordion.
   const defaultOpenSections = ['content-type', 'metadata', 'advanced'];
   if (isCollectionPage) {
     defaultOpenSections.push('list-settings');
@@ -108,22 +107,19 @@ export default function FrontmatterSidebar({
       <div className="flex-grow overflow-y-auto p-3">
         <Accordion type="multiple" defaultValue={defaultOpenSections} className="w-full">
           
-          {/* Section: Content Type Selector */}
-          {/* Only shown for pages that can change their type (not collection items) */}
           {!isCollectionItem && (
             <AccordionItem value="content-type">
               <AccordionTrigger>Content Type</AccordionTrigger>
               <AccordionContent className="pt-4">
                 <ContentTypeSelector
                   availableTypes={availableContentTypes}
-                  selectedType={frontmatter.layout}
+                  selectedType={frontmatter.layout || (isCollectionPage ? 'blog' : 'page')}
                   onChange={handleContentTypeChange}
                 />
               </AccordionContent>
             </AccordionItem>
           )}
 
-          {/* Section: Collection-Specific Settings */}
           {isCollectionPage && (
             <AccordionItem value="list-settings">
               <AccordionTrigger>List Settings</AccordionTrigger>
@@ -137,7 +133,6 @@ export default function FrontmatterSidebar({
             </AccordionItem>
           )}
 
-          {/* Section: Metadata (fields from layout + core) */}
           <AccordionItem value="metadata">
             <AccordionTrigger>Metadata</AccordionTrigger>
             <AccordionContent className="pt-4">
@@ -145,14 +140,12 @@ export default function FrontmatterSidebar({
                 siteId={siteId}
                 frontmatter={frontmatter}
                 onFrontmatterChange={onFrontmatterChange}
-                // For an item, its metadata fields come from the PARENT's layout manifest
                 layoutManifest={isCollectionItem ? parentLayoutManifest : currentLayoutManifest}
                 isCollectionItem={isCollectionItem}
               />
             </AccordionContent>
           </AccordionItem>
 
-          {/* Section: Advanced Settings */}
           <AccordionItem value="advanced">
             <AccordionTrigger>Advanced</AccordionTrigger>
             <AccordionContent className="space-y-4 pt-4">

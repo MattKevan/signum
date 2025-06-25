@@ -12,6 +12,13 @@ interface ContentTypeSelectorProps {
 }
 
 export default function ContentTypeSelector({ availableTypes, selectedType, onChange }: ContentTypeSelectorProps) {
+  console.log('🎯 ContentTypeSelector Debug:', {
+    availableTypes_length: availableTypes.length,
+    availableTypes_items: availableTypes.map(t => ({ id: t.id, name: t.name, hasId: !!t.id })),
+    selectedType,
+    selectedType_type: typeof selectedType
+  });
+  
   const selectedTypeManifest = availableTypes.find(type => type.id === selectedType);
 
   return (

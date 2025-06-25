@@ -178,7 +178,7 @@ export async function saveImageAsset(siteId: string, imagePath: string, imageDat
  * @returns A Promise that resolves to the image Blob, or null if not found.
  */
 export async function getImageAsset(siteId: string, imagePath: string): Promise<Blob | null> {
-  // <-- FIX: This is now much more efficient and correct.
+
   // 1. Get the image map for the specific site.
   const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId);
   if (!imageMap) {

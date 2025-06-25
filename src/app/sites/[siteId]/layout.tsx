@@ -14,9 +14,6 @@ import { cn } from '@/core/libraries/utils';
  * This component provides the persistent vertical toolbar and, crucially, manages
  * the loading of the active site's data into the global store.
  *
- * RECENT FIX: The data loading logic has been made non-destructive. It now checks
- * if the site's content is already in memory before triggering a full load from
- * storage. This prevents the UI from reverting after a save operation.
  */
 export default function SingleSiteLayout({ children }: { children: ReactNode }) {
   const params = useParams();
@@ -29,14 +26,12 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
   const loadSite = useAppStore(state => state.loadSite);
   const setActiveSiteId = useAppStore(state => state.setActiveSiteId);
 
-  // --- FIX: This is the new, "smart" data loading effect ---
   useEffect(() => {
     // Always set the active site ID when this layout is mounted.
     if (siteId) {
       setActiveSiteId(siteId);
     }
     
-    // THE CRITICAL GUARD CLAUSE:
     // Only call `loadSite` if the siteId is present AND the site's core content
     // (`contentFiles`) has not yet been loaded into the store.
     if (siteId && (!site || !site.contentFiles)) {

@@ -32,6 +32,10 @@ export const AUTOSAVE_DELAY = 2500;
  */
 export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 
+/**
+ * The default layout path used for any new collection page.
+ */
+export const DEFAULT_COLLECTION_LAYOUT_PATH = 'blog';
 
 /**
  * The master list of all built-in layouts. The system uses this

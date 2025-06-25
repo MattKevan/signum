@@ -7,7 +7,7 @@ export const formatDateHelper: SignumHelper = () => ({
    * @example {{formatDate some.date_string}}
    * @example {{formatDate "2023-10-27"}}
    */
-  // --- FIX: The function signature now correctly matches SignumHelperFunction ---
+
   formatDate: function(...args: unknown[]): string {
     // The date value is the first argument passed to the helper.
     const dateString = args[0];

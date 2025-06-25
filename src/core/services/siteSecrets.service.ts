@@ -9,7 +9,7 @@ const siteSecretsStore = localforage.createInstance({
   storeName: 'siteSecrets',
 });
 
-// --- FIX: Add the 'export' keyword to make the interface available for import ---
+
 /**
  * Defines the shape of the sensitive, non-public data for a site.
  * This data is stored separately and is not included in public site exports.

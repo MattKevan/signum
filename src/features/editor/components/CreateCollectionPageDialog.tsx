@@ -14,9 +14,11 @@ import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
 import { Plus } from 'lucide-react';
-import type { MarkdownFrontmatter } from '@/core/types';
-//import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
+import type { MarkdownFrontmatter, CollectionConfig } from '@/core/types';
+// FIX: Import the new default constant and getLayoutManifest service
+import { DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
+import { getLayoutManifest } from '@/core/services/config/configHelpers.service';
+
 
 interface CreateCollectionPageDialogProps {
   siteId: string;
@@ -24,42 +26,22 @@ interface CreateCollectionPageDialogProps {
   onComplete?: () => void;
 }
 
-// Default layouts for a new collection page
-const DEFAULT_LIST_LAYOUT = 'listing';
-const DEFAULT_ITEM_LAYOUT = 'teaser';
-const DEFAULT_ITEM_PAGE_LAYOUT = 'page';
-
 export default function CreateCollectionPageDialog({ siteId, children, onComplete }: CreateCollectionPageDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
-  const [selectedLayoutId, setSelectedLayoutId] = useState<string>('');
+  
+  // FIX: We no longer need state for available layouts or the selected layout ID
+  // const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
+  // const [selectedLayoutId, setSelectedLayoutId] = useState<string>('');
   
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { addOrUpdateContentFile } = useAppStore.getState();
 
-
-  useEffect(() => {
-    async function fetchCollectionLayouts() {
-      if (isOpen && site) {
-        const collectionLayouts = await getAvailableLayouts(site, 'collection'); // Keep this filter here for the dialog
-        setAvailableLayouts(collectionLayouts);
-        if (collectionLayouts.length > 0) {
-          // --- THIS IS THE FIX ---
-          // Explicitly set the 'blog' layout as the default if it exists,
-          // otherwise fall back to the first one.
-          const blogLayout = collectionLayouts.find(l => l.id === 'blog');
-          setSelectedLayoutId(blogLayout ? blogLayout.id : collectionLayouts[0].id);
-        }
-      }
-    }
-    fetchCollectionLayouts();
-  }, [isOpen, site]);
-
+  // FIX: This useEffect is no longer needed as we are not fetching all layouts
+  // useEffect(() => { ... });
 
   useEffect(() => {
     setSlug(slugify(name));
@@ -91,27 +73,36 @@ const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
     setIsSubmitting(true);
 
-    const frontmatter: MarkdownFrontmatter = {
-        title: name.trim(),
-        layout: DEFAULT_LIST_LAYOUT, // The layout for this page itself
-        collection: { // The special block that makes this a Collection Page
-            item_layout: DEFAULT_ITEM_LAYOUT,
-            item_page_layout: DEFAULT_ITEM_PAGE_LAYOUT,
-            sort_by: 'date',
-            sort_order: 'desc',
-            items_per_page: 10,
-        }
-    };
-
-    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# Welcome to the ${name.trim()} collection!\n\nYou can write an introduction for this collection here.`;
-
     try {
+      // FIX: Fetch only the single, default layout manifest we need
+      const defaultLayoutManifest = site ? await getLayoutManifest(site, DEFAULT_COLLECTION_LAYOUT_PATH) : null;
+
+      const initialCollectionConfig: CollectionConfig = { 
+          sort_by: 'date',
+          sort_order: 'desc',
+          items_per_page: 10,
+      };
+      
+      if (defaultLayoutManifest?.display_options) {
+        for (const [key, option] of Object.entries(defaultLayoutManifest.display_options)) {
+            initialCollectionConfig[key] = option.default;
+        }
+      }
+
+      const frontmatter: MarkdownFrontmatter = {
+          title: name.trim(),
+          // FIX: Use the hardcoded default from our config
+          layout: DEFAULT_COLLECTION_LAYOUT_PATH,
+          collection: initialCollectionConfig,
+      };
+
+      const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n## Welcome to the ${name.trim()} collection!\n\nYou can write an introduction for this collection here.`;
+    
       const success = await addOrUpdateContentFile(siteId, filePath, initialContent);
       if (success) {
         toast.success(`Collection page "${name}" created!`);
         handleOpenChange(false);
         onComplete?.();
-        // Redirect to the editor for the new collection page itself
         router.push(`/sites/${siteId}/edit/content/${slug}`);
       } else {
         throw new Error("Failed to update manifest or save file.");
@@ -149,6 +140,7 @@ const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
               <Label htmlFor="slug">Folder Name (URL)</Label>
               <Input id="slug" value={slug} readOnly className="bg-muted" />
             </div>
+            {/* FIX: The layout selector has been removed from the UI */}
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>

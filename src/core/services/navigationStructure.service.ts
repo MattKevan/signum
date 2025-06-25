@@ -23,7 +23,7 @@ function buildNavLinks(
     .sort((a, b) => (a.navOrder || 0) - (b.navOrder || 0))
     .map(node => {
       let href: string;
-      // --- FIX: Pass siteData.manifest instead of the whole siteData object ---
+
       const urlSegment = getUrlForNode(node, siteData.manifest, options.isExport);
 
       if (options.isExport) {
