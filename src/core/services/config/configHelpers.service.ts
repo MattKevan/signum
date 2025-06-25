@@ -1,7 +1,7 @@
 // src/core/services/configHelpers.service.ts
 
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
-import { CORE_LAYOUTS, CORE_THEMES, BASE_SCHEMA } from '@/config/editorConfig';
+import { CORE_LAYOUTS, CORE_THEMES } from '@/config/editorConfig';
 import {
     LocalSiteData,
     Manifest,
@@ -59,7 +59,7 @@ interface DataFileDefinition {
   id: string;
   path_template: string;
   schema: RJSFSchema;
-  initial_content: any[];
+  initial_content: unknown[];
 }
 
 /**

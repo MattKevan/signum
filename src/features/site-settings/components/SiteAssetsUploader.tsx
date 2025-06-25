@@ -86,7 +86,7 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
     const isSvg = file.type === 'image/svg+xml';
     
     // 1. Validate file type against the configuration.
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       toast.error(`Unsupported file type. Please use one of: ${MEMORY_CONFIG.SUPPORTED_EXTENSIONS.join(', ')}`);
       event.target.value = ''; // Reset file input to allow re-selection of the same file.
       return;

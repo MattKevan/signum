@@ -76,7 +76,7 @@ class LocalImageService implements ImageService {
     const isSvg = file.type === 'image/svg+xml';
 
     // 1. Check if the MIME type is supported.
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       const errorMsg = `Unsupported file type: ${file.type}.`;
       toast.error(errorMsg);
       throw new Error(errorMsg);

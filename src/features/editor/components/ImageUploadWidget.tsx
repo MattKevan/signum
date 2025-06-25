@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { WidgetProps } from '@rjsf/utils';
-import { ImageRef } from '@/core/types';
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
 import { Button } from '@/core/components/ui/button';
@@ -63,7 +62,7 @@ export default function ImageUploadWidget(props: WidgetProps) {
     if (!file || !site?.manifest) return;
 
     const isSvg = file.type === 'image/svg+xml';
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       toast.error(`Unsupported file type.`);
       return;
     }

@@ -28,7 +28,7 @@ interface SchemaDrivenFormProps<T = unknown> {
 
 // --- Custom Field Template (for better layout and labels) ---
 function CustomFieldTemplate(props: FieldTemplateProps) {
-  const { id, classNames, label, help, required, description, errors, children, schema } = props;
+  const { id, classNames, label, help, required, errors, children, schema } = props;
 
   if (props.hidden) {
     return <div className="hidden">{children}</div>;

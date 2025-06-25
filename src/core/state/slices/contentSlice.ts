@@ -21,16 +21,16 @@ import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markd
  * @param {Record<string, any>} context - An object with keys matching the placeholders.
  * @returns {string} The resolved string.
  */
-function renderPathTemplate(templateString: string, context: Record<string, any>): string {
+function renderPathTemplate(templateString: string, context: Record<string, unknown>): string {
     let result = templateString;
     const regex = /{{\s*([^}]+)\s*}}/g;
     let match;
     while ((match = regex.exec(templateString)) !== null) {
         const keyPath = match[1]; // e.g., 'collection.slug'
         const keys = keyPath.split('.');
-        let value: any = context;
+        let value: unknown = context;
         for (const k of keys) {
-            value = value?.[k];
+            value = (value as Record<string, unknown>)?.[k];
         }
         
         // --- FIX: Ensure the replacement value is a primitive before calling replace. ---
@@ -129,7 +129,8 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     if (!site) return false;
 
     // --- Standard logic for parsing and saving the file ---
-    let { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+    let { frontmatter } = parseMarkdownString(rawMarkdownContent);
+    const { content } = parseMarkdownString(rawMarkdownContent);
     const isFirstFile = site.manifest.structure.length === 0 && !site.contentFiles?.some(f => f.path === filePath);
     if (isFirstFile) {
         toast.info("First page created. It has been set as the permanent homepage.");
@@ -169,7 +170,7 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
           const parentDir = pathParts.slice(0, -1).join('/'); // "content/news"
           const parentPath = `${parentDir}.md`; // "content/news.md"
           
-          const parentFile = site.contentFiles?.find((f: any) => f.path === parentPath);
+          const parentFile = site.contentFiles?.find((f: ParsedMarkdownFile) => f.path === parentPath);
           if (parentFile?.frontmatter.collection) {
             // This is a collection item - find parent in structure and add as child
             const findAndAddToParent = (nodes: StructureNode[]): boolean => {

@@ -67,7 +67,7 @@ function EditContentPageInternal() {
       />
     );
   // Update the dependency array to use the new granular variables.
-  }, [status, frontmatter, siteId, filePath, siteStructure, allContentFiles, handleFrontmatterChange, isNewFileMode, slug, setSlug, handleDelete]);
+  }, [status, frontmatter, siteId, filePath, allContentFiles, handleFrontmatterChange, isNewFileMode, slug, setSlug, handleDelete, siteLayoutFiles, siteManifest, siteThemeFiles]);
 
   useEffect(() => {
     setLeftAvailable(true);
