@@ -31,7 +31,7 @@ function EditContentPageInternal() {
   const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
   
   const siteStructure = site?.manifest.structure || [];
-  const allContentFiles = site?.contentFiles || [];
+  const allContentFiles = useMemo(() => site?.contentFiles || [], [site?.contentFiles]);
   const siteManifest = site?.manifest;
   const siteLayoutFiles = site?.layoutFiles;
   const siteThemeFiles = site?.themeFiles;

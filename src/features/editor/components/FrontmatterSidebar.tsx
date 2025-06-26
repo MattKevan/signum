@@ -42,8 +42,7 @@ export default function FrontmatterSidebar({
 
   useEffect(() => {
     async function fetchAllLayouts() {
-      // Ensure we don't re-fetch if already loading
-      if (!isLoading) setIsLoading(true);
+      setIsLoading(true);
       
       const siteDataForAssets = { manifest, layoutFiles, themeFiles };
       const layouts = await getAvailableLayouts(siteDataForAssets);

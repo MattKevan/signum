@@ -43,6 +43,8 @@ export interface BaseAssetManifest {
 export interface ThemeManifest extends BaseAssetManifest {
   /** A JSON schema defining theme-wide appearance options (colors, fonts). */
   appearanceSchema?: RJSFSchema;
+  /** A JSON schema defining arbitrary theme data fields (footer text, etc.). */
+  themeDataSchema?: RJSFSchema;
 }
 /**
  * Defines a single, named image transformation preset within a layout.

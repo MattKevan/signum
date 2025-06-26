@@ -14,6 +14,7 @@ import { concatHelper } from './concat.helper';
 import { imageUrlHelper } from './imageUrl.helper';
 import { renderLayoutHelper } from './renderLayout.helper';
 import { renderItemHelper } from './renderItem.helper';
+import { themeDataHelper, rawThemeDataHelper } from './themeData.helper';
 
 export const coreHelpers: SignumHelper[] = [
   queryHelper,
@@ -28,5 +29,7 @@ export const coreHelpers: SignumHelper[] = [
   imageHelper,
   concatHelper,
   imageUrlHelper,
-  renderLayoutHelper
+  renderLayoutHelper,
+  themeDataHelper,
+  rawThemeDataHelper
 ];

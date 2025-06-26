@@ -8,6 +8,9 @@ import { Manifest, ImageRef } from '@/core/types';
 import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
 import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form
+import { getMergedThemeDataFieldsForForm } from '@/core/services/config/theme.service';
+import { HtmlSanitizerService } from '@/core/services/htmlSanitizer.service';
+import { RJSFSchema } from '@rjsf/utils';
 
 interface PageFormData {
   title: string;
@@ -26,9 +29,28 @@ export default function SiteSettingsPage() {
   const updateManifestAction = useAppStore(state => state.updateManifest);
 
   const [formData, setFormData] = useState<PageFormData | null>(null);
+  const [themeDataSchema, setThemeDataSchema] = useState<RJSFSchema | null>(null);
+  const [themeData, setThemeData] = useState<Record<string, unknown>>({});
+  const [themeDataChanged, setThemeDataChanged] = useState(false);
 
   const [isLoading, setIsLoading] = useState(true);
   const [hasChanges, setHasChanges] = useState(false);
+
+  const loadThemeData = useCallback(async () => {
+    if (!site?.manifest?.theme?.name) return;
+    
+    try {
+      const { schema, initialData } = await getMergedThemeDataFieldsForForm(
+        site.manifest.theme.name,
+        site.manifest.theme.themeData || {}
+      );
+      
+      setThemeDataSchema(schema);
+      setThemeData(initialData);
+    } catch (error) {
+      console.error('Failed to load theme data schema:', error);
+    }
+  }, [site?.manifest?.theme?.name, site?.manifest?.theme?.themeData]);
 
   // Load all settings from the manifest into the single formData state
   useEffect(() => {
@@ -43,9 +65,21 @@ export default function SiteSettingsPage() {
         favicon: site.manifest.favicon,
       });
       setHasChanges(false);
+      setThemeDataChanged(false);
+      
+      // Load theme data schema and current theme data
+      loadThemeData();
       setIsLoading(false);
     }
-  }, [site]);
+  }, [site, loadThemeData]);
+
+  const handleThemeDataChange = useCallback((newData: Record<string, unknown>) => {
+    // Sanitize the data before setting it
+    const sanitizedData = HtmlSanitizerService.sanitizeThemeData(newData);
+    setThemeData(sanitizedData);
+    setThemeDataChanged(true);
+    setHasChanges(true);
+  }, []);
   
   // This single handler receives the complete, updated form data from the child component.
   const handleFormChange = useCallback((newData: PageFormData) => {
@@ -69,6 +103,10 @@ export default function SiteSettingsPage() {
       baseUrl: formData.baseUrl.trim(),
       logo: formData.logo,
       favicon: formData.favicon,
+      theme: {
+        ...site.manifest.theme,
+        themeData: themeDataChanged ? themeData : site.manifest.theme.themeData
+      }
     };
 
     try {
@@ -99,6 +137,9 @@ export default function SiteSettingsPage() {
           siteId={siteId}
           formData={formData}
           onFormChange={handleFormChange}
+          themeDataSchema={themeDataSchema || undefined}
+          themeData={themeData}
+          onThemeDataChange={handleThemeDataChange}
         />
       </div>
 

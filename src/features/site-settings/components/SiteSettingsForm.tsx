@@ -6,6 +6,8 @@ import { Input } from '@/core/components/ui/input';
 import { Textarea } from '@/core/components/ui/textarea';
 import { ImageRef } from '@/core/types';
 import SiteAssetUploader from './SiteAssetsUploader';
+import SchemaDrivenForm from '@/core/components/SchemaDrivenForm';
+import { RJSFSchema } from '@rjsf/utils';
 
 interface SiteSettingsFormProps {
   siteId: string;
@@ -17,10 +19,20 @@ interface SiteSettingsFormProps {
     logo: ImageRef | undefined;
     favicon: ImageRef | undefined;
   };
+  themeDataSchema?: RJSFSchema;
+  themeData?: Record<string, unknown>;
   onFormChange: (newData: SiteSettingsFormProps['formData']) => void;
+  onThemeDataChange?: (newData: Record<string, unknown>) => void;
 }
 
-export default function SiteSettingsForm({ siteId, formData, onFormChange }: SiteSettingsFormProps) {
+export default function SiteSettingsForm({ 
+  siteId, 
+  formData, 
+  onFormChange, 
+  themeDataSchema, 
+  themeData, 
+  onThemeDataChange 
+}: SiteSettingsFormProps) {
   
   // FIX: Typed the 'value' parameter to 'unknown' for better type safety.
   const handleChange = (field: keyof typeof formData, value: unknown) => {
@@ -88,6 +100,21 @@ export default function SiteSettingsForm({ siteId, formData, onFormChange }: Sit
             />
         </div>
       </div>
+
+      {themeDataSchema && onThemeDataChange && (
+        <div className="border-t pt-6 space-y-4">
+          <h2 className="text-lg font-semibold">Theme Content</h2>
+          <p className="text-sm text-muted-foreground">
+            Configure additional content fields defined by your theme.
+          </p>
+          <SchemaDrivenForm
+            schema={themeDataSchema}
+            formData={themeData || {}}
+            onFormChange={(data: object) => onThemeDataChange(data as Record<string, unknown>)}
+            liveValidate={false}
+          />
+        </div>
+      )}
     </div>
   );
 }

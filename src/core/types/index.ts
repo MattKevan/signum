@@ -71,6 +71,7 @@ export interface StructureNode {
 export interface ThemeConfig {
   name: string;
   config: Record<string, string | boolean | number>;
+  themeData?: Record<string, unknown>;
 }
 
 /**

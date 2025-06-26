@@ -91,7 +91,8 @@ async function recoverIndexedDB(): Promise<void> {
     
     // Show user notification about recovery
     if (typeof window !== 'undefined' && 'toast' in window) {
-      (window as any).toast?.error?.('Database corruption detected. All local data has been cleared. Please reimport your sites.');
+      const windowWithToast = window as unknown as { toast?: { error?: (message: string) => void } };
+      windowWithToast.toast?.error?.('Database corruption detected. All local data has been cleared. Please reimport your sites.');
     }
   } catch (recoveryError) {
     console.error('IndexedDB recovery failed:', recoveryError);

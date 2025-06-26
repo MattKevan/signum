@@ -73,5 +73,26 @@
         "default": "var(--font-stack-sans)"
       }
     }
+  },
+  "themeDataSchema": {
+    "title": "Site Content",
+    "description": "Configure additional content fields for your site.",
+    "type": "object",
+    "properties": {
+      "footer_text": {
+        "type": "string",
+        "title": "Footer Text",
+        "description": "HTML content to display in the site footer.",
+        "format": "textarea",
+        "default": "<p>&copy; 2024 Your Site Name. All rights reserved.</p>"
+      },
+      "header_announcement": {
+        "type": "string", 
+        "title": "Header Announcement",
+        "description": "Optional announcement banner text.",
+        "format": "textarea",
+        "default": ""
+      }
+    }
   }
 }

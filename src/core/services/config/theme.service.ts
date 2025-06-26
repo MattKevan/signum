@@ -4,13 +4,13 @@ import type { RJSFSchema } from '@rjsf/utils';
 import type { ThemeConfig } from '@/core/types';
 
 // Extract default values from JSON schema
-const extractDefaultsFromSchema = (schema: RJSFSchema): ThemeConfig['config'] => {
-  const defaults: ThemeConfig['config'] = {};
+const extractDefaultsFromSchema = (schema: RJSFSchema): Record<string, unknown> => {
+  const defaults: Record<string, unknown> = {};
   
   if (schema.properties) {
     Object.entries(schema.properties).forEach(([key, property]) => {
       if (typeof property === 'object' && property !== null && 'default' in property) {
-        defaults[key] = property.default as string | number | boolean;
+        defaults[key] = property.default;
       }
     });
   }
@@ -24,7 +24,7 @@ const getMergedThemeConfig = (
   savedConfig: ThemeConfig['config'],
   isThemeChange: boolean = false
 ): ThemeConfig['config'] => {
-  const defaults = extractDefaultsFromSchema(themeSchema);
+  const defaults = extractDefaultsFromSchema(themeSchema) as ThemeConfig['config'];
   
   if (!isThemeChange) {
     // Same theme: Use saved values, fall back to defaults for missing fields
@@ -49,7 +49,37 @@ const getMergedThemeConfig = (
   return merged;
 };
 
-// Updated main function with smart merging
+// Smart theme data merging (similar to appearance config)
+const getMergedThemeData = (
+  themeDataSchema: RJSFSchema,
+  savedThemeData: Record<string, unknown> = {},
+  isThemeChange: boolean = false
+): Record<string, unknown> => {
+  const defaults = extractDefaultsFromSchema(themeDataSchema);
+  
+  if (!isThemeChange) {
+    // Same theme: Use saved values, fall back to defaults for missing fields
+    return { ...defaults, ...savedThemeData };
+  }
+  
+  // Theme change: Field-by-field merge to preserve matching user preferences
+  const merged = { ...defaults };
+  
+  // For each saved setting, check if it exists in the new theme
+  Object.entries(savedThemeData).forEach(([key, value]) => {
+    const fieldExists = themeDataSchema.properties?.[key];
+    
+    if (fieldExists) {
+      // Field exists in new theme - preserve user's value
+      merged[key] = value;
+    }
+    // If field doesn't exist, use default (already set above)
+  });
+  
+  return merged;
+};
+
+// Updated main function with smart merging for appearance config
 export const getMergedThemeDataForForm = async (
   themeName: string,
   savedConfig: ThemeConfig['config'] = {},
@@ -81,10 +111,41 @@ export const getMergedThemeDataForForm = async (
   }
 };
 
-// Helper function to get theme data (implement based on your existing code)
+// New function for theme data schema and merging
+export const getMergedThemeDataFieldsForForm = async (
+  themeName: string,
+  savedThemeData: Record<string, unknown> = {},
+  currentThemeName?: string
+): Promise<{ schema: RJSFSchema | null; initialData: Record<string, unknown> }> => {
+  try {
+    // Load the theme data
+    const themeData = await getThemeData(themeName);
+    const schema = themeData?.themeDataSchema;
+    
+    if (!schema || !schema.properties) {
+      return { schema: null, initialData: {} };
+    }
+    
+    // Determine if this is a theme change
+    const isThemeChange = Boolean(currentThemeName && currentThemeName !== themeName);
+    
+    // Use smart merging logic
+    const mergedData = getMergedThemeData(schema, savedThemeData, isThemeChange);
+    
+    return {
+      schema,
+      initialData: mergedData
+    };
+    
+  } catch (error) {
+    console.error('Error loading theme data schema:', error);
+    return { schema: null, initialData: {} };
+  }
+};
+
+// Helper function to get theme data using existing infrastructure
 const getThemeData = async (themeName: string) => {
-  // This should load the theme.json file for the specified theme
-  // Replace with your existing implementation
+  // Use the existing infrastructure to load theme.json
   const response = await fetch(`/themes/${themeName}/theme.json`);
   if (!response.ok) {
     throw new Error(`Failed to load theme: ${themeName}`);
