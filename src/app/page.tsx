@@ -1,11 +1,19 @@
 // src/app/page.tsx
 'use client';
 
+import { useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/core/components/ui/button';
 import { Link } from '@/core/components/ui/link';
 import { ShieldCheck, Feather, Zap, Archive, Leaf } from 'lucide-react';
 
 export default function MarketingHomePage() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Redirect to sites page immediately
+    router.replace('/sites');
+  }, [router]);
   return (
     <>
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur-sm">

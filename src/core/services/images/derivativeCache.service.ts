@@ -47,3 +47,30 @@ export async function getAllCacheKeys(siteId: string): Promise<string[]> {
   const sitePrefix = `${siteId}/`;
   return allKeys.filter(key => key.startsWith(sitePrefix));
 }
+
+/**
+ * Removes all cached derivatives for a specific site.
+ * This should be called when deleting a site to prevent cache pollution.
+ * @param siteId The ID of the site whose cache should be cleared.
+ */
+export async function clearSiteDerivativeCache(siteId: string): Promise<void> {
+  try {
+    const siteKeys = await getAllCacheKeys(siteId);
+    await Promise.all(siteKeys.map(key => derivativeCacheStore.removeItem(key)));
+    console.log(`[DerivativeCache] Cleared ${siteKeys.length} cached derivatives for site ${siteId}`);
+  } catch (error) {
+    console.error(`[DerivativeCache] Failed to clear cache for site ${siteId}:`, error);
+  }
+}
+
+/**
+ * Clears the entire derivative cache. Used for IndexedDB recovery.
+ */
+export async function clearAllDerivativeCache(): Promise<void> {
+  try {
+    await derivativeCacheStore.clear();
+    console.log('[DerivativeCache] Cleared entire cache for recovery');
+  } catch (error) {
+    console.error('[DerivativeCache] Failed to clear entire cache:', error);
+  }
+}

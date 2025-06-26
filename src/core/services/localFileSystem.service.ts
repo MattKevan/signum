@@ -52,10 +52,50 @@ export async function loadAllSiteManifests(): Promise<Manifest[]> {
     await Promise.race([iteratePromise, timeoutPromise]);
   } catch (error) {
     console.error('Failed to load site manifests from IndexedDB:', error);
+    
+    // Attempt recovery by clearing potentially corrupted data
+    if (error instanceof Error && error.message.includes('timed out')) {
+      console.warn('IndexedDB appears to be corrupted. Attempting recovery...');
+      await recoverIndexedDB();
+    }
+    
     // Return empty array to allow app to continue
   }
   
   return manifests;
+}
+
+/**
+ * Attempts to recover from IndexedDB corruption by clearing all stores.
+ * This is a last resort when the database becomes unresponsive.
+ */
+async function recoverIndexedDB(): Promise<void> {
+  try {
+    console.log('Starting IndexedDB recovery...');
+    
+    // Clear all stores to remove potential corruption
+    await Promise.allSettled([
+      siteManifestsStore.clear(),
+      siteContentFilesStore.clear(), 
+      siteLayoutFilesStore.clear(),
+      siteThemeFilesStore.clear(),
+      siteImageAssetsStore.clear(),
+      siteDataFilesStore.clear(),
+    ]);
+    
+    // Also clear derivative cache and secrets
+    const { clearAllDerivativeCache } = await import('./images/derivativeCache.service');
+    await clearAllDerivativeCache();
+    
+    console.log('IndexedDB recovery completed. All data has been cleared.');
+    
+    // Show user notification about recovery
+    if (typeof window !== 'undefined' && 'toast' in window) {
+      (window as any).toast?.error?.('Database corruption detected. All local data has been cleared. Please reimport your sites.');
+    }
+  } catch (recoveryError) {
+    console.error('IndexedDB recovery failed:', recoveryError);
+  }
 }
 
 /**
@@ -108,11 +148,22 @@ export async function saveSite(siteData: LocalSiteData): Promise<void> {
 }
 
 export async function deleteSite(siteId: string): Promise<void> {
+  // Import required cleanup functions
+  const { clearSiteDerivativeCache } = await import('./images/derivativeCache.service');
+  const { deleteSiteSecretsFromDb } = await import('./siteSecrets.service');
+  
   await Promise.all([
+    // Core site data
     siteManifestsStore.removeItem(siteId),
     siteContentFilesStore.removeItem(siteId),
     siteLayoutFilesStore.removeItem(siteId),
     siteThemeFilesStore.removeItem(siteId),
+    
+    // Previously missing cleanup operations
+    siteImageAssetsStore.removeItem(siteId),
+    siteDataFilesStore.removeItem(siteId),
+    deleteSiteSecretsFromDb(siteId),
+    clearSiteDerivativeCache(siteId),
   ]);
 }
 

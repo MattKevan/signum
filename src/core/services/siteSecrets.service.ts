@@ -37,3 +37,12 @@ export async function loadSiteSecretsFromDb(siteId: string): Promise<SiteSecrets
 export async function saveSiteSecretsToDb(siteId: string, secrets: SiteSecrets): Promise<void> {
   await siteSecretsStore.setItem(siteId, secrets);
 }
+
+/**
+ * Deletes all secrets for a specific site from the database.
+ * This should be called when deleting a site to ensure sensitive data is properly purged.
+ * @param siteId The ID of the site whose secrets should be deleted.
+ */
+export async function deleteSiteSecretsFromDb(siteId: string): Promise<void> {
+  await siteSecretsStore.removeItem(siteId);
+}
