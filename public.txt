@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
 Root Directory: public/
-Excluded Directories: ios, node_modules, public
+Excluded Directories: node_modules, public, ios
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -12,7 +12,7 @@ File: layouts/page/layout.json
   "layoutType": "page",
   "files": [
     { "path": "layout.json", "type": "manifest" },
-    { "path": "page.hbs", "type": "template" }
+    { "path": "index.hbs", "type": "template" }
   ],
   "schema": {
     "title": "Page Options",
@@ -70,6 +70,14 @@ File: layouts/blog/layout.json
   "version": "1.2.0",
   "layoutType": "collection",
   "description": "A full-featured layout for blog posts and categories.",
+  "files": [
+    { "path": "layout.json", "type": "manifest" },
+    { "path": "index.hbs", "type": "template" },
+    { "path": "item.hbs", "type": "template" },
+    { "path": "category.hbs", "type": "template" },
+    { "path": "partials/card.hbs", "type": "partial", "name": "card" },
+    { "path": "partials/compact.hbs", "type": "partial", "name": "compact" }
+  ],
   
   "display_options": {
     "listingStyle": {
@@ -81,7 +89,7 @@ File: layouts/blog/layout.json
         "grid_view": { "name": "Grid", "template": "grid-index.hbs" }
       }
     },
-    "teaserStyle": {
+    "teaser": {
       "name": "Summary Style",
       "description": "Choose the appearance of each post summary in the list.",
       "default": "standard_card",
@@ -324,13 +332,8 @@ File: themes/default/base.hbs
     <div x-data="{ isMobileMenuOpen: false }" class="flex flex-column min-vh-100">
         {{> header}}
         <main class="flex-auto mw8 center pa3 pa4-ns">
-            {{!-- 
-              --- FIX: Use the new async render_layout helper ---
-              This helper will render the layout specified by `pageLayoutName`
-              using the data from `pageContext`, and it will correctly `await`
-              any async helpers (like `{{{image}}}`) used inside it.
-            --}}
-            {{{render_layout pageLayoutName pageContext}}}
+            {{!-- The body content is pre-rendered by the render service --}}
+            {{{body}}}
         </main>
         {{> footer}}
     </div>
@@ -601,7 +604,7 @@ File: themes/default/partials/head.hbs
 
  {{!-- STYLESHEETS --}}
 <link rel="stylesheet" href="https://unpkg.com/tachyons@4.12.0/css/tachyons.min.css"/>
-<link rel="stylesheet" href="{{baseUrl}}/themes/{{manifest.theme.name}}/css/theme.css">
+<link rel="stylesheet" href="/themes/{{manifest.theme.name}}/css/theme.css">
 
 {{!-- This is where the user's custom choices are injected as CSS variables --}}
 {{{styleOverrides}}}

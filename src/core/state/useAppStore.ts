@@ -45,6 +45,11 @@ export const useAppStore = create<AppStore>()((set, get, api) => ({
     get().initializeSites().then(() => {
         set({ isInitialized: true });
         console.log('[AppStore] State initialized.');
+    }).catch((error) => {
+        console.error('[AppStore] Failed to initialize application state:', error);
+        // Initialize anyway to prevent hanging
+        set({ isInitialized: true });
+        console.log('[AppStore] State initialized with errors.');
     });
   },
 

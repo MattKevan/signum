@@ -52,7 +52,7 @@ export default function FrontmatterSidebar({
     }
     fetchAllLayouts();
     // This effect should only re-run if the core site assets change.
-  }, [manifest, layoutFiles, themeFiles, isLoading]);
+  }, [manifest, layoutFiles, themeFiles]);
 
   const { isCollectionPage, isCollectionItem, parentFile } = useMemo(() => {
     const isCollection = !!frontmatter.collection;

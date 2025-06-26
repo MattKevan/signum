@@ -82,6 +82,8 @@ a:hover {
 /* --- Paragraphs and Links --- */
 .prose p {
   margin-bottom: 1.25em;
+    font-size: 18px;
+
 }
 
 /* Links inside prose content get an underline on hover */

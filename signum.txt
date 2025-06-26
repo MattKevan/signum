@@ -1,6 +1,6 @@
 FILE CONCATENATION REPORT
-Root Directory: src/
-Excluded Directories: node_modules, ios, public
+Root Directory: src
+Excluded Directories: ios, node_modules, public
 File Extensions: *.ts, *.tsx, *.js, *.jsx, *.css, *.html, *.json, *.hbs
 ================================================================================
 
@@ -819,16 +819,16 @@ import { stringifyToMarkdown, parseMarkdownString } from '@/core/libraries/markd
  * @param {Record<string, any>} context - An object with keys matching the placeholders.
  * @returns {string} The resolved string.
  */
-function renderPathTemplate(templateString: string, context: Record<string, any>): string {
+function renderPathTemplate(templateString: string, context: Record<string, unknown>): string {
     let result = templateString;
     const regex = /{{\s*([^}]+)\s*}}/g;
     let match;
     while ((match = regex.exec(templateString)) !== null) {
         const keyPath = match[1]; // e.g., 'collection.slug'
         const keys = keyPath.split('.');
-        let value: any = context;
+        let value: unknown = context;
         for (const k of keys) {
-            value = value?.[k];
+            value = (value as Record<string, unknown>)?.[k];
         }
         
         // --- FIX: Ensure the replacement value is a primitive before calling replace. ---
@@ -927,7 +927,8 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
     if (!site) return false;
 
     // --- Standard logic for parsing and saving the file ---
-    let { frontmatter, content } = parseMarkdownString(rawMarkdownContent);
+    let { frontmatter } = parseMarkdownString(rawMarkdownContent);
+    const { content } = parseMarkdownString(rawMarkdownContent);
     const isFirstFile = site.manifest.structure.length === 0 && !site.contentFiles?.some(f => f.path === filePath);
     if (isFirstFile) {
         toast.info("First page created. It has been set as the permanent homepage.");
@@ -960,7 +961,43 @@ export const createContentSlice: StateCreator<SiteSlice & ContentSlice, [], [], 
           navOrder: draft.structure.length,
           children: [],
         };
-        draft.structure.push(newNode);
+        
+        // Check if this should be a collection item by looking for a parent collection
+        const pathParts = filePath.split('/');
+        if (pathParts.length > 2) { // e.g., "content/news/item.md" has 3 parts
+          const parentDir = pathParts.slice(0, -1).join('/'); // "content/news"
+          const parentPath = `${parentDir}.md`; // "content/news.md"
+          
+          const parentFile = site.contentFiles?.find((f: ParsedMarkdownFile) => f.path === parentPath);
+          if (parentFile?.frontmatter.collection) {
+            // This is a collection item - find parent in structure and add as child
+            const findAndAddToParent = (nodes: StructureNode[]): boolean => {
+              for (const node of nodes) {
+                if (node.path === parentPath) {
+                  if (!node.children) node.children = [];
+                  newNode.navOrder = node.children.length;
+                  node.children.push(newNode);
+                  return true;
+                }
+                if (node.children && findAndAddToParent(node.children)) {
+                  return true;
+                }
+              }
+              return false;
+            };
+            
+            if (!findAndAddToParent(draft.structure)) {
+              // Parent not found in structure, add to root as fallback
+              draft.structure.push(newNode);
+            }
+          } else {
+            // Regular page - add to root
+            draft.structure.push(newNode);
+          }
+        } else {
+          // Root level page - add to root
+          draft.structure.push(newNode);
+        }
       } else {
         const findAndUpdate = (nodes: StructureNode[]): void => {
           for (const node of nodes) {
@@ -1301,13 +1338,6 @@ export default function Navbar() {
     if (remoteUrl.trim()) {
       try {
         const url = new URL(remoteUrl.trim()); // Basic URL validation
-        // We need a way to signify this is a remote URL to our browsing pages.
-        // Option 1: Special prefix for siteId, e.g., "remote::http://localhost:8080"
-        // Option 2: A different route, e.g., /browse/remote?url=...
-        // Option 3: Pass state via router.push (can be complex with SSR/layouts)
-
-        // Let's use Option 1: Prefix the siteId with "remote@" or similar marker
-        // and encode the URL. The browsing page will then decode it.
         const encodedUrl = encodeURIComponent(url.origin); // Use origin (scheme + hostname + port)
         router.push(`/remote@${encodedUrl}`); // Navigate to /remote@http%3A%2F%2Flocalhost%3A8080
         setRemoteUrl(''); // Clear input
@@ -1463,7 +1493,7 @@ interface SchemaDrivenFormProps<T = unknown> {
 
 // --- Custom Field Template (for better layout and labels) ---
 function CustomFieldTemplate(props: FieldTemplateProps) {
-  const { id, classNames, label, help, required, description, errors, children, schema } = props;
+  const { id, classNames, label, help, required, errors, children, schema } = props;
 
   if (props.hidden) {
     return <div className="hidden">{children}</div>;
@@ -1512,7 +1542,6 @@ function CustomObjectFieldTemplate(props: ObjectFieldTemplateProps) {
 }
 
 // --- Custom Submit Button Template (to hide it) ---
-// FIXED: The 'props' parameter was defined but never used, so it has been removed.
 function HideSubmitButton() {
     return null;
 }
@@ -3139,7 +3168,7 @@ export async function importSiteFromZip(zipFile: File): Promise<LocalSiteData & 
         }
     }
 
-    // --- FIX: Use Promise.all with JSZip's forEach callback for async operations ---
+
     const themePromises: Promise<RawFile>[] = [];
     signumFolder.folder('themes')?.forEach((relativePath, fileObject) => {
         if (!fileObject.dir) {
@@ -3422,7 +3451,7 @@ export async function saveImageAsset(siteId: string, imagePath: string, imageDat
  * @returns A Promise that resolves to the image Blob, or null if not found.
  */
 export async function getImageAsset(siteId: string, imagePath: string): Promise<Blob | null> {
-  // <-- FIX: This is now much more efficient and correct.
+
   // 1. Get the image map for the specific site.
   const imageMap = await siteImageAssetsStore.getItem<Record<string, Blob>>(siteId);
   if (!imageMap) {
@@ -3511,7 +3540,7 @@ function buildNavLinks(
     .sort((a, b) => (a.navOrder || 0) - (b.navOrder || 0))
     .map(node => {
       let href: string;
-      // --- FIX: Pass siteData.manifest instead of the whole siteData object ---
+
       const urlSegment = getUrlForNode(node, siteData.manifest, options.isExport);
 
       if (options.isExport) {
@@ -3521,7 +3550,11 @@ function buildNavLinks(
         href = `${options.siteRootPath}${path === '/' ? '' : path}`;
       }
 
-      const children = (node.children && node.children.length > 0)
+      // Filter out collection items from navigation
+      const nodeFile = siteData.contentFiles?.find(f => f.path === node.path);
+      const isCollectionPage = !!nodeFile?.frontmatter.collection;
+      
+      const children = (node.children && node.children.length > 0 && !isCollectionPage)
         ? buildNavLinks(siteData, node.children, currentPagePath, options)
         : [];
 
@@ -3612,7 +3645,7 @@ import {
     PageType,
     StructureNode,
 } from '@/core/types';
-// --- FIX: The import is now valid as findChildNodes exists in the target module ---
+
 import { findNodeByPath, findChildNodes } from './fileTree.service';
 import { getUrlForNode } from './urlUtils.service';
 import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
@@ -3774,7 +3807,7 @@ const siteSecretsStore = localforage.createInstance({
   storeName: 'siteSecrets',
 });
 
-// --- FIX: Add the 'export' keyword to make the interface available for import ---
+
 /**
  * Defines the shape of the sensitive, non-public data for a site.
  * This data is stored separately and is not included in public site exports.
@@ -4057,7 +4090,7 @@ export async function render(
     // 4. Compile and Render Body
     const bodyTemplatePath = getBodyTemplatePath(resolution, pageLayoutManifest);
     const bodyTemplateSource = await getAssetContent(synchronizedSiteData, 'layout', resolution.layoutPath, bodyTemplatePath);
-    if (!bodyTemplateSource) throw new Error(`Body template not found: ${bodyTemplatePath}`);
+    if (!bodyTemplateSource) throw new Error(`Body template not found: layouts/${resolution.layoutPath}/${bodyTemplatePath}`);
     const bodyHtml = Handlebars.compile(bodyTemplateSource)(pageContext);
 
     // 5. Compile and Render Final Page Shell
@@ -4075,6 +4108,7 @@ export async function render(
 File: core/services/renderer/context.service.ts
 // src/core/services/rendering/context.service.ts
 
+import Handlebars from 'handlebars';
 import {
     LocalSiteData,
     PageResolutionResult,
@@ -4089,12 +4123,11 @@ import { generateNavLinks } from '@/core/services/navigationStructure.service';
 import { getUrlForNode } from '@/core/services/urlUtils.service';
 import { generateStyleOverrides } from './asset.service';
 import { RenderOptions } from './render.service';
+import { getRelativePath } from '@/core/services/relativePaths.service';
 
 // Define a reusable type for the resolved image presets.
 type ResolvedImagePresets = Record<string, { url: string; width?: number; height?: number }>;
 
-// FIX 1: Define the final, fully-typed EnrichedPageContext.
-// This now includes a specific type for nested images and the layoutManifest.
 type EnrichedPageContext = (PageResolutionResult & {
     images?: ResolvedImagePresets;
     collectionItems?: (ParsedMarkdownFile & { images?: ResolvedImagePresets })[];
@@ -4137,7 +4170,7 @@ async function resolveImagePresets(context: {
 export async function assemblePageContext(
     siteData: LocalSiteData,
     resolution: PageResolutionResult,
-    options: Pick<RenderOptions, 'isExport'>,
+    options: RenderOptions,
     imageService: ImageService,
     pageLayoutManifest: LayoutManifest | null
 ): Promise<EnrichedPageContext> {
@@ -4149,20 +4182,35 @@ export async function assemblePageContext(
     const imageContext = await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: resolution.contentFile, options, manifest });
 
     const processedCollectionItems = resolution.collectionItems
-        ? await Promise.all(resolution.collectionItems.map(async (item: ParsedMarkdownFile) => ({
-            ...item,
-            images: await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: item, options, manifest }),
-        })))
+        ? await Promise.all(resolution.collectionItems.map(async (item: ParsedMarkdownFile) => {
+            const urlSegment = getUrlForNode(item, manifest, options.isExport);
+            const currentPagePath = getUrlForNode(resolution.contentFile, manifest, options.isExport);
+            
+            let itemUrl: string;
+            if (options.isExport) {
+                itemUrl = getRelativePath(currentPagePath, urlSegment);
+            } else {
+                const path = `/${urlSegment}`.replace(/\/$/, '') || '/';
+                itemUrl = `${options.siteRootPath}${path === '/' ? '' : path}`;
+            }
+            
+            return {
+                ...item,
+                url: itemUrl,
+                images: await resolveImagePresets({ imageService, layoutManifest: pageLayoutManifest, contentFile: item, options, manifest }),
+            };
+        }))
         : [];
 
-    // FIX 2: The return object now perfectly matches the EnrichedPageContext type,
-    // including the layoutManifest property.
-    return {
+    const result = {
         ...resolution,
         images: imageContext,
         collectionItems: processedCollectionItems,
         layoutManifest: pageLayoutManifest,
     };
+
+
+    return result;
 }
 
 /**
@@ -4242,9 +4290,15 @@ async function cacheAllTemplates(siteData: LocalSiteData): Promise<void> {
     const allLayouts = await getAvailableLayouts(siteData);
     
     const layoutPromises = allLayouts.flatMap(layout =>
-        layout.files.map(async file => {
+        (layout.files || []).map(async file => {
             const source = await getAssetContent(siteData, 'layout', layout.id, file.path);
-            if (source) Handlebars.registerPartial(file.name || `${layout.id}/${file.path.replace('.hbs', '')}`, source);
+            if (source) {
+                // Register partials with namespaced names to match render_item helper expectations
+                const partialName = file.type === 'partial' ? 
+                    `${layout.id}/${file.path.replace('.hbs', '')}` : 
+                    (file.name || `${layout.id}/${file.path.replace('.hbs', '')}`);
+                Handlebars.registerPartial(partialName, source);
+            }
         })
     );
 
@@ -4628,7 +4682,7 @@ export const comparisonHelpers: SignumHelper = () => ({
    * Only compares numbers or strings. Returns false for other types.
    */
   gt: (a: unknown, b: unknown): boolean => {
-    // --- FIX: Add type guards to safely perform the comparison ---
+
     // Only proceed if both 'a' and 'b' are of the same comparable type.
     if (typeof a === 'number' && typeof b === 'number') {
       return a > b;
@@ -4645,7 +4699,7 @@ export const comparisonHelpers: SignumHelper = () => ({
    * Only compares numbers or strings. Returns false for other types.
    */
   lt: (a: unknown, b: unknown): boolean => {
-    // --- FIX: Add type guards to safely perform the comparison ---
+
     if (typeof a === 'number' && typeof b === 'number') {
       return a < b;
     }
@@ -4674,7 +4728,7 @@ export const getUrlHelper: SignumHelper = (siteData) => ({
    * @example
    * <a href="{{getUrlForNode this isExport=../options.isExport}}">Link</a>
    */
-  // --- FIX: Corrected the function signature to match SignumHelperFunction ---
+
   getUrlForNode: function(this: unknown, ...args: unknown[]): string {
     // The options object from Handlebars is always the last argument.
     const options = args.pop() as HelperOptions;
@@ -4691,7 +4745,6 @@ export const getUrlHelper: SignumHelper = (siteData) => ({
         return '#error-invalid-node';
     }
 
-    // --- FIX: Pass the required `manifest` object from the factory's scope ---
     // The utility function needs the full manifest to determine if the node is the homepage.
     return getUrlUtil(node, siteData.manifest, isExport);
   }
@@ -4819,7 +4872,7 @@ export const assignHelper: SignumHelper = () => ({
    *   <a href="{{this.newUrl}}">{{this.title}}</a>
    * {{/assign}}
    */
-  // --- FIX: The function signature now correctly matches SignumHelperFunction ---
+
   assign: function(this: unknown, ...args: unknown[]): string {
     // The last argument passed by Handlebars is always the options object.
     const options = args.pop() as HelperOptions;
@@ -4901,7 +4954,7 @@ export const formatDateHelper: SignumHelper = () => ({
    * @example {{formatDate some.date_string}}
    * @example {{formatDate "2023-10-27"}}
    */
-  // --- FIX: The function signature now correctly matches SignumHelperFunction ---
+
   formatDate: function(...args: unknown[]): string {
     // The date value is the first argument passed to the helper.
     const dateString = args[0];
@@ -5008,11 +5061,11 @@ export const renderItemHelper: SignumHelper = () => ({
     // The partial name is namespaced to prevent collisions, e.g., 'blog/partials/card'.
     const partialName = `${layoutId}/${templatePath.replace('.hbs', '')}`;
 
-    const template = Handlebars.partials[partialName];
+    const templateSource = Handlebars.partials[partialName];
 
-    if (template) {
-        // This is a synchronous call because all async data (like image URLs)
-        // has been pre-resolved by the theme engine and added to the `item` object.
+    if (templateSource) {
+        // Compile the template source and render with the item context
+        const template = typeof templateSource === 'function' ? templateSource : Handlebars.compile(templateSource);
         const renderedHtml = template(item);
         return new Handlebars.SafeString(renderedHtml);
     } else {
@@ -5187,7 +5240,7 @@ File: core/services/config/configHelpers.service.ts
 // src/core/services/configHelpers.service.ts
 
 import { RJSFSchema, UiSchema } from '@rjsf/utils';
-import { CORE_LAYOUTS, CORE_THEMES, BASE_SCHEMA } from '@/config/editorConfig';
+import { CORE_LAYOUTS, CORE_THEMES } from '@/config/editorConfig';
 import {
     LocalSiteData,
     Manifest,
@@ -5245,7 +5298,7 @@ interface DataFileDefinition {
   id: string;
   path_template: string;
   schema: RJSFSchema;
-  initial_content: any[];
+  initial_content: unknown[];
 }
 
 /**
@@ -5425,7 +5478,12 @@ export function getAvailableThemes(manifest?: Manifest): ThemeInfo[] {
  * @returns The parsed LayoutManifest object, or null if not found.
  */
 export async function getLayoutManifest(siteData: SiteDataForAssets, layoutPath: string): Promise<LayoutManifest | null> {
-    return getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
+    const manifest = await getJsonAsset<LayoutManifest>(siteData, 'layout', layoutPath, 'layout.json');
+    if (manifest) {
+        // Set the id field from the layoutPath since it's not included in the JSON files
+        manifest.id = layoutPath;
+    }
+    return manifest;
 }
 
 /**
@@ -5460,9 +5518,7 @@ export async function getAvailableLayouts(
 File: core/services/images/images.service.ts
 // src/core/services/images/images.service.ts
 
-// <-- FIX: Import all necessary types from the central types file.
 import { ImageService, Manifest } from '@/core/types';
-
 import { localImageService } from './localImage.service';
 import { cloudinaryImageService } from './cloudinaryImage.service';
 
@@ -5472,7 +5528,6 @@ const services: Record<string, ImageService> = {
 };
 
 export function getActiveImageService(manifest: Manifest): ImageService {
-  // This now correctly type-checks against the updated Manifest interface.
   const serviceId = manifest.settings?.imageService || 'local';
   return services[serviceId] || localImageService;
 }
@@ -5490,9 +5545,7 @@ import Handlebars from 'handlebars';
  * `args` are the arguments passed to the helper in the template.
  */
 export type SignumHelperFunction = (
-  // FIX: Using 'unknown' is a safer alternative to 'any' for the 'this' context.
   this: unknown,
-  // FIX: Using 'unknown[]' ensures arguments are type-checked if used.
   ...args: unknown[]
 ) => string | Handlebars.SafeString | boolean | Promise<Handlebars.SafeString>;
 
@@ -5583,7 +5636,7 @@ class LocalImageService implements ImageService {
     const isSvg = file.type === 'image/svg+xml';
 
     // 1. Check if the MIME type is supported.
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       const errorMsg = `Unsupported file type: ${file.type}.`;
       toast.error(errorMsg);
       throw new Error(errorMsg);
@@ -5874,7 +5927,6 @@ import { fill, fit, scale } from "@cloudinary/url-gen/actions/resize";
 import { Gravity } from "@cloudinary/url-gen/qualifiers/gravity";
 import { format, quality } from "@cloudinary/url-gen/actions/delivery";
 
-// --- FIX: Added types for Cloudinary upload widget for type safety ---
 interface UploadWidgetResultInfo {
   public_id: string;
   version: number;
@@ -5924,7 +5976,6 @@ class CloudinaryImageService implements ImageService {
           }
 
           if (result && result.event === 'success') {
-            // FIX: Removed unused `version` and `format` variables.
             const { public_id, width, height } = result.info;
             const srcPath = public_id;
             
@@ -5940,7 +5991,6 @@ class CloudinaryImageService implements ImageService {
     });
   }
 
-  // FIX: Removed unused `isExport` parameter.
   async getDisplayUrl(manifest: Manifest, ref: ImageRef, options: ImageTransformOptions): Promise<string> {
     const cloudName = manifest.settings?.cloudinary?.cloudName;
     if (!cloudName) return ''; // Return empty string or a placeholder if not configured
@@ -5966,7 +6016,6 @@ class CloudinaryImageService implements ImageService {
     return cldImage.toURL();
   }
 
-  // FIX: Removed unused `siteId` and `allImageRefs` parameters.
   async getExportableAssets(): Promise<{ path: string; data: Blob; }[]> {
     // Cloudinary assets are remote, so there are no local files to export.
     return Promise.resolve([]);
@@ -6543,7 +6592,6 @@ export default function HomePageDashboard() {
    */
   const finishImport = useCallback(async (data: LocalSiteData & { imageAssetsToSave?: Record<string, Blob> }) => {
     try {
-      // --- FIX: Separate the binary data from the serializable data ---
       // The `imageAssetsToSave` property is transient and must not be passed
       // to the main `addSite` action, as it will cause a serialization error.
       const { imageAssetsToSave, ...siteDataToSave } = data;
@@ -6750,9 +6798,6 @@ import { cn } from '@/core/libraries/utils';
  * This component provides the persistent vertical toolbar and, crucially, manages
  * the loading of the active site's data into the global store.
  *
- * RECENT FIX: The data loading logic has been made non-destructive. It now checks
- * if the site's content is already in memory before triggering a full load from
- * storage. This prevents the UI from reverting after a save operation.
  */
 export default function SingleSiteLayout({ children }: { children: ReactNode }) {
   const params = useParams();
@@ -6765,14 +6810,12 @@ export default function SingleSiteLayout({ children }: { children: ReactNode }) 
   const loadSite = useAppStore(state => state.loadSite);
   const setActiveSiteId = useAppStore(state => state.setActiveSiteId);
 
-  // --- FIX: This is the new, "smart" data loading effect ---
   useEffect(() => {
     // Always set the active site ID when this layout is mounted.
     if (siteId) {
       setActiveSiteId(siteId);
     }
     
-    // THE CRITICAL GUARD CLAUSE:
     // Only call `loadSite` if the siteId is present AND the site's core content
     // (`contentFiles`) has not yet been loaded into the store.
     if (siteId && (!site || !site.contentFiles)) {
@@ -6942,7 +6985,6 @@ import { useEffect, useState, useCallback } from 'react';
 import { toast } from "sonner";
 import SiteSettingsForm from '@/features/site-settings/components/SiteSettingsForm'; // Import the main form
 
-// --- FIX: Define the complete form data shape in one place ---
 interface PageFormData {
   title: string;
   description: string;
@@ -6959,7 +7001,6 @@ export default function SiteSettingsPage() {
   const site = useAppStore(useCallback(state => state.getSiteById(siteId), [siteId]));
   const updateManifestAction = useAppStore(state => state.updateManifest);
 
-  // --- FIX: Manage the entire form's data in a single state object ---
   const [formData, setFormData] = useState<PageFormData | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
@@ -7030,7 +7071,6 @@ export default function SiteSettingsPage() {
       </div>
 
       <div className="border-t pt-6">
-        {/* --- FIX: Render the single, encapsulated form component --- */}
         <SiteSettingsForm
           siteId={siteId}
           formData={formData}
@@ -7611,10 +7651,11 @@ function EditContentPageInternal() {
   const activeSiteId = useAppStore(state => state.activeSiteId);
   const site = useAppStore(state => activeSiteId ? state.getSiteById(activeSiteId) : undefined);
   
-  // --- FIX: Destructure the site object into the granular props needed by child hooks/components ---
   const siteStructure = site?.manifest.structure || [];
   const allContentFiles = site?.contentFiles || [];
-
+  const siteManifest = site?.manifest;
+  const siteLayoutFiles = site?.layoutFiles;
+  const siteThemeFiles = site?.themeFiles;
   // Pass the new granular props to the hook.
   const { siteId, isNewFileMode, filePath } = usePageIdentifier({ siteStructure, allContentFiles });
   
@@ -7626,13 +7667,17 @@ function EditContentPageInternal() {
 
   const rightSidebarComponent = useMemo(() => {
     // We add a guard to ensure siteId is available before rendering.
-    if (status !== 'ready' || !frontmatter || !siteId) return null;
-    return (
+  if (status !== 'ready' || !frontmatter || !siteId || !siteManifest) {
+      return null;
+    }    
+    
+  return (
       <FrontmatterSidebar
         siteId={siteId}
         filePath={filePath}
-        // FIX: Pass the granular props, not the whole site object.
-        siteStructure={siteStructure}
+        manifest={siteManifest}
+        layoutFiles={siteLayoutFiles}
+        themeFiles={siteThemeFiles}
         allContentFiles={allContentFiles}
         frontmatter={frontmatter}
         onFrontmatterChange={handleFrontmatterChange}
@@ -7643,7 +7688,7 @@ function EditContentPageInternal() {
       />
     );
   // Update the dependency array to use the new granular variables.
-  }, [status, frontmatter, siteId, filePath, siteStructure, allContentFiles, handleFrontmatterChange, isNewFileMode, slug, setSlug, handleDelete]);
+  }, [status, frontmatter, siteId, filePath, allContentFiles, handleFrontmatterChange, isNewFileMode, slug, setSlug, handleDelete, siteLayoutFiles, siteManifest, siteThemeFiles]);
 
   useEffect(() => {
     setLeftAvailable(true);
@@ -7776,7 +7821,6 @@ export default function CreateSitePage() {
     setIsLoading(true);
     try {
       const newSiteId = generateSiteId(siteTitle);
-      // [FIX] Use the hydrateTheme function as intended.
        const { initialConfig } = await getMergedThemeDataForForm(selectedTheme.path, {});
       
       const newManifest: Manifest = {
@@ -7913,6 +7957,10 @@ export const AUTOSAVE_DELAY = 2500;
  */
 export const DEFAULT_PAGE_LAYOUT_PATH = 'page';
 
+/**
+ * The default layout path used for any new collection page.
+ */
+export const DEFAULT_COLLECTION_LAYOUT_PATH = 'blog';
 
 /**
  * The master list of all built-in layouts. The system uses this
@@ -8448,7 +8496,7 @@ export default function SiteAssetUploader({ siteId, label, value, onChange, onRe
     const isSvg = file.type === 'image/svg+xml';
     
     // 1. Validate file type against the configuration.
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       toast.error(`Unsupported file type. Please use one of: ${MEMORY_CONFIG.SUPPORTED_EXTENSIONS.join(', ')}`);
       event.target.value = ''; // Reset file input to allow re-selection of the same file.
       return;
@@ -8848,7 +8896,6 @@ File: features/editor/components/ImageUploadWidget.tsx
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { WidgetProps } from '@rjsf/utils';
-import { ImageRef } from '@/core/types';
 import { useAppStore } from '@/core/state/useAppStore';
 import { getActiveImageService } from '@/core/services/images/images.service';
 import { Button } from '@/core/components/ui/button';
@@ -8907,7 +8954,7 @@ export default function ImageUploadWidget(props: WidgetProps) {
     if (!file || !site?.manifest) return;
 
     const isSvg = file.type === 'image/svg+xml';
-    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as any)) {
+    if (!MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES.includes(file.type as typeof MEMORY_CONFIG.SUPPORTED_IMAGE_TYPES[number])) {
       toast.error(`Unsupported file type.`);
       return;
     }
@@ -9647,9 +9694,11 @@ import { Button } from "@/core/components/ui/button";
 import { Input } from "@/core/components/ui/input";
 import { Label } from "@/core/components/ui/label";
 import { Plus } from 'lucide-react';
-import type { MarkdownFrontmatter } from '@/core/types';
-//import { DEFAULT_PAGE_LAYOUT_PATH } from '@/config/editorConfig';
-import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
+import type { MarkdownFrontmatter, CollectionConfig } from '@/core/types';
+// FIX: Import the new default constant and getLayoutManifest service
+import { DEFAULT_COLLECTION_LAYOUT_PATH } from '@/config/editorConfig';
+import { getLayoutManifest } from '@/core/services/config/configHelpers.service';
+
 
 interface CreateCollectionPageDialogProps {
   siteId: string;
@@ -9657,42 +9706,22 @@ interface CreateCollectionPageDialogProps {
   onComplete?: () => void;
 }
 
-// Default layouts for a new collection page
-const DEFAULT_LIST_LAYOUT = 'listing';
-const DEFAULT_ITEM_LAYOUT = 'teaser';
-const DEFAULT_ITEM_PAGE_LAYOUT = 'page';
-
 export default function CreateCollectionPageDialog({ siteId, children, onComplete }: CreateCollectionPageDialogProps) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
-  const [selectedLayoutId, setSelectedLayoutId] = useState<string>('');
+  
+  // FIX: We no longer need state for available layouts or the selected layout ID
+  // const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
+  // const [selectedLayoutId, setSelectedLayoutId] = useState<string>('');
   
   const site = useAppStore((state) => state.getSiteById(siteId));
   const { addOrUpdateContentFile } = useAppStore.getState();
 
-
-  useEffect(() => {
-    async function fetchCollectionLayouts() {
-      if (isOpen && site) {
-        const collectionLayouts = await getAvailableLayouts(site, 'collection'); // Keep this filter here for the dialog
-        setAvailableLayouts(collectionLayouts);
-        if (collectionLayouts.length > 0) {
-          // --- THIS IS THE FIX ---
-          // Explicitly set the 'blog' layout as the default if it exists,
-          // otherwise fall back to the first one.
-          const blogLayout = collectionLayouts.find(l => l.id === 'blog');
-          setSelectedLayoutId(blogLayout ? blogLayout.id : collectionLayouts[0].id);
-        }
-      }
-    }
-    fetchCollectionLayouts();
-  }, [isOpen, site]);
-
+  // FIX: This useEffect is no longer needed as we are not fetching all layouts
+  // useEffect(() => { ... });
 
   useEffect(() => {
     setSlug(slugify(name));
@@ -9724,27 +9753,36 @@ const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
 
     setIsSubmitting(true);
 
-    const frontmatter: MarkdownFrontmatter = {
-        title: name.trim(),
-        layout: DEFAULT_LIST_LAYOUT, // The layout for this page itself
-        collection: { // The special block that makes this a Collection Page
-            item_layout: DEFAULT_ITEM_LAYOUT,
-            item_page_layout: DEFAULT_ITEM_PAGE_LAYOUT,
-            sort_by: 'date',
-            sort_order: 'desc',
-            items_per_page: 10,
-        }
-    };
-
-    const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n# Welcome to the ${name.trim()} collection!\n\nYou can write an introduction for this collection here.`;
-
     try {
+      // FIX: Fetch only the single, default layout manifest we need
+      const defaultLayoutManifest = site ? await getLayoutManifest(site, DEFAULT_COLLECTION_LAYOUT_PATH) : null;
+
+      const initialCollectionConfig: CollectionConfig = { 
+          sort_by: 'date',
+          sort_order: 'desc',
+          items_per_page: 10,
+      };
+      
+      if (defaultLayoutManifest?.display_options) {
+        for (const [key, option] of Object.entries(defaultLayoutManifest.display_options)) {
+            initialCollectionConfig[key] = option.default;
+        }
+      }
+
+      const frontmatter: MarkdownFrontmatter = {
+          title: name.trim(),
+          // FIX: Use the hardcoded default from our config
+          layout: DEFAULT_COLLECTION_LAYOUT_PATH,
+          collection: initialCollectionConfig,
+      };
+
+      const initialContent = `---\n${yaml.dump(frontmatter)}---\n\n## Welcome to the ${name.trim()} collection!\n\nYou can write an introduction for this collection here.`;
+    
       const success = await addOrUpdateContentFile(siteId, filePath, initialContent);
       if (success) {
         toast.success(`Collection page "${name}" created!`);
         handleOpenChange(false);
         onComplete?.();
-        // Redirect to the editor for the new collection page itself
         router.push(`/sites/${siteId}/edit/content/${slug}`);
       } else {
         throw new Error("Failed to update manifest or save file.");
@@ -9782,6 +9820,7 @@ const [availableLayouts, setAvailableLayouts] = useState<LayoutManifest[]>([]);
               <Label htmlFor="slug">Folder Name (URL)</Label>
               <Input id="slug" value={slug} readOnly className="bg-muted" />
             </div>
+            {/* FIX: The layout selector has been removed from the UI */}
           </div>
           <DialogFooter>
             <DialogClose asChild><Button type="button" variant="outline">Cancel</Button></DialogClose>
@@ -9961,7 +10000,21 @@ export default function LeftSidebar() {
 
   const flattenedItems = useMemo(() => {
     if (!site?.manifest.structure || !site.contentFiles) return [];
-    return flattenTree(site.manifest.structure, site.contentFiles);
+    const allItems = flattenTree(site.manifest.structure, site.contentFiles);
+    
+    // Filter out collection items - they should not appear in the main file tree
+    // Only show collection pages themselves and regular pages
+    return allItems.filter(item => {
+      // Keep the item if it's a collection page (has collection frontmatter)
+      if (item.frontmatter?.collection) return true;
+      
+      // Keep the item if it's not a child of another item (depth 0 = top level)
+      if (item.depth === 0) return true;
+      
+      // For nested items, only keep if parent is NOT a collection
+      const parentItem = allItems.find(parent => parent.path === item.parentId);
+      return !parentItem?.frontmatter?.collection;
+    });
   }, [site?.manifest.structure, site?.contentFiles]);
   
   const homepageItem = useMemo(() => flattenedItems.find(item => item.frontmatter?.homepage === true), [flattenedItems]);
@@ -10156,9 +10209,8 @@ File: features/editor/components/FrontmatterSidebar.tsx
 'use client';
 
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { StructureNode, ParsedMarkdownFile, MarkdownFrontmatter } from '@/core/types';
+import { Manifest, RawFile, StructureNode, ParsedMarkdownFile, MarkdownFrontmatter } from '@/core/types';
 import { getAvailableLayouts, LayoutManifest } from '@/core/services/config/configHelpers.service';
-import { findNodeByPath } from '@/core/services/fileTree.service';
 
 // UI Component Imports
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/core/components/ui/accordion";
@@ -10175,7 +10227,9 @@ import AdvancedSettingsForm from '@/features/editor/components/forms/AdvancedSet
 interface FrontmatterSidebarProps {
   siteId: string;
   filePath: string;
-  siteStructure: StructureNode[];
+  manifest: Manifest;
+  layoutFiles: RawFile[] | undefined;
+  themeFiles: RawFile[] | undefined;
   allContentFiles: ParsedMarkdownFile[];
   frontmatter: MarkdownFrontmatter;
   onFrontmatterChange: (newFrontmatter: Partial<MarkdownFrontmatter>) => void;
@@ -10185,47 +10239,70 @@ interface FrontmatterSidebarProps {
   onDelete: () => Promise<void>;
 }
 
-/**
- * REFACTORED: The orchestrator for the editor's right sidebar.
- * This version uses a declarative approach. UI state is derived directly
- * from the `frontmatter` props, ensuring the sidebar reacts instantly
- * to changes in the selected Content Type.
- */
 export default function FrontmatterSidebar({
-  siteId, filePath, siteStructure, allContentFiles,
+  siteId, filePath, manifest, layoutFiles, themeFiles, allContentFiles,
   frontmatter, onFrontmatterChange, isNewFileMode, slug, onSlugChange, onDelete,
 }: FrontmatterSidebarProps) {
 
-  // 1. STATE MANAGEMENT: Simplified to just the master list of all possible layouts.
   const [allLayouts, setAllLayouts] = useState<LayoutManifest[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     async function fetchAllLayouts() {
-      setIsLoading(true);
-      // getAvailableLayouts needs a minimal site-like object, which we can construct.
-      const minimalSiteData = { manifest: { structure: siteStructure }, contentFiles: allContentFiles };
-      const layouts = await getAvailableLayouts(minimalSiteData);
+      // Ensure we don't re-fetch if already loading
+      if (!isLoading) setIsLoading(true);
+      
+      const siteDataForAssets = { manifest, layoutFiles, themeFiles };
+      const layouts = await getAvailableLayouts(siteDataForAssets);
       setAllLayouts(layouts);
       setIsLoading(false);
     }
     fetchAllLayouts();
-  }, [siteStructure, allContentFiles]);
+    // This effect should only re-run if the core site assets change.
+  }, [manifest, layoutFiles, themeFiles, isLoading]);
 
   const { isCollectionPage, isCollectionItem, parentFile } = useMemo(() => {
     const isCollection = !!frontmatter.collection;
     if (isCollection) return { isCollectionPage: true, isCollectionItem: false, parentFile: null };
     
-    const node = findNodeByPath(siteStructure, filePath);
-    if (node?.parentId) {
-      const pFile = allContentFiles.find(f => f.path === node.parentId);
-      if (pFile?.frontmatter.collection) return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+    // For new files, check if the parent directory is a collection
+    if (isNewFileMode) {
+      const parentPath = `${filePath}.md`; // Convert parent dir to collection page path
+      const pFile = allContentFiles.find(f => f.path === parentPath);
+      if (pFile?.frontmatter.collection) {
+        return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+      }
+    } else {
+      // For existing files, check if this file is a child of a collection page by searching the structure
+      function findParentCollection(nodes: StructureNode[], targetPath: string): string | null {
+        for (const node of nodes) {
+          if (node.children) {
+            // Check if targetPath is in this node's children
+            const isChild = node.children.some(child => child.path === targetPath);
+            if (isChild) {
+              return node.path;
+            }
+            // Recursively search in children
+            const found = findParentCollection(node.children, targetPath);
+            if (found) return found;
+          }
+        }
+        return null;
+      }
+      
+      const parentPath = findParentCollection(manifest.structure, filePath);
+      if (parentPath) {
+        const pFile = allContentFiles.find(f => f.path === parentPath);
+        if (pFile?.frontmatter.collection) {
+          return { isCollectionPage: false, isCollectionItem: true, parentFile: pFile };
+        }
+      }
     }
+    
     return { isCollectionPage: false, isCollectionItem: false, parentFile: null };
-  }, [frontmatter.collection, siteStructure, allContentFiles, filePath]);
+  }, [frontmatter.collection, manifest.structure, allContentFiles, filePath, isNewFileMode]);
 
-  // 3. KEY CHANGE: Derive the current layout manifest and filtered lists declaratively.
-   const currentLayoutManifest = useMemo(() => {
+  const currentLayoutManifest = useMemo(() => {
     if (!frontmatter.layout) return null;
     return allLayouts.find(l => l.id === frontmatter.layout) ?? null;
   }, [allLayouts, frontmatter.layout]);
@@ -10235,23 +10312,26 @@ export default function FrontmatterSidebar({
     return allLayouts.find(l => l.id === parentFile.frontmatter.layout) ?? null;
   }, [allLayouts, isCollectionItem, parentFile]);
 
-  // Filter the list for the Content Type dropdown based on the page's role.
   const availableContentTypes = useMemo(() => {
     const requiredType = isCollectionPage ? 'collection' : 'page';
-    return allLayouts.filter(layout => layout.layoutType === requiredType);
+    const filtered = allLayouts.filter(layout => layout.layoutType === requiredType);
+
+    // De-duplicate by id to prevent React key warnings
+    const unique = Array.from(new Map(filtered.map(item => [item.id, item])).values());
+    return unique;
+    
   }, [allLayouts, isCollectionPage]);
 
-  // Callback for when the user selects a new Content Type.
   const handleContentTypeChange = useCallback((newLayoutId: string) => {
     onFrontmatterChange({ layout: newLayoutId });
   }, [onFrontmatterChange]);
 
-  // 4. RENDER LOGIC: Structure the JSX according to the new design.
+  // FIX #2: Add a loading guard to prevent rendering with incomplete data.
+  // This ensures `currentLayoutManifest` is populated before children render.
   if (isLoading || !frontmatter) {
-    return <div className="p-4 text-sm text-muted-foreground">Loading settings...</div>;
+    return <div className="p-4 text-sm text-center text-muted-foreground">Loading settings...</div>;
   }
 
-  // Define default open sections for the accordion.
   const defaultOpenSections = ['content-type', 'metadata', 'advanced'];
   if (isCollectionPage) {
     defaultOpenSections.push('list-settings');
@@ -10262,22 +10342,19 @@ export default function FrontmatterSidebar({
       <div className="flex-grow overflow-y-auto p-3">
         <Accordion type="multiple" defaultValue={defaultOpenSections} className="w-full">
           
-          {/* Section: Content Type Selector */}
-          {/* Only shown for pages that can change their type (not collection items) */}
           {!isCollectionItem && (
             <AccordionItem value="content-type">
               <AccordionTrigger>Content Type</AccordionTrigger>
               <AccordionContent className="pt-4">
                 <ContentTypeSelector
                   availableTypes={availableContentTypes}
-                  selectedType={frontmatter.layout}
+                  selectedType={frontmatter.layout || (isCollectionPage ? 'blog' : 'page')}
                   onChange={handleContentTypeChange}
                 />
               </AccordionContent>
             </AccordionItem>
           )}
 
-          {/* Section: Collection-Specific Settings */}
           {isCollectionPage && (
             <AccordionItem value="list-settings">
               <AccordionTrigger>List Settings</AccordionTrigger>
@@ -10291,7 +10368,6 @@ export default function FrontmatterSidebar({
             </AccordionItem>
           )}
 
-          {/* Section: Metadata (fields from layout + core) */}
           <AccordionItem value="metadata">
             <AccordionTrigger>Metadata</AccordionTrigger>
             <AccordionContent className="pt-4">
@@ -10299,14 +10375,12 @@ export default function FrontmatterSidebar({
                 siteId={siteId}
                 frontmatter={frontmatter}
                 onFrontmatterChange={onFrontmatterChange}
-                // For an item, its metadata fields come from the PARENT's layout manifest
                 layoutManifest={isCollectionItem ? parentLayoutManifest : currentLayoutManifest}
                 isCollectionItem={isCollectionItem}
               />
             </AccordionContent>
           </AccordionItem>
 
-          {/* Section: Advanced Settings */}
           <AccordionItem value="advanced">
             <AccordionTrigger>Advanced</AccordionTrigger>
             <AccordionContent className="space-y-4 pt-4">
@@ -10940,6 +11014,13 @@ interface ContentTypeSelectorProps {
 }
 
 export default function ContentTypeSelector({ availableTypes, selectedType, onChange }: ContentTypeSelectorProps) {
+  console.log('🎯 ContentTypeSelector Debug:', {
+    availableTypes_length: availableTypes.length,
+    availableTypes_items: availableTypes.map(t => ({ id: t.id, name: t.name, hasId: !!t.id })),
+    selectedType,
+    selectedType_type: typeof selectedType
+  });
+  
   const selectedTypeManifest = availableTypes.find(type => type.id === selectedType);
 
   return (
@@ -11124,14 +11205,31 @@ export function useFileContent(siteId: string, filePath: string, isNewFileMode: 
       let markdownContent = '';
 
       if (isNewFileMode) {
-        // Setup for a brand new, unsaved file.
-        setFrontmatter({
-          title: '',
-          layout: DEFAULT_PAGE_LAYOUT_PATH,
-          date: new Date().toISOString().split('T')[0],
-          status: 'draft',
-        });
-        markdownContent = '# Start Writing...';
+        // Check if this is a collection item by looking at the parent directory
+        const parentPath = `${filePath}.md`; // Convert parent dir to collection page path
+        const parentFile = site.contentFiles.find(f => f.path === parentPath);
+        const isCollectionItem = !!parentFile?.frontmatter.collection;
+        
+        if (isCollectionItem) {
+          // Setup for a new collection item - use parent's item_layout or empty string
+          const itemLayout = String(parentFile?.frontmatter.collection?.item_layout || '');
+          setFrontmatter({
+            title: '',
+            layout: itemLayout,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+          });
+        } else {
+          // Setup for a brand new regular page
+          setFrontmatter({
+            title: '',
+            layout: DEFAULT_PAGE_LAYOUT_PATH,
+            date: new Date().toISOString().split('T')[0],
+            status: 'draft',
+          });
+        }
+        
+        markdownContent = 'Start writing...';
         setSlug('');
       } else {
         // **The Core Fix: Read directly from the hydrated Zustand store.**

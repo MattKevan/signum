@@ -38,9 +38,23 @@ const siteDataFilesStore = localforage.createInstance({
 // --- Function to load only manifests for a fast initial load ---
 export async function loadAllSiteManifests(): Promise<Manifest[]> {
   const manifests: Manifest[] = [];
-  await siteManifestsStore.iterate((value: Manifest) => {
-    manifests.push(value);
-  });
+  
+  try {
+    // Add timeout to prevent IndexedDB from hanging indefinitely
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => reject(new Error('IndexedDB operation timed out after 10 seconds')), 10000);
+    });
+    
+    const iteratePromise = siteManifestsStore.iterate((value: Manifest) => {
+      manifests.push(value);
+    });
+    
+    await Promise.race([iteratePromise, timeoutPromise]);
+  } catch (error) {
+    console.error('Failed to load site manifests from IndexedDB:', error);
+    // Return empty array to allow app to continue
+  }
+  
   return manifests;
 }
 

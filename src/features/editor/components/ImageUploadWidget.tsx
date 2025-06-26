@@ -82,6 +82,8 @@ export default function ImageUploadWidget(props: WidgetProps) {
       toast.success(`${label} uploaded successfully.`);
     } catch (error) {
       console.error(`Upload failed for ${label}:`, error);
+      const errorMsg = error instanceof Error ? error.message : 'Upload failed. Please try again.';
+      toast.error(errorMsg);
     } finally {
       setIsUploading(false);
       event.target.value = '';

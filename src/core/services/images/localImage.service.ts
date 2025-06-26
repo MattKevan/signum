@@ -105,7 +105,16 @@ class LocalImageService implements ImageService {
 
     await localSiteFs.saveImageAsset(siteId, relativePath, file as Blob);
 
-    const { width, height } = await getImageDimensions(file as Blob);
+    let width: number, height: number;
+    try {
+      const dimensions = await getImageDimensions(file as Blob);
+      width = dimensions.width;
+      height = dimensions.height;
+    } catch (error) {
+      console.error('Failed to get image dimensions, using defaults:', error);
+      width = 0;
+      height = 0;
+    }
 
     return {
       serviceId: 'local',
@@ -194,11 +203,21 @@ class LocalImageService implements ImageService {
         }
 
         console.log(`[ImageService] Processing new derivative: ${cacheKey}`);
-        const derivativeBlob = await imageCompression(sourceBlob as File, compressionOptions);
+        
+        // Add timeout wrapper for imageCompression to prevent hanging
+        const compressionPromise = imageCompression(sourceBlob as File, compressionOptions);
+        const timeoutPromise = new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error('Image compression timed out after 30 seconds')), 30000);
+        });
+        
+        const derivativeBlob = await Promise.race([compressionPromise, timeoutPromise]);
         
         // 4. Store the result in the persistent cache.
         await setCachedDerivative(cacheKey, derivativeBlob);
         return derivativeBlob;
+      } catch (error) {
+        console.error(`[ImageService] Failed to process derivative ${cacheKey}:`, error);
+        throw error;
       } finally {
         // 5. Clean up the promise map once the job is complete.
         processingPromises.delete(cacheKey);
